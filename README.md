@@ -8,6 +8,8 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/install-debug-guide.md`
 - 手動スモークテスト手順  
   `docs/manual-smoke-test.md`
+- パフォーマンス計測手順  
+  `docs/performance-benchmark.md`
 
 ## Quick Start
 
