@@ -20,6 +20,11 @@ enum class StatusTone {
     Error,
 }
 
+enum class CreateHeadingMode {
+    L1,
+    L2,
+}
+
 @Immutable
 data class UiStatus(
     val message: String,
@@ -32,6 +37,15 @@ data class ClockEditDraft(
     val startMinute: Int,
     val endHour: Int,
     val endMinute: Int,
+)
+
+@Immutable
+data class CreateHeadingDialogState(
+    val mode: CreateHeadingMode,
+    val parentL1LineIndex: Int? = null,
+    val parentL1Title: String? = null,
+    val titleInput: String = "",
+    val submitting: Boolean = false,
 )
 
 @Immutable
@@ -49,5 +63,6 @@ data class OrgClockUiState(
     val historyLoading: Boolean = false,
     val editingEntry: ClosedClockEntry? = null,
     val editingDraft: ClockEditDraft? = null,
+    val createHeadingDialog: CreateHeadingDialogState? = null,
     val showPerfOverlay: Boolean = false,
 )

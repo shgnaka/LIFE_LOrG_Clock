@@ -17,6 +17,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -113,6 +114,47 @@ class OrgClockViewModelTest {
         assertTrue(vm.uiState.value.pendingClockOps.isEmpty())
     }
 
+    @Test
+    fun submitCreateL2Heading_callsUseCaseAndClosesDialog() = runTest {
+        var called = false
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            createL2Heading = { fileId, parentLine, title ->
+                called = fileId == "f1" && parentLine == 0 && title == "Project B"
+                Result.success(Unit)
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.OpenCreateL2Dialog(sampleHeadings().first()))
+        vm.onAction(OrgClockUiAction.UpdateCreateHeadingTitle("Project B"))
+        vm.onAction(OrgClockUiAction.SubmitCreateHeading)
+        advanceUntilIdle()
+
+        assertTrue(called)
+        assertNull(vm.uiState.value.createHeadingDialog)
+        assertEquals(StatusTone.Success, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun submitCreateL1Heading_failureKeepsDialogAndShowsWarning() = runTest {
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            createL1Heading = { _, _ -> Result.failure(IllegalArgumentException("already exists")) },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.OpenCreateL1Dialog)
+        vm.onAction(OrgClockUiAction.UpdateCreateHeadingTitle("Work"))
+        vm.onAction(OrgClockUiAction.SubmitCreateHeading)
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.createHeadingDialog != null)
+        assertEquals(StatusTone.Warning, vm.uiState.value.status.tone)
+    }
+
     private fun sampleHeadings(): List<HeadingViewItem> {
         val root = HeadingViewItem(
             node = HeadingNode(
@@ -158,6 +200,8 @@ class OrgClockViewModelTest {
         },
         listClosedClocks: suspend (String, Int) -> Result<List<com.example.orgclock.model.ClosedClockEntry>> = { _, _ -> Result.success(emptyList()) },
         editClosedClock: suspend (String, Int, Int, java.time.ZonedDateTime, java.time.ZonedDateTime) -> Result<Unit> = { _, _, _, _, _ -> Result.success(Unit) },
+        createL1Heading: suspend (String, String) -> Result<Unit> = { _, _ -> Result.success(Unit) },
+        createL2Heading: suspend (String, Int, String) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
         todayProvider: () -> LocalDate = { LocalDate.now() },
     ): OrgClockViewModel {
@@ -172,6 +216,8 @@ class OrgClockViewModelTest {
             cancelClock = cancelClock,
             listClosedClocks = listClosedClocks,
             editClosedClock = editClosedClock,
+            createL1Heading = createL1Heading,
+            createL2Heading = createL2Heading,
             nowProvider = nowProvider,
             todayProvider = todayProvider,
             showPerfOverlay = true,

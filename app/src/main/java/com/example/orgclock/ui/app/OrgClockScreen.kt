@@ -40,6 +40,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,6 +65,7 @@ import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
+import com.example.orgclock.ui.state.CreateHeadingMode
 import com.example.orgclock.ui.theme.CalmBorder
 import com.example.orgclock.ui.theme.CalmOnAccent
 import com.example.orgclock.ui.theme.CalmSurfaceAlt
@@ -154,9 +156,11 @@ fun OrgClockScreen(
                 pendingClockOps = state.pendingClockOps,
                 collapsedL1 = state.collapsedL1,
                 onToggleL1 = { onAction(OrgClockUiAction.ToggleL1(it)) },
+                onLongPressL1 = { onAction(OrgClockUiAction.OpenCreateL2Dialog(it)) },
                 onCollapseAll = { onAction(OrgClockUiAction.CollapseAll) },
                 onExpandAll = { onAction(OrgClockUiAction.ExpandAll) },
                 onLongPressL2 = { onAction(OrgClockUiAction.OpenHistory(it)) },
+                onOpenCreateL1 = { onAction(OrgClockUiAction.OpenCreateL1Dialog) },
                 onOpenFilePicker = { onAction(OrgClockUiAction.OpenFilePicker) },
                 onOpenSettings = { onAction(OrgClockUiAction.OpenSettings) },
                 onStart = { onAction(OrgClockUiAction.StartClock(it)) },
@@ -271,6 +275,58 @@ fun OrgClockScreen(
                 },
             )
         }
+
+        if (state.createHeadingDialog != null) {
+            val dialog = state.createHeadingDialog
+            val dialogTitle = if (dialog.mode == CreateHeadingMode.L1) {
+                "Create L1 heading"
+            } else {
+                "Create L2 heading"
+            }
+            AlertDialog(
+                onDismissRequest = {
+                    if (!dialog.submitting) {
+                        onAction(OrgClockUiAction.DismissCreateHeadingDialog)
+                    }
+                },
+                title = { Text(dialogTitle) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (dialog.mode == CreateHeadingMode.L2 && !dialog.parentL1Title.isNullOrBlank()) {
+                            Text(
+                                "Parent: ${dialog.parentL1Title}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextField(
+                            value = dialog.titleInput,
+                            onValueChange = { onAction(OrgClockUiAction.UpdateCreateHeadingTitle(it)) },
+                            label = { Text("Heading title") },
+                            singleLine = true,
+                            enabled = !dialog.submitting,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { onAction(OrgClockUiAction.DismissCreateHeadingDialog) },
+                        enabled = !dialog.submitting,
+                    ) {
+                        Text("Cancel")
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { onAction(OrgClockUiAction.SubmitCreateHeading) },
+                        enabled = !dialog.submitting,
+                    ) {
+                        Text(if (dialog.submitting) "Creating..." else "Create")
+                    }
+                },
+            )
+        }
     }
 }
 
@@ -352,9 +408,11 @@ private fun HeadingListScreen(
     pendingClockOps: Set<Int>,
     collapsedL1: Set<String>,
     onToggleL1: (String) -> Unit,
+    onLongPressL1: (HeadingViewItem) -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
     onLongPressL2: (HeadingViewItem) -> Unit,
+    onOpenCreateL1: () -> Unit,
     onOpenFilePicker: () -> Unit,
     onOpenSettings: () -> Unit,
     onStart: (HeadingViewItem) -> Unit,
@@ -391,6 +449,7 @@ private fun HeadingListScreen(
             selectedFile = selectedFile,
             onOpenFilePicker = onOpenFilePicker,
             onOpenSettings = onOpenSettings,
+            onCreateL1 = onOpenCreateL1,
             onCollapseAll = onCollapseAll,
             onExpandAll = onExpandAll,
             performanceMonitor = performanceMonitor,
@@ -424,7 +483,10 @@ private fun HeadingListScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clickable { onToggleL1(title) }
+                                        .combinedClickable(
+                                            onClick = { onToggleL1(title) },
+                                            onLongClick = { onLongPressL1(row.item) },
+                                        )
                                         .padding(horizontal = 12.dp, vertical = 10.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically,
@@ -571,6 +633,7 @@ private fun HeadingListTopBar(
     selectedFile: OrgFileEntry?,
     onOpenFilePicker: () -> Unit,
     onOpenSettings: () -> Unit,
+    onCreateL1: () -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
     performanceMonitor: PerformanceMonitor,
@@ -585,6 +648,7 @@ private fun HeadingListTopBar(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onOpenFilePicker) { Text("Files") }
             Button(onClick = onOpenSettings) { Text("Settings") }
+            Button(onClick = onCreateL1) { Text("+L1") }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),

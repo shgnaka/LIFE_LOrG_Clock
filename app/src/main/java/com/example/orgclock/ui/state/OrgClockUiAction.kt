@@ -24,6 +24,11 @@ sealed interface OrgClockUiAction {
     data class SelectEndHour(val hour: Int) : OrgClockUiAction
     data class SelectEndMinute(val minute: Int) : OrgClockUiAction
     data object SaveEdit : OrgClockUiAction
+    data object OpenCreateL1Dialog : OrgClockUiAction
+    data class OpenCreateL2Dialog(val parent: HeadingViewItem) : OrgClockUiAction
+    data class UpdateCreateHeadingTitle(val title: String) : OrgClockUiAction
+    data object SubmitCreateHeading : OrgClockUiAction
+    data object DismissCreateHeadingDialog : OrgClockUiAction
     data object OpenFilePicker : OrgClockUiAction
     data object OpenSettings : OrgClockUiAction
     data object BackFromSettings : OrgClockUiAction

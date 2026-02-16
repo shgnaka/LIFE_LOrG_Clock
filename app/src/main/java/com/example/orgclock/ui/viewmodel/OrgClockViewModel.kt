@@ -10,6 +10,8 @@ import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.ui.state.ClockEditDraft
+import com.example.orgclock.ui.state.CreateHeadingDialogState
+import com.example.orgclock.ui.state.CreateHeadingMode
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
@@ -35,6 +37,8 @@ class OrgClockViewModel(
     private val cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
     private val listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     private val editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
+    private val createL1Heading: suspend (String, String) -> Result<Unit>,
+    private val createL2Heading: suspend (String, Int, String) -> Result<Unit>,
     private val nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
     private val todayProvider: () -> LocalDate = { LocalDate.now() },
     showPerfOverlay: Boolean,
@@ -131,6 +135,34 @@ class OrgClockViewModel(
             }
 
             OrgClockUiAction.SaveEdit -> viewModelScope.launch { saveEdit() }
+            OrgClockUiAction.OpenCreateL1Dialog -> _uiState.update {
+                it.copy(
+                    createHeadingDialog = CreateHeadingDialogState(mode = CreateHeadingMode.L1),
+                )
+            }
+
+            is OrgClockUiAction.OpenCreateL2Dialog -> {
+                if (action.parent.node.level != 1) return
+                _uiState.update {
+                    it.copy(
+                        createHeadingDialog = CreateHeadingDialogState(
+                            mode = CreateHeadingMode.L2,
+                            parentL1LineIndex = action.parent.node.lineIndex,
+                            parentL1Title = action.parent.node.title,
+                        ),
+                    )
+                }
+            }
+
+            is OrgClockUiAction.UpdateCreateHeadingTitle -> _uiState.update { state ->
+                val dialog = state.createHeadingDialog ?: return@update state
+                state.copy(createHeadingDialog = dialog.copy(titleInput = action.title))
+            }
+
+            OrgClockUiAction.SubmitCreateHeading -> viewModelScope.launch { submitCreateHeading() }
+            OrgClockUiAction.DismissCreateHeadingDialog -> _uiState.update {
+                it.copy(createHeadingDialog = null)
+            }
             OrgClockUiAction.OpenFilePicker -> _uiState.update { it.copy(screen = Screen.FilePicker) }
             OrgClockUiAction.OpenSettings -> _uiState.update { it.copy(screen = Screen.Settings) }
             OrgClockUiAction.BackFromSettings -> _uiState.update { state ->
@@ -163,6 +195,7 @@ class OrgClockViewModel(
                     historyLoading = false,
                     editingEntry = null,
                     editingDraft = null,
+                    createHeadingDialog = null,
                     screen = Screen.HeadingList,
                     status = if (updateStatus) UiStatus("Loaded ${file.displayName}", StatusTone.Success) else it.status,
                 )
@@ -401,6 +434,68 @@ class OrgClockViewModel(
             _uiState.update {
                 it.copy(status = UiStatus("更新に失敗: $reason", StatusTone.Error))
             }
+        }
+    }
+
+    private suspend fun submitCreateHeading() {
+        val state = uiState.value
+        val file = state.selectedFile ?: return
+        val dialog = state.createHeadingDialog ?: return
+        if (dialog.submitting) return
+
+        val title = dialog.titleInput.trim()
+        if (title.isEmpty()) {
+            _uiState.update {
+                it.copy(status = UiStatus("Heading title cannot be empty", StatusTone.Warning))
+            }
+            return
+        }
+
+        _uiState.update { current ->
+            val currentDialog = current.createHeadingDialog ?: return@update current
+            current.copy(createHeadingDialog = currentDialog.copy(submitting = true))
+        }
+
+        val result = when (dialog.mode) {
+            CreateHeadingMode.L1 -> createL1Heading(file.fileId, title)
+            CreateHeadingMode.L2 -> {
+                val parentIndex = dialog.parentL1LineIndex
+                if (parentIndex == null) {
+                    _uiState.update {
+                        it.copy(
+                            createHeadingDialog = it.createHeadingDialog?.copy(submitting = false),
+                            status = UiStatus("Parent L1 is missing", StatusTone.Error),
+                        )
+                    }
+                    return
+                }
+                createL2Heading(file.fileId, parentIndex, title)
+            }
+        }
+
+        if (result.isSuccess) {
+            _uiState.update {
+                it.copy(
+                    createHeadingDialog = null,
+                    status = UiStatus("Heading created", StatusTone.Success),
+                )
+            }
+            synchronizeHeadings(file)
+            return
+        }
+
+        val message = result.exceptionOrNull()?.message ?: "unknown"
+        val tone = if (result.exceptionOrNull() is IllegalArgumentException) {
+            StatusTone.Warning
+        } else {
+            StatusTone.Error
+        }
+        _uiState.update { current ->
+            val currentDialog = current.createHeadingDialog
+            current.copy(
+                createHeadingDialog = currentDialog?.copy(submitting = false),
+                status = UiStatus("Create heading failed: $message", tone),
+            )
         }
     }
 
