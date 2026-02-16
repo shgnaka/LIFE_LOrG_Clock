@@ -1,6 +1,7 @@
 package com.example.orgclock.ui.viewmodel
 
 import com.example.orgclock.data.OrgFileEntry
+import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.HeadingNode
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
@@ -11,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -21,6 +23,8 @@ import org.junit.Test
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class OrgClockViewModelTest {
@@ -83,6 +87,32 @@ class OrgClockViewModelTest {
         assertTrue(status.message.contains("Start failed"))
     }
 
+    @Test
+    fun startClock_appliesOptimisticUiWhileRequestIsRunning() = runTest {
+        val startedAt = ZonedDateTime.of(2026, 2, 16, 9, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            nowProvider = { startedAt },
+            startClock = { _, lineIndex ->
+                kotlinx.coroutines.delay(1_000)
+                Result.success(ClockMutationResult(headingLineIndex = lineIndex, startedAt = startedAt))
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1]))
+        runCurrent()
+
+        val pendingState = vm.uiState.value
+        assertTrue(1 in pendingState.pendingClockOps)
+        assertTrue(pendingState.headings.first { it.node.lineIndex == 1 }.openClock != null)
+
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.pendingClockOps.isEmpty())
+    }
+
     private fun sampleHeadings(): List<HeadingViewItem> {
         val root = HeadingViewItem(
             node = HeadingNode(
@@ -117,11 +147,18 @@ class OrgClockViewModelTest {
         },
         listFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },
         listHeadings: suspend (String) -> Result<List<HeadingViewItem>> = { Result.success(emptyList()) },
-        startClock: suspend (String, Int) -> Result<Unit> = { _, _ -> Result.success(Unit) },
-        stopClock: suspend (String, Int) -> Result<Unit> = { _, _ -> Result.success(Unit) },
-        cancelClock: suspend (String, Int) -> Result<Unit> = { _, _ -> Result.success(Unit) },
+        startClock: suspend (String, Int) -> Result<ClockMutationResult> = { _, lineIndex ->
+            Result.success(ClockMutationResult(headingLineIndex = lineIndex))
+        },
+        stopClock: suspend (String, Int) -> Result<ClockMutationResult> = { _, lineIndex ->
+            Result.success(ClockMutationResult(headingLineIndex = lineIndex))
+        },
+        cancelClock: suspend (String, Int) -> Result<ClockMutationResult> = { _, lineIndex ->
+            Result.success(ClockMutationResult(headingLineIndex = lineIndex))
+        },
         listClosedClocks: suspend (String, Int) -> Result<List<com.example.orgclock.model.ClosedClockEntry>> = { _, _ -> Result.success(emptyList()) },
         editClosedClock: suspend (String, Int, Int, java.time.ZonedDateTime, java.time.ZonedDateTime) -> Result<Unit> = { _, _, _, _, _ -> Result.success(Unit) },
+        nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
         todayProvider: () -> LocalDate = { LocalDate.now() },
     ): OrgClockViewModel {
         return OrgClockViewModel(
@@ -135,6 +172,7 @@ class OrgClockViewModelTest {
             cancelClock = cancelClock,
             listClosedClocks = listClosedClocks,
             editClosedClock = editClosedClock,
+            nowProvider = nowProvider,
             todayProvider = todayProvider,
             showPerfOverlay = true,
         )

@@ -14,6 +14,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.data.RootAccess
+import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.ui.perf.PerformanceMonitor
@@ -29,9 +30,9 @@ fun OrgClockRoute(
     openRoot: suspend (Uri) -> Result<RootAccess>,
     listFiles: suspend () -> Result<List<OrgFileEntry>>,
     listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
-    startClock: suspend (String, Int) -> Result<Unit>,
-    stopClock: suspend (String, Int) -> Result<Unit>,
-    cancelClock: suspend (String, Int) -> Result<Unit>,
+    startClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    stopClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
     listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
     performanceMonitor: PerformanceMonitor,
@@ -102,9 +103,9 @@ private fun orgClockViewModelFactory(
     openRoot: suspend (Uri) -> Result<RootAccess>,
     listFiles: suspend () -> Result<List<OrgFileEntry>>,
     listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
-    startClock: suspend (String, Int) -> Result<Unit>,
-    stopClock: suspend (String, Int) -> Result<Unit>,
-    cancelClock: suspend (String, Int) -> Result<Unit>,
+    startClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    stopClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
     listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
     showPerfOverlay: Boolean,

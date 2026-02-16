@@ -42,6 +42,7 @@ data class OrgClockUiState(
     val files: List<OrgFileEntry> = emptyList(),
     val selectedFile: OrgFileEntry? = null,
     val headings: List<HeadingViewItem> = emptyList(),
+    val pendingClockOps: Set<Int> = emptySet(),
     val collapsedL1: Set<String> = emptySet(),
     val historyTarget: HeadingViewItem? = null,
     val historyEntries: List<ClosedClockEntry> = emptyList(),

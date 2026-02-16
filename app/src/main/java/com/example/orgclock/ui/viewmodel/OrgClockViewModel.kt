@@ -5,8 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.data.RootAccess
+import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
+import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
@@ -17,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZonedDateTime
@@ -27,9 +30,9 @@ class OrgClockViewModel(
     private val openRoot: suspend (Uri) -> Result<RootAccess>,
     private val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     private val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
-    private val startClock: suspend (String, Int) -> Result<Unit>,
-    private val stopClock: suspend (String, Int) -> Result<Unit>,
-    private val cancelClock: suspend (String, Int) -> Result<Unit>,
+    private val startClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    private val stopClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    private val cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
     private val listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     private val editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
     private val nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
@@ -43,6 +46,7 @@ class OrgClockViewModel(
     val uiState: StateFlow<OrgClockUiState> = _uiState.asStateFlow()
 
     private var initialized = false
+    private var headingsSyncJob: Job? = null
 
     fun onAction(action: OrgClockUiAction) {
         when (action) {
@@ -145,12 +149,14 @@ class OrgClockViewModel(
     }
 
     private suspend fun loadHeadingsFor(file: OrgFileEntry, updateStatus: Boolean = true) {
+        headingsSyncJob?.cancel()
         val loaded = listHeadings(file.fileId)
         if (loaded.isSuccess) {
             _uiState.update {
                 it.copy(
                     selectedFile = file,
                     headings = loaded.getOrThrow(),
+                    pendingClockOps = emptySet(),
                     collapsedL1 = emptySet(),
                     historyTarget = null,
                     historyEntries = emptyList(),
@@ -224,15 +230,7 @@ class OrgClockViewModel(
 
     private suspend fun refreshSelectedFileHeadings() {
         val file = uiState.value.selectedFile ?: return
-        val loaded = listHeadings(file.fileId)
-        if (loaded.isSuccess) {
-            _uiState.update { it.copy(headings = loaded.getOrThrow()) }
-        } else {
-            val reason = loaded.exceptionOrNull()?.message ?: "unknown"
-            _uiState.update {
-                it.copy(status = UiStatus("Failed loading headings: $reason", StatusTone.Error))
-            }
-        }
+        synchronizeHeadings(file)
     }
 
     private suspend fun openHistory(item: HeadingViewItem) {
@@ -284,7 +282,12 @@ class OrgClockViewModel(
 
     private suspend fun startClock(item: HeadingViewItem) {
         val file = uiState.value.selectedFile ?: return
-        val result = startClock(file.fileId, item.node.lineIndex)
+        val lineIndex = item.node.lineIndex
+        val optimisticStartedAt = nowProvider()
+        updatePendingClock(lineIndex, true)
+        updateHeadingOpenClock(lineIndex, OpenClockState(optimisticStartedAt))
+
+        val result = startClock(file.fileId, lineIndex)
         val status = if (result.isSuccess) {
             UiStatus("Clock started", StatusTone.Success)
         } else {
@@ -292,32 +295,63 @@ class OrgClockViewModel(
             val tone = if (msg.contains("already", ignoreCase = true)) StatusTone.Warning else StatusTone.Error
             UiStatus("Start failed: $msg", tone)
         }
-        _uiState.update { it.copy(status = status) }
-        loadHeadingsFor(file, updateStatus = false)
+        if (result.isSuccess) {
+            val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt
+            updateHeadingOpenClock(lineIndex, OpenClockState(startedAt))
+            updatePendingClock(lineIndex, false)
+            _uiState.update { it.copy(status = status) }
+            requestHeadingsSync(file)
+        } else {
+            updateHeadingOpenClock(lineIndex, item.openClock)
+            updatePendingClock(lineIndex, false)
+            _uiState.update { it.copy(status = status) }
+        }
     }
 
     private suspend fun stopClock(item: HeadingViewItem) {
         val file = uiState.value.selectedFile ?: return
-        val result = stopClock(file.fileId, item.node.lineIndex)
+        val lineIndex = item.node.lineIndex
+        updatePendingClock(lineIndex, true)
+        updateHeadingOpenClock(lineIndex, null)
+
+        val result = stopClock(file.fileId, lineIndex)
         val status = if (result.isSuccess) {
             UiStatus("Clock stopped", StatusTone.Success)
         } else {
             UiStatus("Stop failed: ${result.exceptionOrNull()?.message ?: "unknown"}", StatusTone.Error)
         }
-        _uiState.update { it.copy(status = status) }
-        loadHeadingsFor(file, updateStatus = false)
+        if (result.isSuccess) {
+            updatePendingClock(lineIndex, false)
+            _uiState.update { it.copy(status = status) }
+            requestHeadingsSync(file)
+        } else {
+            updateHeadingOpenClock(lineIndex, item.openClock)
+            updatePendingClock(lineIndex, false)
+            _uiState.update { it.copy(status = status) }
+        }
     }
 
     private suspend fun cancelClock(item: HeadingViewItem) {
         val file = uiState.value.selectedFile ?: return
-        val result = cancelClock(file.fileId, item.node.lineIndex)
+        val lineIndex = item.node.lineIndex
+        updatePendingClock(lineIndex, true)
+        updateHeadingOpenClock(lineIndex, null)
+
+        val result = cancelClock(file.fileId, lineIndex)
         val status = if (result.isSuccess) {
             UiStatus("Clock cancelled", StatusTone.Warning)
         } else {
             UiStatus("Cancel failed: ${result.exceptionOrNull()?.message ?: "unknown"}", StatusTone.Error)
         }
-        _uiState.update { it.copy(status = status) }
-        loadHeadingsFor(file, updateStatus = false)
+        if (result.isSuccess) {
+            updatePendingClock(lineIndex, false)
+            _uiState.update { it.copy(status = status) }
+            requestHeadingsSync(file)
+        } else {
+            updateHeadingOpenClock(lineIndex, item.openClock)
+            updatePendingClock(lineIndex, false)
+            _uiState.update { it.copy(status = status) }
+        }
     }
 
     private suspend fun saveEdit() {
@@ -374,4 +408,54 @@ class OrgClockViewModel(
         val normalized = ((minute + 2) / 5) * 5
         return if (normalized == 60) 55 else normalized
     }
+
+    private fun updatePendingClock(lineIndex: Int, pending: Boolean) {
+        _uiState.update { state ->
+            val next = if (pending) {
+                state.pendingClockOps + lineIndex
+            } else {
+                state.pendingClockOps - lineIndex
+            }
+            state.copy(pendingClockOps = next)
+        }
+    }
+
+    private fun updateHeadingOpenClock(lineIndex: Int, openClock: OpenClockState?) {
+        _uiState.update { state ->
+            val updated = state.headings.map { heading ->
+                if (heading.node.lineIndex == lineIndex) {
+                    heading.copy(openClock = openClock)
+                } else {
+                    heading
+                }
+            }
+            state.copy(headings = updated)
+        }
+    }
+
+    private fun requestHeadingsSync(file: OrgFileEntry) {
+        headingsSyncJob?.cancel()
+        headingsSyncJob = viewModelScope.launch {
+            synchronizeHeadings(file)
+        }
+    }
+
+    private suspend fun synchronizeHeadings(file: OrgFileEntry) {
+        val loaded = listHeadings(file.fileId)
+        if (loaded.isSuccess) {
+            _uiState.update { state ->
+                if (state.selectedFile?.fileId != file.fileId) {
+                    state
+                } else {
+                    state.copy(headings = loaded.getOrThrow())
+                }
+            }
+        } else {
+            val reason = loaded.exceptionOrNull()?.message ?: "unknown"
+            _uiState.update {
+                it.copy(status = UiStatus("Failed loading headings: $reason", StatusTone.Error))
+            }
+        }
+    }
+
 }

@@ -151,6 +151,7 @@ fun OrgClockScreen(
                 status = state.status,
                 selectedFile = state.selectedFile,
                 headings = state.headings,
+                pendingClockOps = state.pendingClockOps,
                 collapsedL1 = state.collapsedL1,
                 onToggleL1 = { onAction(OrgClockUiAction.ToggleL1(it)) },
                 onCollapseAll = { onAction(OrgClockUiAction.CollapseAll) },
@@ -348,6 +349,7 @@ private fun HeadingListScreen(
     status: UiStatus,
     selectedFile: OrgFileEntry?,
     headings: List<HeadingViewItem>,
+    pendingClockOps: Set<Int>,
     collapsedL1: Set<String>,
     onToggleL1: (String) -> Unit,
     onCollapseAll: () -> Unit,
@@ -383,7 +385,6 @@ private fun HeadingListScreen(
                 }
         }
     }
-
     Column(modifier = Modifier.fillMaxSize()) {
         HeadingListTopBar(
             status = status,
@@ -454,10 +455,11 @@ private fun HeadingListScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(child.node.title, modifier = Modifier.weight(1f))
-                                if (child.node.level == 2 && child.canStart) {
+                                if (child.node.level == 2 && child.canStart && child.openClock == null) {
                                     ClockActionIconButton(
                                         actionType = ClockActionType.Start,
                                         onClick = { onStart(child) },
+                                        enabled = child.node.lineIndex !in pendingClockOps,
                                     )
                                 }
                             }
@@ -470,6 +472,7 @@ private fun HeadingListScreen(
                 runningItems = runningItems,
                 onStop = { onStop(it.source) },
                 onCancel = { onCancel(it.source) },
+                pendingClockOps = pendingClockOps,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -485,6 +488,7 @@ private fun RunningClocksPanel(
     runningItems: List<RunningClockUiItem>,
     onStop: (RunningClockUiItem) -> Unit,
     onCancel: (RunningClockUiItem) -> Unit,
+    pendingClockOps: Set<Int>,
     modifier: Modifier = Modifier,
 ) {
     if (runningItems.isEmpty()) return
@@ -546,11 +550,13 @@ private fun RunningClocksPanel(
                             actionType = ClockActionType.Stop,
                             onClick = { onStop(item) },
                             backgroundColor = Color.White.copy(alpha = 0.18f),
+                            enabled = item.lineIndex !in pendingClockOps,
                         )
                         ClockActionIconButton(
                             actionType = ClockActionType.Cancel,
                             onClick = { onCancel(item) },
                             backgroundColor = Color.White.copy(alpha = 0.18f),
+                            enabled = item.lineIndex !in pendingClockOps,
                         )
                     }
                 }
