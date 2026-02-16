@@ -22,6 +22,7 @@ class SafOrgRepository(
 ) : OrgRepository {
     private val resolver: ContentResolver = context.contentResolver
     private var root: DocumentFile? = null
+    private val lastClockBackupByFileId = mutableMapOf<String, Long>()
 
     override suspend fun openRoot(uri: Uri): Result<RootAccess> = withContext(Dispatchers.IO) {
         runCatching {
@@ -121,7 +122,12 @@ class SafOrgRepository(
         }
     }
 
-    override suspend fun saveFile(fileId: String, lines: List<String>, expectedHash: String): SaveResult =
+    override suspend fun saveFile(
+        fileId: String,
+        lines: List<String>,
+        expectedHash: String,
+        writeIntent: FileWriteIntent,
+    ): SaveResult =
         withContext(Dispatchers.IO) {
             runCatching {
                 val rootDoc = root ?: return@withContext SaveResult.ValidationError("Root is not opened")
@@ -135,7 +141,16 @@ class SafOrgRepository(
                     return@withContext SaveResult.Conflict("File changed by another process.")
                 }
 
-                createBackupIfNeeded(rootDoc, fileName, existingRawText)
+                val nowMs = System.currentTimeMillis()
+                val shouldBackup = shouldCreateBackup(fileId, writeIntent, nowMs)
+                if (shouldBackup) {
+                    val backupCreated = createBackupIfNeeded(rootDoc, fileName, existingRawText)
+                    if (backupCreated && writeIntent == FileWriteIntent.ClockMutation) {
+                        synchronized(lastClockBackupByFileId) {
+                            lastClockBackupByFileId[fileId] = nowMs
+                        }
+                    }
+                }
 
                 val lineSeparator = detectLineSeparator(existingRawText)
                 val keepTrailingNewline = existingRawText.endsWith('\n')
@@ -154,12 +169,20 @@ class SafOrgRepository(
             }
         }
 
-    private fun createBackupIfNeeded(rootDoc: DocumentFile, fileName: String, existingRawText: String) {
-        if (existingRawText.isEmpty()) return
+    private fun shouldCreateBackup(fileId: String, writeIntent: FileWriteIntent, nowMs: Long): Boolean {
+        if (writeIntent == FileWriteIntent.UserEdit) return true
+        val lastClockBackupAt = synchronized(lastClockBackupByFileId) {
+            lastClockBackupByFileId[fileId]
+        } ?: return true
+        return (nowMs - lastClockBackupAt) >= CLOCK_BACKUP_INTERVAL_MS
+    }
+
+    private fun createBackupIfNeeded(rootDoc: DocumentFile, fileName: String, existingRawText: String): Boolean {
+        if (existingRawText.isEmpty()) return false
 
         val stamp = ZonedDateTime.now(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss"))
         val backupName = ".${fileName}.bak.$stamp"
-        val backup = createDocumentExactName(rootDoc, backupName) ?: return
+        val backup = createDocumentExactName(rootDoc, backupName) ?: return false
 
         resolver.openOutputStream(backup.uri, "wt").use { output ->
             if (output != null) {
@@ -174,6 +197,7 @@ class SafOrgRepository(
             .sortedByDescending { it.name }
 
         backups.drop(backupGenerations).forEach { it.delete() }
+        return true
     }
 
     private fun hash(text: String): String {
@@ -235,5 +259,9 @@ class SafOrgRepository(
         val raw = name.removeSuffix(".org")
         return runCatching { LocalDate.parse(raw) }
             .getOrElse { LocalDate.now(ZoneId.systemDefault()) }
+    }
+
+    companion object {
+        private const val CLOCK_BACKUP_INTERVAL_MS: Long = 15 * 60 * 1000L
     }
 }

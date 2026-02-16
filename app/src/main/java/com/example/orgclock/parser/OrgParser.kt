@@ -22,15 +22,85 @@ class OrgParser {
         val start: ZonedDateTime,
     )
 
+    data class HeadingWithOpenClock(
+        val node: HeadingNode,
+        val openClock: ZonedDateTime?,
+    )
+
+    private data class ParsedHeading(
+        val lineIndex: Int,
+        val level: Int,
+        val title: String,
+        val path: HeadingPath,
+        val parentL1: String?,
+        val endExclusive: Int,
+    )
+
     fun parseHeadings(lines: List<String>): List<HeadingNode> {
+        return parseHeadingsWithRanges(lines).map {
+            HeadingNode(
+                lineIndex = it.lineIndex,
+                level = it.level,
+                title = it.title,
+                path = it.path,
+                parentL1 = it.parentL1,
+            )
+        }
+    }
+
+    fun parseHeadingsWithOpenClock(lines: List<String>, zoneId: ZoneId): List<HeadingWithOpenClock> {
+        val headings = parseHeadingsWithRanges(lines)
+        if (headings.isEmpty()) return emptyList()
+
+        val openByLine = mutableMapOf<Int, ZonedDateTime?>()
+        for (i in headings.indices) {
+            val heading = headings[i]
+            val next = headings.getOrNull(i + 1)
+            val directEnd = if (next != null && next.level > heading.level) {
+                next.lineIndex
+            } else {
+                heading.endExclusive
+            }
+            var open: ZonedDateTime? = null
+            for (lineIndex in heading.lineIndex + 1 until directEnd) {
+                val line = lines[lineIndex]
+                if (!line.contains("CLOCK:")) continue
+                val token = openClockRegex.matchEntire(line)?.groupValues?.get(1) ?: continue
+                val parsed = OrgTimestamps.parseLocal(token, zoneId) ?: continue
+                open = parsed
+            }
+            openByLine[heading.lineIndex] = open
+        }
+
+        return headings.map { heading ->
+            HeadingWithOpenClock(
+                node = HeadingNode(
+                    lineIndex = heading.lineIndex,
+                    level = heading.level,
+                    title = heading.title,
+                    path = heading.path,
+                    parentL1 = heading.parentL1,
+                ),
+                openClock = openByLine[heading.lineIndex],
+            )
+        }
+    }
+
+    private fun parseHeadingsWithRanges(lines: List<String>): List<ParsedHeading> {
         val stack = mutableListOf<String>()
+        val headingStack = mutableListOf<Int>()
         var currentL1: String? = null
-        val result = mutableListOf<HeadingNode>()
+        val result = mutableListOf<ParsedHeading>()
 
         for ((index, line) in lines.withIndex()) {
             val match = headingRegex.matchEntire(line) ?: continue
             val level = match.groupValues[1].length
             val title = normalizeHeadingTitle(match.groupValues[2])
+
+            while (headingStack.isNotEmpty() && result[headingStack.last()].level >= level) {
+                val closing = headingStack.removeAt(headingStack.lastIndex)
+                result[closing] = result[closing].copy(endExclusive = index)
+            }
 
             while (stack.size >= level) {
                 stack.removeAt(stack.lastIndex)
@@ -41,13 +111,20 @@ class OrgParser {
                 currentL1 = title
             }
 
-            result += HeadingNode(
+            result += ParsedHeading(
                 lineIndex = index,
                 level = level,
                 title = title,
                 path = HeadingPath(stack.toList()),
                 parentL1 = currentL1,
+                endExclusive = lines.size,
             )
+            headingStack += result.lastIndex
+        }
+
+        while (headingStack.isNotEmpty()) {
+            val openHeading = headingStack.removeAt(headingStack.lastIndex)
+            result[openHeading] = result[openHeading].copy(endExclusive = lines.size)
         }
 
         return result

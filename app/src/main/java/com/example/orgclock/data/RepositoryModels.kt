@@ -16,6 +16,11 @@ data class OrgFileEntry(
     val modifiedAt: Instant?,
 )
 
+enum class FileWriteIntent {
+    ClockMutation,
+    UserEdit,
+}
+
 sealed interface SaveResult {
     data object Success : SaveResult
     data class Conflict(val reason: String) : SaveResult
@@ -34,7 +39,12 @@ interface OrgRepository {
         return Result.failure(UnsupportedOperationException("loadFile is not implemented"))
     }
 
-    suspend fun saveFile(fileId: String, lines: List<String>, expectedHash: String): SaveResult {
+    suspend fun saveFile(
+        fileId: String,
+        lines: List<String>,
+        expectedHash: String,
+        writeIntent: FileWriteIntent = FileWriteIntent.UserEdit,
+    ): SaveResult {
         return SaveResult.ValidationError("saveFile is not implemented")
     }
 

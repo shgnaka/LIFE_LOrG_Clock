@@ -5,6 +5,7 @@ import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.data.OrgRepository
 import com.example.orgclock.data.RootAccess
 import com.example.orgclock.data.SaveResult
+import com.example.orgclock.data.FileWriteIntent
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.OrgDocument
 import kotlinx.coroutines.runBlocking
@@ -236,7 +237,12 @@ class ClockServiceTest {
             return Result.success(OrgDocument(LocalDate.of(2026, 2, 15), lines, hash(lines.joinToString("\n"))))
         }
 
-        override suspend fun saveFile(fileId: String, lines: List<String>, expectedHash: String): SaveResult {
+        override suspend fun saveFile(
+            fileId: String,
+            lines: List<String>,
+            expectedHash: String,
+            writeIntent: FileWriteIntent,
+        ): SaveResult {
             val current = files[fileId] ?: return SaveResult.ValidationError("missing file")
             val currentHash = hash(current.joinToString("\n"))
             if (currentHash != expectedHash) return SaveResult.Conflict("Hash mismatch")
