@@ -184,4 +184,57 @@ class OrgParserTest {
         assertEquals(1, entries.size)
         assertEquals(40L, entries[0].durationMinutes)
     }
+
+    @Test
+    fun appendL1Heading_appendsToEnd() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+            "* Home",
+        )
+
+        val updated = parser.appendL1Heading(lines, "Reading")
+
+        assertEquals("* Reading", updated.last())
+    }
+
+    @Test
+    fun appendL1Heading_rejectsDuplicate() {
+        val lines = listOf(
+            "* Work",
+            "* Home",
+        )
+
+        val result = runCatching { parser.appendL1Heading(lines, "Work") }
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun appendL2HeadingUnderL1_appendsAtEndOfL1Scope() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+            "*** Task",
+            "* Home",
+        )
+
+        val updated = parser.appendL2HeadingUnderL1(lines, 0, "Project B")
+
+        assertEquals("** Project B", updated[3])
+    }
+
+    @Test
+    fun appendL2HeadingUnderL1_rejectsDuplicateUnderSameParent() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+            "* Home",
+            "** Project A",
+        )
+
+        val result = runCatching { parser.appendL2HeadingUnderL1(lines, 0, "Project A") }
+
+        assertTrue(result.isFailure)
+    }
 }

@@ -175,6 +175,76 @@ class ClockServiceTest {
         assertTrue(repo.files["f1"]!![3].endsWith("=>  1:00"))
     }
 
+    @Test
+    fun createL1HeadingInFile_appendsNewHeading() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.createL1HeadingInFile("f1", "Home")
+
+        assertTrue(result.isSuccess)
+        assertEquals("* Home", repo.files["f1"]!!.last())
+    }
+
+    @Test
+    fun createL1HeadingInFile_rejectsDuplicateTitle() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.createL1HeadingInFile("f1", "Work")
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun createL2HeadingInFile_appendsUnderTargetL1() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    "* Home",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.createL2HeadingInFile("f1", 0, "Project B")
+
+        assertTrue(result.isSuccess)
+        assertEquals("** Project B", repo.files["f1"]!![2])
+    }
+
+    @Test
+    fun createL2HeadingInFile_rejectsDuplicateUnderSameL1() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    "* Home",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.createL2HeadingInFile("f1", 0, "Project A")
+
+        assertTrue(result.isFailure)
+    }
+
     private class FakeRepo(
         val files: MutableMap<LocalDate, List<String>>,
         private val conflictCountByDate: MutableMap<LocalDate, Int> = mutableMapOf(),

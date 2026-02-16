@@ -46,6 +46,12 @@ class MainActivity : ComponentActivity() {
                     editClosedClock = { fileId, headingLineIndex, clockLineIndex, start, end ->
                         clockService.editClosedClockInFile(fileId, headingLineIndex, clockLineIndex, start, end)
                     },
+                    createL1Heading = { fileId, title ->
+                        clockService.createL1HeadingInFile(fileId, title)
+                    },
+                    createL2Heading = { fileId, parentL1LineIndex, title ->
+                        clockService.createL2HeadingInFile(fileId, parentL1LineIndex, title)
+                    },
                     performanceMonitor = performanceMonitor,
                     showPerfOverlay = showPerfOverlay,
                 )

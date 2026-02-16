@@ -35,6 +35,8 @@ fun OrgClockRoute(
     cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
     listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
+    createL1Heading: suspend (String, String) -> Result<Unit>,
+    createL2Heading: suspend (String, Int, String) -> Result<Unit>,
     performanceMonitor: PerformanceMonitor,
     showPerfOverlay: Boolean,
 ) {
@@ -49,6 +51,8 @@ fun OrgClockRoute(
         cancelClock,
         listClosedClocks,
         editClosedClock,
+        createL1Heading,
+        createL2Heading,
         showPerfOverlay,
     ) {
         orgClockViewModelFactory(
@@ -62,6 +66,8 @@ fun OrgClockRoute(
             cancelClock = cancelClock,
             listClosedClocks = listClosedClocks,
             editClosedClock = editClosedClock,
+            createL1Heading = createL1Heading,
+            createL2Heading = createL2Heading,
             showPerfOverlay = showPerfOverlay,
         )
     }
@@ -108,6 +114,8 @@ private fun orgClockViewModelFactory(
     cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
     listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
+    createL1Heading: suspend (String, String) -> Result<Unit>,
+    createL2Heading: suspend (String, Int, String) -> Result<Unit>,
     showPerfOverlay: Boolean,
 ): ViewModelProvider.Factory {
     return object : ViewModelProvider.Factory {
@@ -123,6 +131,8 @@ private fun orgClockViewModelFactory(
                 cancelClock = cancelClock,
                 listClosedClocks = listClosedClocks,
                 editClosedClock = editClosedClock,
+                createL1Heading = createL1Heading,
+                createL2Heading = createL2Heading,
                 showPerfOverlay = showPerfOverlay,
             ) as T
         }

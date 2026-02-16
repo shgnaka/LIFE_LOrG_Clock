@@ -144,6 +144,43 @@ class OrgParser {
         return working
     }
 
+    fun appendL1Heading(lines: List<String>, l1Title: String): List<String> {
+        val normalizedTitle = normalizeHeadingTitle(normalizeNewHeadingTitle(l1Title))
+        val l1Exists = parseHeadingsWithRanges(lines).any {
+            it.level == 1 && it.title == normalizedTitle
+        }
+        if (l1Exists) {
+            throw IllegalArgumentException("Level-1 heading already exists: $normalizedTitle")
+        }
+        val working = lines.toMutableList()
+        working.add("* ${normalizeNewHeadingTitle(l1Title)}")
+        return working
+    }
+
+    fun appendL2HeadingUnderL1(lines: List<String>, l1LineIndex: Int, l2Title: String): List<String> {
+        val parent = findHeadingByLineIndex(lines, l1LineIndex)
+            ?: throw IllegalArgumentException("Heading not found at line: $l1LineIndex")
+        if (parent.level != 1) {
+            throw IllegalArgumentException("Parent heading must be level-1")
+        }
+
+        val normalizedTitle = normalizeHeadingTitle(normalizeNewHeadingTitle(l2Title))
+        val parentEnd = parent.endExclusive
+        for (i in parent.start + 1 until parentEnd) {
+            val match = headingRegex.matchEntire(lines[i]) ?: continue
+            val level = match.groupValues[1].length
+            if (level != 2) continue
+            val existing = normalizeHeadingTitle(match.groupValues[2])
+            if (existing == normalizedTitle) {
+                throw IllegalArgumentException("Level-2 heading already exists under selected L1: $normalizedTitle")
+            }
+        }
+
+        val working = lines.toMutableList()
+        working.add(parentEnd, "** ${normalizeNewHeadingTitle(l2Title)}")
+        return working
+    }
+
     fun appendClosedClock(lines: List<String>, headingPath: HeadingPath, start: ZonedDateTime, end: ZonedDateTime): List<String> {
         val working = lines.toMutableList()
         val match = findHeading(working, headingPath) ?: error("Heading not found: $headingPath")
@@ -370,5 +407,12 @@ class OrgParser {
         val trimmed = raw.trim()
         val tagMatch = Regex("^(.*?)(\\s+:[A-Za-z0-9_@#%:]+:)$").find(trimmed)
         return tagMatch?.groupValues?.get(1)?.trim()?.ifEmpty { trimmed } ?: trimmed
+    }
+
+    private fun normalizeNewHeadingTitle(raw: String): String {
+        val trimmed = raw.trim()
+        require(trimmed.isNotEmpty()) { "Heading title cannot be empty" }
+        require(!trimmed.contains('\n') && !trimmed.contains('\r')) { "Heading title cannot contain newlines" }
+        return trimmed
     }
 }

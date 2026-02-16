@@ -176,6 +176,36 @@ class ClockService(
         }
     }
 
+    suspend fun createL1HeadingInFile(fileId: String, title: String): Result<Unit> {
+        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
+        val firstLines = runCatching {
+            parser.appendL1Heading(doc.lines, title)
+        }.getOrElse { return Result.failure(it) }
+        val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
+            parser.appendL1Heading(it, title)
+        }
+        return if (save is SaveResult.Success) {
+            Result.success(Unit)
+        } else {
+            Result.failure(IllegalStateException(save.asMessage()))
+        }
+    }
+
+    suspend fun createL2HeadingInFile(fileId: String, parentL1LineIndex: Int, title: String): Result<Unit> {
+        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
+        val firstLines = runCatching {
+            parser.appendL2HeadingUnderL1(doc.lines, parentL1LineIndex, title)
+        }.getOrElse { return Result.failure(it) }
+        val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
+            parser.appendL2HeadingUnderL1(it, parentL1LineIndex, title)
+        }
+        return if (save is SaveResult.Success) {
+            Result.success(Unit)
+        } else {
+            Result.failure(IllegalStateException(save.asMessage()))
+        }
+    }
+
     suspend fun stopClock(dateTime: ZonedDateTime, headingPath: HeadingPath): ClockStopResult {
         val zone = dateTime.zone
         val today = dateTime.toLocalDate()
