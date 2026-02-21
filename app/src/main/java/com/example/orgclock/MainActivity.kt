@@ -49,11 +49,11 @@ class MainActivity : ComponentActivity() {
                     deleteClosedClock = { fileId, headingLineIndex, clockLineIndex ->
                         clockService.deleteClosedClockInFile(fileId, headingLineIndex, clockLineIndex)
                     },
-                    createL1Heading = { fileId, title ->
-                        clockService.createL1HeadingInFile(fileId, title)
+                    createL1Heading = { fileId, title, attachTplTag ->
+                        clockService.createL1HeadingInFile(fileId, title, attachTplTag)
                     },
-                    createL2Heading = { fileId, parentL1LineIndex, title ->
-                        clockService.createL2HeadingInFile(fileId, parentL1LineIndex, title)
+                    createL2Heading = { fileId, parentL1LineIndex, title, attachTplTag ->
+                        clockService.createL2HeadingInFile(fileId, parentL1LineIndex, title, attachTplTag)
                     },
                     performanceMonitor = performanceMonitor,
                     showPerfOverlay = showPerfOverlay,

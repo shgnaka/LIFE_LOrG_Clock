@@ -144,7 +144,7 @@ class OrgParser {
         return working
     }
 
-    fun appendL1Heading(lines: List<String>, l1Title: String): List<String> {
+    fun appendL1Heading(lines: List<String>, l1Title: String, attachTplTag: Boolean = false): List<String> {
         val normalizedTitle = normalizeHeadingTitle(normalizeNewHeadingTitle(l1Title))
         val l1Exists = parseHeadingsWithRanges(lines).any {
             it.level == 1 && it.title == normalizedTitle
@@ -153,11 +153,17 @@ class OrgParser {
             throw IllegalArgumentException("Level-1 heading already exists: $normalizedTitle")
         }
         val working = lines.toMutableList()
-        working.add("* ${normalizeNewHeadingTitle(l1Title)}")
+        val titleWithTag = normalizeNewHeadingTitleWithTpl(l1Title, attachTplTag)
+        working.add("* $titleWithTag")
         return working
     }
 
-    fun appendL2HeadingUnderL1(lines: List<String>, l1LineIndex: Int, l2Title: String): List<String> {
+    fun appendL2HeadingUnderL1(
+        lines: List<String>,
+        l1LineIndex: Int,
+        l2Title: String,
+        attachTplTag: Boolean = false,
+    ): List<String> {
         val parent = findHeadingByLineIndex(lines, l1LineIndex)
             ?: throw IllegalArgumentException("Heading not found at line: $l1LineIndex")
         if (parent.level != 1) {
@@ -177,7 +183,8 @@ class OrgParser {
         }
 
         val working = lines.toMutableList()
-        working.add(parentEnd, "** ${normalizeNewHeadingTitle(l2Title)}")
+        val titleWithTag = normalizeNewHeadingTitleWithTpl(l2Title, attachTplTag)
+        working.add(parentEnd, "** $titleWithTag")
         return working
     }
 
@@ -435,5 +442,26 @@ class OrgParser {
         require(trimmed.isNotEmpty()) { "Heading title cannot be empty" }
         require(!trimmed.contains('\n') && !trimmed.contains('\r')) { "Heading title cannot contain newlines" }
         return trimmed
+    }
+
+    private fun normalizeNewHeadingTitleWithTpl(raw: String, attachTplTag: Boolean): String {
+        val normalized = normalizeNewHeadingTitle(raw)
+        if (!attachTplTag) return normalized
+
+        val tagSuffixMatch = Regex("^(.*?)(\\s+:[A-Za-z0-9_@#%:]+:)$").find(normalized)
+        if (tagSuffixMatch == null) {
+            return "$normalized :TPL:"
+        }
+
+        val base = tagSuffixMatch.groupValues[1].trimEnd()
+        val suffix = tagSuffixMatch.groupValues[2].trim()
+        val tags = suffix.trim(':')
+            .split(':')
+            .filter { it.isNotBlank() }
+        if (tags.any { it == "TPL" }) {
+            return normalized
+        }
+        val updatedSuffix = ":" + (tags + "TPL").joinToString(":") + ":"
+        return "$base $updatedSuffix"
     }
 }

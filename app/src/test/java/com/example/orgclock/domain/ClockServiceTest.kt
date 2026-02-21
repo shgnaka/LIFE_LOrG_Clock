@@ -275,6 +275,23 @@ class ClockServiceTest {
     }
 
     @Test
+    fun createL1HeadingInFile_withTplTag_appendsTplSuffix() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.createL1HeadingInFile("f1", "Template Seed", attachTplTag = true)
+
+        assertTrue(result.isSuccess)
+        assertEquals("* Template Seed :TPL:", repo.files["f1"]!!.last())
+    }
+
+    @Test
     fun createL2HeadingInFile_appendsUnderTargetL1() = runBlocking {
         val repo = FileRepo(
             mutableMapOf(
@@ -309,6 +326,25 @@ class ClockServiceTest {
         val result = service.createL2HeadingInFile("f1", 0, "Project A")
 
         assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun createL2HeadingInFile_withTplTag_appendsTplSuffix() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    "* Home",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.createL2HeadingInFile("f1", 0, "Project B", attachTplTag = true)
+
+        assertTrue(result.isSuccess)
+        assertEquals("** Project B :TPL:", repo.files["f1"]!![2])
     }
 
     private class FakeRepo(

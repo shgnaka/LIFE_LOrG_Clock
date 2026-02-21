@@ -264,6 +264,39 @@ class OrgParserTest {
     }
 
     @Test
+    fun appendL1Heading_withTplTag_appendsTplSuffix() {
+        val lines = listOf(
+            "* Work",
+        )
+
+        val updated = parser.appendL1Heading(lines, "Meeting", attachTplTag = true)
+
+        assertEquals("* Meeting :TPL:", updated.last())
+    }
+
+    @Test
+    fun appendL1Heading_withExistingTags_appendsTplWithoutDuplication() {
+        val lines = listOf(
+            "* Work",
+        )
+
+        val updated = parser.appendL1Heading(lines, "Meeting :work:urgent:", attachTplTag = true)
+
+        assertEquals("* Meeting :work:urgent:TPL:", updated.last())
+    }
+
+    @Test
+    fun appendL1Heading_withExistingTpl_doesNotDuplicateTpl() {
+        val lines = listOf(
+            "* Work",
+        )
+
+        val updated = parser.appendL1Heading(lines, "Meeting :TPL:", attachTplTag = true)
+
+        assertEquals("* Meeting :TPL:", updated.last())
+    }
+
+    @Test
     fun appendL2HeadingUnderL1_appendsAtEndOfL1Scope() {
         val lines = listOf(
             "* Work",
@@ -289,5 +322,18 @@ class OrgParserTest {
         val result = runCatching { parser.appendL2HeadingUnderL1(lines, 0, "Project A") }
 
         assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun appendL2HeadingUnderL1_withTplTag_appendsTplSuffix() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+            "* Home",
+        )
+
+        val updated = parser.appendL2HeadingUnderL1(lines, 0, "Project B", attachTplTag = true)
+
+        assertEquals("** Project B :TPL:", updated[2])
     }
 }

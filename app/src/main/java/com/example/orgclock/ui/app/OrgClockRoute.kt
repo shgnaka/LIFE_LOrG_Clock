@@ -36,8 +36,8 @@ fun OrgClockRoute(
     listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
     deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
-    createL1Heading: suspend (String, String) -> Result<Unit>,
-    createL2Heading: suspend (String, Int, String) -> Result<Unit>,
+    createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
+    createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
     performanceMonitor: PerformanceMonitor,
     showPerfOverlay: Boolean,
 ) {
@@ -118,8 +118,8 @@ private fun orgClockViewModelFactory(
     listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
     deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
-    createL1Heading: suspend (String, String) -> Result<Unit>,
-    createL2Heading: suspend (String, Int, String) -> Result<Unit>,
+    createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
+    createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
     showPerfOverlay: Boolean,
 ): ViewModelProvider.Factory {
     return object : ViewModelProvider.Factory {

@@ -121,8 +121,8 @@ class OrgClockViewModelTest {
         var called = false
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
-            createL2Heading = { fileId, parentLine, title ->
-                called = fileId == "f1" && parentLine == 0 && title == "Project B"
+            createL2Heading = { fileId, parentLine, title, attachTplTag ->
+                called = fileId == "f1" && parentLine == 0 && title == "Project B" && !attachTplTag
                 Result.success(Unit)
             },
         )
@@ -143,7 +143,7 @@ class OrgClockViewModelTest {
     fun submitCreateL1Heading_failureKeepsDialogAndShowsWarning() = runTest {
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
-            createL1Heading = { _, _ -> Result.failure(IllegalArgumentException("already exists")) },
+            createL1Heading = { _, _, _ -> Result.failure(IllegalArgumentException("already exists")) },
         )
 
         vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
@@ -155,6 +155,59 @@ class OrgClockViewModelTest {
 
         assertTrue(vm.uiState.value.createHeadingDialog != null)
         assertEquals(StatusTone.Warning, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun openCreateHeadingDialog_dailyFile_enablesTplOption() = runTest {
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.OpenCreateL1Dialog)
+
+        val dialog = vm.uiState.value.createHeadingDialog
+        assertTrue(dialog?.canAttachTplTag == true)
+        assertTrue(dialog?.attachTplTag == false)
+    }
+
+    @Test
+    fun openCreateHeadingDialog_nonDailyFile_disablesTplOption() = runTest {
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "projects.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.OpenCreateL1Dialog)
+
+        val dialog = vm.uiState.value.createHeadingDialog
+        assertTrue(dialog?.canAttachTplTag == false)
+        assertTrue(dialog?.attachTplTag == false)
+    }
+
+    @Test
+    fun submitCreateL1Heading_withTplEnabled_passesFlagToUseCase() = runTest {
+        var called = false
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            createL1Heading = { fileId, title, attachTplTag ->
+                called = fileId == "f1" && title == "Template Seed" && attachTplTag
+                Result.success(Unit)
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.OpenCreateL1Dialog)
+        vm.onAction(OrgClockUiAction.UpdateCreateHeadingTitle("Template Seed"))
+        vm.onAction(OrgClockUiAction.SetCreateHeadingTplTag(true))
+        vm.onAction(OrgClockUiAction.SubmitCreateHeading)
+        advanceUntilIdle()
+
+        assertTrue(called)
+        assertEquals(StatusTone.Success, vm.uiState.value.status.tone)
     }
 
     @Test
@@ -274,8 +327,8 @@ class OrgClockViewModelTest {
         listClosedClocks: suspend (String, Int) -> Result<List<com.example.orgclock.model.ClosedClockEntry>> = { _, _ -> Result.success(emptyList()) },
         editClosedClock: suspend (String, Int, Int, java.time.ZonedDateTime, java.time.ZonedDateTime) -> Result<Unit> = { _, _, _, _, _ -> Result.success(Unit) },
         deleteClosedClock: suspend (String, Int, Int) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
-        createL1Heading: suspend (String, String) -> Result<Unit> = { _, _ -> Result.success(Unit) },
-        createL2Heading: suspend (String, Int, String) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
+        createL1Heading: suspend (String, String, Boolean) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
+        createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit> = { _, _, _, _ -> Result.success(Unit) },
         nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
         todayProvider: () -> LocalDate = { LocalDate.now() },
     ): OrgClockViewModel {

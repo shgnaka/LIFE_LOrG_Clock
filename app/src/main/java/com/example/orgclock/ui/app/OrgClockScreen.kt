@@ -32,6 +32,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
@@ -350,6 +351,19 @@ fun OrgClockScreen(
                             enabled = !dialog.submitting,
                             modifier = Modifier.fillMaxWidth(),
                         )
+                        if (dialog.canAttachTplTag) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Checkbox(
+                                    checked = dialog.attachTplTag,
+                                    onCheckedChange = { onAction(OrgClockUiAction.SetCreateHeadingTplTag(it)) },
+                                    enabled = !dialog.submitting,
+                                )
+                                Text("Add TPL tag")
+                            }
+                        }
                     }
                 },
                 dismissButton = {

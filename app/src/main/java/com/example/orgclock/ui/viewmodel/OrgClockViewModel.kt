@@ -38,8 +38,8 @@ class OrgClockViewModel(
     private val listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     private val editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
     private val deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
-    private val createL1Heading: suspend (String, String) -> Result<Unit>,
-    private val createL2Heading: suspend (String, Int, String) -> Result<Unit>,
+    private val createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
+    private val createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
     private val nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
     private val todayProvider: () -> LocalDate = { LocalDate.now() },
     showPerfOverlay: Boolean,
@@ -151,7 +151,10 @@ class OrgClockViewModel(
             OrgClockUiAction.SaveEdit -> viewModelScope.launch { saveEdit() }
             OrgClockUiAction.OpenCreateL1Dialog -> _uiState.update {
                 it.copy(
-                    createHeadingDialog = CreateHeadingDialogState(mode = CreateHeadingMode.L1),
+                    createHeadingDialog = CreateHeadingDialogState(
+                        mode = CreateHeadingMode.L1,
+                        canAttachTplTag = isDailyOrgFile(it.selectedFile),
+                    ),
                 )
             }
 
@@ -163,6 +166,7 @@ class OrgClockViewModel(
                             mode = CreateHeadingMode.L2,
                             parentL1LineIndex = action.parent.node.lineIndex,
                             parentL1Title = action.parent.node.title,
+                            canAttachTplTag = isDailyOrgFile(it.selectedFile),
                         ),
                     )
                 }
@@ -171,6 +175,13 @@ class OrgClockViewModel(
             is OrgClockUiAction.UpdateCreateHeadingTitle -> _uiState.update { state ->
                 val dialog = state.createHeadingDialog ?: return@update state
                 state.copy(createHeadingDialog = dialog.copy(titleInput = action.title))
+            }
+            is OrgClockUiAction.SetCreateHeadingTplTag -> _uiState.update { state ->
+                val dialog = state.createHeadingDialog ?: return@update state
+                if (!dialog.canAttachTplTag) {
+                    return@update state
+                }
+                state.copy(createHeadingDialog = dialog.copy(attachTplTag = action.enabled))
             }
 
             OrgClockUiAction.SubmitCreateHeading -> viewModelScope.launch { submitCreateHeading() }
@@ -502,7 +513,7 @@ class OrgClockViewModel(
         }
 
         val result = when (dialog.mode) {
-            CreateHeadingMode.L1 -> createL1Heading(file.fileId, title)
+            CreateHeadingMode.L1 -> createL1Heading(file.fileId, title, dialog.attachTplTag)
             CreateHeadingMode.L2 -> {
                 val parentIndex = dialog.parentL1LineIndex
                 if (parentIndex == null) {
@@ -514,7 +525,7 @@ class OrgClockViewModel(
                     }
                     return
                 }
-                createL2Heading(file.fileId, parentIndex, title)
+                createL2Heading(file.fileId, parentIndex, title, dialog.attachTplTag)
             }
         }
 
@@ -547,6 +558,11 @@ class OrgClockViewModel(
     private fun roundToNearest5(minute: Int): Int {
         val normalized = ((minute + 2) / 5) * 5
         return if (normalized == 60) 55 else normalized
+    }
+
+    private fun isDailyOrgFile(file: OrgFileEntry?): Boolean {
+        val name = file?.displayName ?: return false
+        return DAILY_ORG_FILE_REGEX.matches(name)
     }
 
     private fun updatePendingClock(lineIndex: Int, pending: Boolean) {
@@ -598,4 +614,7 @@ class OrgClockViewModel(
         }
     }
 
+    private companion object {
+        val DAILY_ORG_FILE_REGEX = Regex("^\\d{4}-\\d{2}-\\d{2}\\.org$")
+    }
 }

@@ -44,6 +44,8 @@ data class CreateHeadingDialogState(
     val mode: CreateHeadingMode,
     val parentL1LineIndex: Int? = null,
     val parentL1Title: String? = null,
+    val canAttachTplTag: Boolean = false,
+    val attachTplTag: Boolean = false,
     val titleInput: String = "",
     val submitting: Boolean = false,
 )
