@@ -176,6 +176,72 @@ class ClockServiceTest {
     }
 
     @Test
+    fun deleteClosedClockInFile_removesSpecifiedClockLine() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:00:00]--[2026-02-15 Sun 09:25:00] =>  0:25",
+                    "CLOCK: [2026-02-15 Sun 10:00:00]--[2026-02-15 Sun 10:50:00] =>  0:50",
+                    ":END:",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.deleteClosedClockInFile("f1", 1, 3)
+
+        assertTrue(result.isSuccess)
+        assertTrue(repo.files["f1"]!!.none { it.contains("09:00:00") })
+        assertTrue(repo.files["f1"]!!.any { it.contains("10:00:00") })
+    }
+
+    @Test
+    fun deleteClosedClockInFile_retriesOnConflict() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:00:00]--[2026-02-15 Sun 09:25:00] =>  0:25",
+                    ":END:",
+                ),
+            ),
+            conflictCountByFileId = mutableMapOf("f1" to 1),
+        )
+        val service = ClockService(repo)
+
+        val result = service.deleteClosedClockInFile("f1", 1, 3)
+
+        assertTrue(result.isSuccess)
+        assertEquals(2, repo.saveAttempts["f1"])
+        assertTrue(repo.files["f1"]!!.none { it.contains("09:00:00") })
+    }
+
+    @Test
+    fun deleteClosedClockInFile_rejectsNonLevel2Heading() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:00:00]--[2026-02-15 Sun 09:25:00] =>  0:25",
+                    ":END:",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.deleteClosedClockInFile("f1", 0, 3)
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
     fun createL1HeadingInFile_appendsNewHeading() = runBlocking {
         val repo = FileRepo(
             mutableMapOf(
@@ -293,7 +359,10 @@ class ClockServiceTest {
 
     private class FileRepo(
         val files: MutableMap<String, List<String>>,
+        private val conflictCountByFileId: MutableMap<String, Int> = mutableMapOf(),
     ) : OrgRepository {
+        val saveAttempts: MutableMap<String, Int> = mutableMapOf()
+
         override suspend fun openRoot(uri: Uri): Result<RootAccess> {
             return Result.success(RootAccess(uri, "test"))
         }
@@ -313,6 +382,12 @@ class ClockServiceTest {
             expectedHash: String,
             writeIntent: FileWriteIntent,
         ): SaveResult {
+            saveAttempts[fileId] = (saveAttempts[fileId] ?: 0) + 1
+            val remainingConflicts = conflictCountByFileId[fileId] ?: 0
+            if (remainingConflicts > 0) {
+                conflictCountByFileId[fileId] = remainingConflicts - 1
+                return SaveResult.Conflict("Injected conflict")
+            }
             val current = files[fileId] ?: return SaveResult.ValidationError("missing file")
             val currentHash = hash(current.joinToString("\n"))
             if (currentHash != expectedHash) return SaveResult.Conflict("Hash mismatch")

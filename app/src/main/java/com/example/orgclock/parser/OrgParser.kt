@@ -301,6 +301,27 @@ class OrgParser {
         return working
     }
 
+    fun deleteClosedClockAtLine(
+        lines: List<String>,
+        headingLineIndex: Int,
+        clockLineIndex: Int,
+    ): List<String> {
+        val working = lines.toMutableList()
+        val heading = findHeadingByLineIndex(working, headingLineIndex)
+            ?: error("Heading not found at line: $headingLineIndex")
+        val directEnd = directSectionEnd(working, heading)
+        if (clockLineIndex <= heading.start || clockLineIndex >= directEnd) {
+            error("Clock line not in heading scope: $clockLineIndex")
+        }
+        val original = working.getOrNull(clockLineIndex)
+            ?: error("Clock line index out of range: $clockLineIndex")
+        if (!closedClockRegex.matches(original)) {
+            error("Closed CLOCK line not found at line: $clockLineIndex")
+        }
+        working.removeAt(clockLineIndex)
+        return working
+    }
+
     fun findHeading(lines: List<String>, headingPath: HeadingPath): HeadingMatch? {
         val stack = mutableListOf<String>()
         for ((index, line) in lines.withIndex()) {

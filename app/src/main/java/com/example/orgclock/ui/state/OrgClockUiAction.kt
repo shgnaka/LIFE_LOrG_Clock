@@ -19,6 +19,9 @@ sealed interface OrgClockUiAction {
     data class CancelClock(val item: HeadingViewItem) : OrgClockUiAction
     data class BeginEdit(val entry: ClosedClockEntry) : OrgClockUiAction
     data object CancelEdit : OrgClockUiAction
+    data class BeginDelete(val entry: ClosedClockEntry) : OrgClockUiAction
+    data object CancelDelete : OrgClockUiAction
+    data object ConfirmDelete : OrgClockUiAction
     data class SelectStartHour(val hour: Int) : OrgClockUiAction
     data class SelectStartMinute(val minute: Int) : OrgClockUiAction
     data class SelectEndHour(val hour: Int) : OrgClockUiAction

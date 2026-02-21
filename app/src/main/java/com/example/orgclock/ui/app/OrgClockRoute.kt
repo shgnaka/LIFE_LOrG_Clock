@@ -35,6 +35,7 @@ fun OrgClockRoute(
     cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
     listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
+    deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
     createL1Heading: suspend (String, String) -> Result<Unit>,
     createL2Heading: suspend (String, Int, String) -> Result<Unit>,
     performanceMonitor: PerformanceMonitor,
@@ -51,6 +52,7 @@ fun OrgClockRoute(
         cancelClock,
         listClosedClocks,
         editClosedClock,
+        deleteClosedClock,
         createL1Heading,
         createL2Heading,
         showPerfOverlay,
@@ -66,6 +68,7 @@ fun OrgClockRoute(
             cancelClock = cancelClock,
             listClosedClocks = listClosedClocks,
             editClosedClock = editClosedClock,
+            deleteClosedClock = deleteClosedClock,
             createL1Heading = createL1Heading,
             createL2Heading = createL2Heading,
             showPerfOverlay = showPerfOverlay,
@@ -114,13 +117,17 @@ private fun orgClockViewModelFactory(
     cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
     listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
+    deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
     createL1Heading: suspend (String, String) -> Result<Unit>,
     createL2Heading: suspend (String, Int, String) -> Result<Unit>,
     showPerfOverlay: Boolean,
 ): ViewModelProvider.Factory {
     return object : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return OrgClockViewModel(
+            if (!modelClass.isAssignableFrom(OrgClockViewModel::class.java)) {
+                throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+            }
+            val viewModel = OrgClockViewModel(
                 loadSavedUri = loadSavedUri,
                 saveUri = saveUri,
                 openRoot = openRoot,
@@ -131,10 +138,13 @@ private fun orgClockViewModelFactory(
                 cancelClock = cancelClock,
                 listClosedClocks = listClosedClocks,
                 editClosedClock = editClosedClock,
+                deleteClosedClock = deleteClosedClock,
                 createL1Heading = createL1Heading,
                 createL2Heading = createL2Heading,
                 showPerfOverlay = showPerfOverlay,
-            ) as T
+            )
+            return modelClass.cast(viewModel)
+                ?: throw IllegalStateException("Failed to cast ViewModel: ${modelClass.name}")
         }
     }
 }

@@ -63,6 +63,8 @@ data class OrgClockUiState(
     val historyLoading: Boolean = false,
     val editingEntry: ClosedClockEntry? = null,
     val editingDraft: ClockEditDraft? = null,
+    val deletingEntry: ClosedClockEntry? = null,
+    val deletingInProgress: Boolean = false,
     val createHeadingDialog: CreateHeadingDialogState? = null,
     val showPerfOverlay: Boolean = false,
 )
