@@ -37,6 +37,7 @@ class OrgClockViewModel(
     private val cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
     private val listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     private val editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
+    private val deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
     private val createL1Heading: suspend (String, String) -> Result<Unit>,
     private val createL2Heading: suspend (String, Int, String) -> Result<Unit>,
     private val nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
@@ -92,6 +93,8 @@ class OrgClockViewModel(
                         historyTarget = null,
                         historyEntries = emptyList(),
                         historyLoading = false,
+                        deletingEntry = null,
+                        deletingInProgress = false,
                     )
                 }
             }
@@ -114,6 +117,17 @@ class OrgClockViewModel(
             }
 
             OrgClockUiAction.CancelEdit -> _uiState.update { it.copy(editingEntry = null, editingDraft = null) }
+            is OrgClockUiAction.BeginDelete -> {
+                _uiState.update {
+                    it.copy(
+                        deletingEntry = action.entry,
+                        deletingInProgress = false,
+                    )
+                }
+            }
+
+            OrgClockUiAction.CancelDelete -> _uiState.update { it.copy(deletingEntry = null, deletingInProgress = false) }
+            OrgClockUiAction.ConfirmDelete -> viewModelScope.launch { confirmDelete() }
             is OrgClockUiAction.SelectStartHour -> _uiState.update { state ->
                 val draft = state.editingDraft ?: return@update state
                 state.copy(editingDraft = draft.copy(startHour = action.hour))
@@ -195,6 +209,8 @@ class OrgClockViewModel(
                     historyLoading = false,
                     editingEntry = null,
                     editingDraft = null,
+                    deletingEntry = null,
+                    deletingInProgress = false,
                     createHeadingDialog = null,
                     screen = Screen.HeadingList,
                     status = if (updateStatus) UiStatus("Loaded ${file.displayName}", StatusTone.Success) else it.status,
@@ -433,6 +449,35 @@ class OrgClockViewModel(
             val reason = result.exceptionOrNull()?.message ?: "unknown"
             _uiState.update {
                 it.copy(status = UiStatus("更新に失敗: $reason", StatusTone.Error))
+            }
+        }
+    }
+
+    private suspend fun confirmDelete() {
+        val state = uiState.value
+        if (state.deletingInProgress) return
+        val file = state.selectedFile ?: return
+        val entry = state.deletingEntry ?: return
+
+        _uiState.update { it.copy(deletingInProgress = true) }
+        val result = deleteClosedClock(file.fileId, entry.headingLineIndex, entry.clockLineIndex)
+        if (result.isSuccess) {
+            _uiState.update {
+                it.copy(
+                    deletingEntry = null,
+                    deletingInProgress = false,
+                    status = UiStatus("Clock履歴を削除しました", StatusTone.Success),
+                )
+            }
+            reloadHistoryIfNeeded()
+            refreshSelectedFileHeadings()
+        } else {
+            val reason = result.exceptionOrNull()?.message ?: "unknown"
+            _uiState.update {
+                it.copy(
+                    deletingInProgress = false,
+                    status = UiStatus("削除に失敗: $reason", StatusTone.Error),
+                )
             }
         }
     }

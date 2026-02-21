@@ -176,6 +176,28 @@ class ClockService(
         }
     }
 
+    suspend fun deleteClosedClockInFile(
+        fileId: String,
+        headingLineIndex: Int,
+        clockLineIndex: Int,
+    ): Result<Unit> {
+        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
+        if (parser.headingLevelAtLine(doc.lines, headingLineIndex) != 2) {
+            return Result.failure(IllegalArgumentException("Clock operation is only allowed on level-2 headings"))
+        }
+        val firstLines = runCatching {
+            parser.deleteClosedClockAtLine(doc.lines, headingLineIndex, clockLineIndex)
+        }.getOrElse { return Result.failure(it) }
+        val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
+            parser.deleteClosedClockAtLine(it, headingLineIndex, clockLineIndex)
+        }
+        return if (save is SaveResult.Success) {
+            Result.success(Unit)
+        } else {
+            Result.failure(IllegalStateException(save.asMessage()))
+        }
+    }
+
     suspend fun createL1HeadingInFile(fileId: String, title: String): Result<Unit> {
         val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
         val firstLines = runCatching {

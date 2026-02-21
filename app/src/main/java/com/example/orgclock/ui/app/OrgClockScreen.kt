@@ -220,6 +220,11 @@ fun OrgClockScreen(
                                         ) {
                                             Text("編集")
                                         }
+                                        TextButton(
+                                            onClick = { onAction(OrgClockUiAction.BeginDelete(entry)) },
+                                        ) {
+                                            Text("削除")
+                                        }
                                     }
                                 }
                             }
@@ -229,6 +234,44 @@ fun OrgClockScreen(
                 confirmButton = {
                     TextButton(onClick = { onAction(OrgClockUiAction.DismissHistory) }) {
                         Text("閉じる")
+                    }
+                },
+            )
+        }
+
+        if (state.deletingEntry != null) {
+            val entry = state.deletingEntry
+            AlertDialog(
+                onDismissRequest = {
+                    if (!state.deletingInProgress) {
+                        onAction(OrgClockUiAction.CancelDelete)
+                    }
+                },
+                title = { Text("Clock履歴削除") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("この履歴を削除しますか？")
+                        Text(
+                            "${entry.start.format(ClockDateTimeFormatter)} - ${entry.end.format(ClockDateTimeFormatter)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { onAction(OrgClockUiAction.CancelDelete) },
+                        enabled = !state.deletingInProgress,
+                    ) {
+                        Text("キャンセル")
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = { onAction(OrgClockUiAction.ConfirmDelete) },
+                        enabled = !state.deletingInProgress,
+                    ) {
+                        Text("削除")
                     }
                 },
             )
