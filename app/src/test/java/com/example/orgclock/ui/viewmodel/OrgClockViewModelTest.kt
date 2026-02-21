@@ -2,6 +2,7 @@ package com.example.orgclock.ui.viewmodel
 
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.domain.ClockMutationResult
+import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingNode
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
@@ -17,6 +18,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -155,6 +157,64 @@ class OrgClockViewModelTest {
         assertEquals(StatusTone.Warning, vm.uiState.value.status.tone)
     }
 
+    @Test
+    fun beginDelete_setsDeletingEntry() = runTest {
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+        )
+        val entry = sampleClosedEntry()
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.BeginDelete(entry))
+
+        assertEquals(entry, vm.uiState.value.deletingEntry)
+        assertFalse(vm.uiState.value.deletingInProgress)
+    }
+
+    @Test
+    fun confirmDelete_success_clearsDialogAndShowsSuccess() = runTest {
+        var called = false
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            deleteClosedClock = { fileId, headingLineIndex, clockLineIndex ->
+                called = fileId == "f1" && headingLineIndex == 1 && clockLineIndex == 3
+                Result.success(Unit)
+            },
+        )
+        val entry = sampleClosedEntry()
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.BeginDelete(entry))
+        vm.onAction(OrgClockUiAction.ConfirmDelete)
+        advanceUntilIdle()
+
+        assertTrue(called)
+        assertNull(vm.uiState.value.deletingEntry)
+        assertFalse(vm.uiState.value.deletingInProgress)
+        assertEquals(StatusTone.Success, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun confirmDelete_failure_showsErrorAndKeepsDialog() = runTest {
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            deleteClosedClock = { _, _, _ -> Result.failure(IllegalStateException("boom")) },
+        )
+        val entry = sampleClosedEntry()
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.BeginDelete(entry))
+        vm.onAction(OrgClockUiAction.ConfirmDelete)
+        advanceUntilIdle()
+
+        assertEquals(entry, vm.uiState.value.deletingEntry)
+        assertFalse(vm.uiState.value.deletingInProgress)
+        assertEquals(StatusTone.Error, vm.uiState.value.status.tone)
+    }
+
     private fun sampleHeadings(): List<HeadingViewItem> {
         val root = HeadingViewItem(
             node = HeadingNode(
@@ -181,6 +241,19 @@ class OrgClockViewModelTest {
         return listOf(root, child)
     }
 
+    private fun sampleClosedEntry(): ClosedClockEntry {
+        val zone = ZoneId.of("Asia/Tokyo")
+        val start = ZonedDateTime.of(2026, 2, 16, 9, 0, 0, 0, zone)
+        val end = ZonedDateTime.of(2026, 2, 16, 9, 30, 0, 0, zone)
+        return ClosedClockEntry(
+            headingLineIndex = 1,
+            clockLineIndex = 3,
+            start = start,
+            end = end,
+            durationMinutes = 30,
+        )
+    }
+
     private fun testViewModel(
         loadSavedUri: () -> android.net.Uri? = { null },
         saveUri: (android.net.Uri) -> Unit = {},
@@ -200,6 +273,7 @@ class OrgClockViewModelTest {
         },
         listClosedClocks: suspend (String, Int) -> Result<List<com.example.orgclock.model.ClosedClockEntry>> = { _, _ -> Result.success(emptyList()) },
         editClosedClock: suspend (String, Int, Int, java.time.ZonedDateTime, java.time.ZonedDateTime) -> Result<Unit> = { _, _, _, _, _ -> Result.success(Unit) },
+        deleteClosedClock: suspend (String, Int, Int) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         createL1Heading: suspend (String, String) -> Result<Unit> = { _, _ -> Result.success(Unit) },
         createL2Heading: suspend (String, Int, String) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
@@ -216,6 +290,7 @@ class OrgClockViewModelTest {
             cancelClock = cancelClock,
             listClosedClocks = listClosedClocks,
             editClosedClock = editClosedClock,
+            deleteClosedClock = deleteClosedClock,
             createL1Heading = createL1Heading,
             createL2Heading = createL2Heading,
             nowProvider = nowProvider,

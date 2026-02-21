@@ -152,6 +152,59 @@ class OrgParserTest {
     }
 
     @Test
+    fun deleteClosedClockAtLine_removesSpecifiedLine() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+            ":LOGBOOK:",
+            "CLOCK: [2026-02-15 Sun 09:00:00]--[2026-02-15 Sun 09:30:00] =>  0:30",
+            "CLOCK: [2026-02-15 Sun 10:00:00]--[2026-02-15 Sun 10:45:00] =>  0:45",
+            ":END:",
+        )
+
+        val updated = parser.deleteClosedClockAtLine(lines, 1, 3)
+
+        assertEquals(5, updated.size)
+        assertTrue(updated.none { it.contains("09:00:00") })
+        assertTrue(updated.any { it.contains("10:00:00") })
+    }
+
+    @Test
+    fun deleteClosedClockAtLine_rejectsLineOutsideHeadingScope() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+            ":LOGBOOK:",
+            "CLOCK: [2026-02-15 Sun 09:00:00]--[2026-02-15 Sun 09:30:00] =>  0:30",
+            ":END:",
+            "* Home",
+            "** Chores",
+            ":LOGBOOK:",
+            "CLOCK: [2026-02-15 Sun 10:00:00]--[2026-02-15 Sun 10:10:00] =>  0:10",
+            ":END:",
+        )
+
+        val result = runCatching { parser.deleteClosedClockAtLine(lines, 1, 8) }
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun deleteClosedClockAtLine_rejectsNonClosedClockLine() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+            ":LOGBOOK:",
+            "CLOCK: [2026-02-15 Sun 09:00:00]",
+            ":END:",
+        )
+
+        val result = runCatching { parser.deleteClosedClockAtLine(lines, 1, 3) }
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
     fun listClosedClocksAtLine_parsesEnglishWeekdayWithoutSeconds() {
         val lines = listOf(
             "* Work",
