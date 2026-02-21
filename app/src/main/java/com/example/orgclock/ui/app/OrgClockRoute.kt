@@ -124,7 +124,10 @@ private fun orgClockViewModelFactory(
 ): ViewModelProvider.Factory {
     return object : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return OrgClockViewModel(
+            if (!modelClass.isAssignableFrom(OrgClockViewModel::class.java)) {
+                throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
+            }
+            val viewModel = OrgClockViewModel(
                 loadSavedUri = loadSavedUri,
                 saveUri = saveUri,
                 openRoot = openRoot,
@@ -139,7 +142,9 @@ private fun orgClockViewModelFactory(
                 createL1Heading = createL1Heading,
                 createL2Heading = createL2Heading,
                 showPerfOverlay = showPerfOverlay,
-            ) as T
+            )
+            return modelClass.cast(viewModel)
+                ?: throw IllegalStateException("Failed to cast ViewModel: ${modelClass.name}")
         }
     }
 }
