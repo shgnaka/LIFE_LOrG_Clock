@@ -34,7 +34,7 @@ class StartupAndScrollBenchmark {
         ) {
             pressHome()
             startActivityAndWait()
-            UiDevice.getInstance(instrumentation).wait(Until.hasObject(By.textContains("Org Clock")), 5_000)
+            UiDevice.getInstance(instrumentation).wait(Until.hasObject(By.textContains("Org Clock")), UI_WAIT_TIMEOUT_MS)
         }
     }
 
@@ -49,7 +49,7 @@ class StartupAndScrollBenchmark {
         ) {
             pressHome()
             startActivityAndWait()
-            UiDevice.getInstance(instrumentation).wait(Until.hasObject(By.textContains("Select org directory")), 5_000)
+            UiDevice.getInstance(instrumentation).wait(Until.hasObject(By.textContains("Select org directory")), UI_WAIT_TIMEOUT_MS)
         }
     }
 
@@ -69,12 +69,16 @@ class StartupAndScrollBenchmark {
 
             // Root setup/file picker only. Scroll is attempted if heading list is visible.
             val device = UiDevice.getInstance(instrumentation)
-            device.wait(Until.hasObject(By.textContains("Org Clock")), 5_000)
+            device.wait(Until.hasObject(By.textContains("Org Clock")), UI_WAIT_TIMEOUT_MS)
             val scrollable = device.findObject(By.scrollable(true))
             if (scrollable != null) {
                 scrollable.fling(Direction.DOWN)
                 scrollable.fling(Direction.UP)
             }
         }
+    }
+
+    private companion object {
+        const val UI_WAIT_TIMEOUT_MS = 5_000L
     }
 }
