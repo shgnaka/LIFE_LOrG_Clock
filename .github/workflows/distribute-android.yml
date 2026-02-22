@@ -24,6 +24,9 @@ jobs:
   distribute:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      UPLOAD_POLL_MAX_ATTEMPTS: 60
+      UPLOAD_POLL_SLEEP_SEC: 2
 
     steps:
       - name: Checkout
@@ -160,7 +163,10 @@ jobs:
           GCP_ACCESS_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
         run: |
           set -euo pipefail
-          for i in $(seq 1 60); do
+          EFFECTIVE_TIMEOUT_SEC=$((UPLOAD_POLL_MAX_ATTEMPTS * UPLOAD_POLL_SLEEP_SEC))
+          echo "Upload poll config: attempts=${UPLOAD_POLL_MAX_ATTEMPTS}, sleep_sec=${UPLOAD_POLL_SLEEP_SEC}, timeout_sec=${EFFECTIVE_TIMEOUT_SEC}"
+
+          for i in $(seq 1 "$UPLOAD_POLL_MAX_ATTEMPTS"); do
             OPERATION_RESPONSE=$(curl -sS \
               -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
               "https://firebaseappdistribution.googleapis.com/v1/${OPERATION_NAME}")
@@ -184,7 +190,7 @@ jobs:
               echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
               exit 0
             fi
-            sleep 2
+            sleep "$UPLOAD_POLL_SLEEP_SEC"
           done
 
           echo "::error::Timed out waiting for upload operation to complete"
