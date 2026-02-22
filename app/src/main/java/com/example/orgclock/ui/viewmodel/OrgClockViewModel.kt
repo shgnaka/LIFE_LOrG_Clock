@@ -1,8 +1,10 @@
 package com.example.orgclock.ui.viewmodel
 
 import android.net.Uri
+import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.data.RootAccess
 import com.example.orgclock.domain.ClockMutationResult
@@ -52,6 +54,9 @@ class OrgClockViewModel(
     private val todayProvider: () -> LocalDate = { LocalDate.now() },
     showPerfOverlay: Boolean,
 ) : ViewModel() {
+    private fun status(@StringRes messageResId: Int, tone: StatusTone, vararg messageArgs: Any): UiStatus {
+        return UiStatus(messageResId = messageResId, messageArgs = messageArgs.toList(), tone = tone)
+    }
 
     private val _uiState = MutableStateFlow(
         OrgClockUiState(showPerfOverlay = showPerfOverlay),
@@ -255,13 +260,17 @@ class OrgClockViewModel(
                     deletingInProgress = false,
                     createHeadingDialog = null,
                     screen = Screen.HeadingList,
-                    status = if (updateStatus) UiStatus("Loaded ${file.displayName}", StatusTone.Success) else it.status,
+                    status = if (updateStatus) {
+                        status(R.string.status_loaded_file, StatusTone.Success, file.displayName)
+                    } else {
+                        it.status
+                    },
                 )
             }
         } else {
-            val reason = loaded.exceptionOrNull()?.message ?: "unknown"
+            val reason = loaded.exceptionOrNull()?.message ?: ""
             _uiState.update {
-                it.copy(status = UiStatus("Failed loading headings: $reason", StatusTone.Error))
+                it.copy(status = status(R.string.status_failed_loading_headings, StatusTone.Error, reason))
             }
         }
     }
@@ -269,10 +278,10 @@ class OrgClockViewModel(
     private suspend fun refreshFilesAndRoute() {
         val result = listFiles()
         if (result.isFailure) {
-            val reason = result.exceptionOrNull()?.message ?: "unknown"
+            val reason = result.exceptionOrNull()?.message ?: ""
             _uiState.update {
                 it.copy(
-                    status = UiStatus("Failed listing files: $reason", StatusTone.Error),
+                    status = status(R.string.status_failed_listing_files, StatusTone.Error, reason),
                     screen = Screen.FilePicker,
                 )
             }
@@ -292,7 +301,7 @@ class OrgClockViewModel(
                     selectedFile = null,
                     headings = emptyList(),
                     screen = Screen.FilePicker,
-                    status = UiStatus("Today's file not found. Please select a file.", StatusTone.Warning),
+                    status = status(R.string.status_today_file_not_found, StatusTone.Warning),
                 )
             }
         }
@@ -309,10 +318,10 @@ class OrgClockViewModel(
     private suspend fun applyRoot(uri: Uri) {
         val opened = openRoot(uri)
         if (opened.isFailure) {
-            val reason = opened.exceptionOrNull()?.message ?: "unknown"
+            val reason = opened.exceptionOrNull()?.message ?: ""
             _uiState.update {
                 it.copy(
-                    status = UiStatus("Failed to open root: $reason", StatusTone.Error),
+                    status = status(R.string.status_failed_open_root, StatusTone.Error, reason),
                     screen = Screen.RootSetup,
                 )
             }
@@ -322,7 +331,7 @@ class OrgClockViewModel(
         _uiState.update {
             it.copy(
                 rootUri = uri,
-                status = UiStatus("Root set", StatusTone.Success),
+                status = status(R.string.status_root_set, StatusTone.Success),
             )
         }
         refreshFilesAndRoute()
@@ -351,12 +360,12 @@ class OrgClockViewModel(
                 )
             }
         } else {
-            val reason = result.exceptionOrNull()?.message ?: "unknown"
+            val reason = result.exceptionOrNull()?.message ?: ""
             _uiState.update {
                 it.copy(
                     historyEntries = emptyList(),
                     historyLoading = false,
-                    status = UiStatus("Failed loading history: $reason", StatusTone.Error),
+                    status = status(R.string.status_failed_loading_history, StatusTone.Error, reason),
                 )
             }
         }
@@ -370,11 +379,11 @@ class OrgClockViewModel(
         if (result.isSuccess) {
             _uiState.update { it.copy(historyEntries = result.getOrThrow()) }
         } else {
-            val reason = result.exceptionOrNull()?.message ?: "unknown"
+            val reason = result.exceptionOrNull()?.message ?: ""
             _uiState.update {
                 it.copy(
                     historyEntries = emptyList(),
-                    status = UiStatus("Failed loading history: $reason", StatusTone.Error),
+                    status = status(R.string.status_failed_loading_history, StatusTone.Error, reason),
                 )
             }
         }
@@ -389,11 +398,11 @@ class OrgClockViewModel(
 
         val result = startClock(file.fileId, lineIndex)
         val status = if (result.isSuccess) {
-            UiStatus("Clock started", StatusTone.Success)
+            status(R.string.status_clock_started, StatusTone.Success)
         } else {
-            val msg = result.exceptionOrNull()?.message ?: "unknown"
+            val msg = result.exceptionOrNull()?.message ?: ""
             val tone = if (msg.contains("already", ignoreCase = true)) StatusTone.Warning else StatusTone.Error
-            UiStatus("Start failed: $msg", tone)
+            status(R.string.status_start_failed, tone, msg)
         }
         if (result.isSuccess) {
             val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt
@@ -417,9 +426,10 @@ class OrgClockViewModel(
 
         val result = stopClock(file.fileId, lineIndex)
         val status = if (result.isSuccess) {
-            UiStatus("Clock stopped", StatusTone.Success)
+            status(R.string.status_clock_stopped, StatusTone.Success)
         } else {
-            UiStatus("Stop failed: ${result.exceptionOrNull()?.message ?: "unknown"}", StatusTone.Error)
+            val reason = result.exceptionOrNull()?.message ?: ""
+            status(R.string.status_stop_failed, StatusTone.Error, reason)
         }
         if (result.isSuccess) {
             updatePendingClock(lineIndex, false)
@@ -441,9 +451,10 @@ class OrgClockViewModel(
 
         val result = cancelClock(file.fileId, lineIndex)
         val status = if (result.isSuccess) {
-            UiStatus("Clock cancelled", StatusTone.Warning)
+            status(R.string.status_clock_cancelled, StatusTone.Warning)
         } else {
-            UiStatus("Cancel failed: ${result.exceptionOrNull()?.message ?: "unknown"}", StatusTone.Error)
+            val reason = result.exceptionOrNull()?.message ?: ""
+            status(R.string.status_cancel_failed, StatusTone.Error, reason)
         }
         if (result.isSuccess) {
             updatePendingClock(lineIndex, false)
@@ -476,7 +487,7 @@ class OrgClockViewModel(
 
         if (updatedEnd.isBefore(updatedStart)) {
             _uiState.update {
-                it.copy(status = UiStatus("終了時刻は開始時刻以降にしてください", StatusTone.Warning))
+                it.copy(status = status(R.string.status_end_time_must_be_after_start, StatusTone.Warning))
             }
             return
         }
@@ -492,7 +503,7 @@ class OrgClockViewModel(
         if (result.isSuccess) {
             _uiState.update {
                 it.copy(
-                    status = UiStatus("Clock履歴を更新しました", StatusTone.Success),
+                    status = status(R.string.status_clock_history_updated, StatusTone.Success),
                     editingEntry = null,
                     editingDraft = null,
                 )
@@ -500,9 +511,9 @@ class OrgClockViewModel(
             reloadHistoryIfNeeded()
             refreshSelectedFileHeadings()
         } else {
-            val reason = result.exceptionOrNull()?.message ?: "unknown"
+            val reason = result.exceptionOrNull()?.message ?: ""
             _uiState.update {
-                it.copy(status = UiStatus("更新に失敗: $reason", StatusTone.Error))
+                it.copy(status = status(R.string.status_update_failed, StatusTone.Error, reason))
             }
         }
     }
@@ -520,17 +531,17 @@ class OrgClockViewModel(
                 it.copy(
                     deletingEntry = null,
                     deletingInProgress = false,
-                    status = UiStatus("Clock履歴を削除しました", StatusTone.Success),
+                    status = status(R.string.status_clock_history_deleted, StatusTone.Success),
                 )
             }
             reloadHistoryIfNeeded()
             refreshSelectedFileHeadings()
         } else {
-            val reason = result.exceptionOrNull()?.message ?: "unknown"
+            val reason = result.exceptionOrNull()?.message ?: ""
             _uiState.update {
                 it.copy(
                     deletingInProgress = false,
-                    status = UiStatus("削除に失敗: $reason", StatusTone.Error),
+                    status = status(R.string.status_delete_failed, StatusTone.Error, reason),
                 )
             }
         }
@@ -545,7 +556,7 @@ class OrgClockViewModel(
         val title = dialog.titleInput.trim()
         if (title.isEmpty()) {
             _uiState.update {
-                it.copy(status = UiStatus("Heading title cannot be empty", StatusTone.Warning))
+                it.copy(status = status(R.string.status_heading_title_empty, StatusTone.Warning))
             }
             return
         }
@@ -563,7 +574,7 @@ class OrgClockViewModel(
                     _uiState.update {
                         it.copy(
                             createHeadingDialog = it.createHeadingDialog?.copy(submitting = false),
-                            status = UiStatus("Parent L1 is missing", StatusTone.Error),
+                            status = status(R.string.status_parent_l1_missing, StatusTone.Error),
                         )
                     }
                     return
@@ -576,14 +587,14 @@ class OrgClockViewModel(
             _uiState.update {
                 it.copy(
                     createHeadingDialog = null,
-                    status = UiStatus("Heading created", StatusTone.Success),
+                    status = status(R.string.status_heading_created, StatusTone.Success),
                 )
             }
             synchronizeHeadings(file)
             return
         }
 
-        val message = result.exceptionOrNull()?.message ?: "unknown"
+        val message = result.exceptionOrNull()?.message ?: ""
         val tone = if (result.exceptionOrNull() is IllegalArgumentException) {
             StatusTone.Warning
         } else {
@@ -593,7 +604,7 @@ class OrgClockViewModel(
             val currentDialog = current.createHeadingDialog
             current.copy(
                 createHeadingDialog = currentDialog?.copy(submitting = false),
-                status = UiStatus("Create heading failed: $message", tone),
+                status = status(R.string.status_create_heading_failed, tone, message),
             )
         }
     }
@@ -621,7 +632,7 @@ class OrgClockViewModel(
                     notificationPermissionGranted = true,
                     pendingEnableNotificationAfterPermission = false,
                     notificationPermissionRequestPending = false,
-                    status = UiStatus("通知機能を有効化しました", StatusTone.Success),
+                    status = status(R.string.status_notification_enabled, StatusTone.Success),
                 )
             }
         } else {
@@ -630,7 +641,7 @@ class OrgClockViewModel(
                     notificationPermissionGranted = false,
                     pendingEnableNotificationAfterPermission = true,
                     notificationPermissionRequestPending = true,
-                    status = UiStatus("通知権限が必要です", StatusTone.Warning),
+                    status = status(R.string.status_notification_permission_required, StatusTone.Warning),
                 )
             }
         }
@@ -641,7 +652,7 @@ class OrgClockViewModel(
         _uiState.update {
             it.copy(
                 notificationDisplayMode = mode,
-                status = UiStatus("通知表示モードを更新しました", StatusTone.Success),
+                status = status(R.string.status_notification_display_mode_updated, StatusTone.Success),
             )
         }
     }
@@ -656,7 +667,7 @@ class OrgClockViewModel(
                     notificationPermissionGranted = true,
                     notificationPermissionRequestPending = false,
                     pendingEnableNotificationAfterPermission = false,
-                    status = UiStatus("通知権限を許可しました", StatusTone.Success),
+                    status = status(R.string.status_notification_permission_granted, StatusTone.Success),
                 )
             } else {
                 if (state.pendingEnableNotificationAfterPermission) {
@@ -668,7 +679,7 @@ class OrgClockViewModel(
                     notificationPermissionRequestPending = false,
                     pendingEnableNotificationAfterPermission = false,
                     status = if (!granted && state.pendingEnableNotificationAfterPermission) {
-                        UiStatus("通知権限が拒否されました。Settingsから許可してください。", StatusTone.Warning)
+                        status(R.string.status_notification_permission_denied, StatusTone.Warning)
                     } else {
                         state.status
                     },
@@ -735,9 +746,9 @@ class OrgClockViewModel(
                 }
             }
         } else {
-            val reason = loaded.exceptionOrNull()?.message ?: "unknown"
+            val reason = loaded.exceptionOrNull()?.message ?: ""
             _uiState.update {
-                it.copy(status = UiStatus("Failed loading headings: $reason", StatusTone.Error))
+                it.copy(status = status(R.string.status_failed_loading_headings, StatusTone.Error, reason))
             }
         }
     }

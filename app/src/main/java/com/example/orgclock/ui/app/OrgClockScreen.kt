@@ -54,11 +54,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.ui.perf.PerformanceMonitor
@@ -204,10 +206,12 @@ fun OrgClockScreen(
                         onAction(OrgClockUiAction.DismissHistory)
                     }
                 },
-                title = { Text("Clock履歴: ${target.node.title}") },
+                title = {
+                    Text(stringResource(R.string.clock_history_title, target.node.title))
+                },
                 text = {
                     if (state.historyLoading) {
-                        Text("読み込み中...")
+                        Text(stringResource(R.string.loading))
                     } else {
                         Column(
                             modifier = Modifier
@@ -216,7 +220,7 @@ fun OrgClockScreen(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             if (state.historyEntries.isEmpty()) {
-                                Text("履歴がありません。")
+                                Text(stringResource(R.string.clock_history_empty))
                             } else {
                                 state.historyEntries.forEach { entry ->
                                     Row(
@@ -236,12 +240,12 @@ fun OrgClockScreen(
                                         TextButton(
                                             onClick = { onAction(OrgClockUiAction.BeginEdit(entry)) },
                                         ) {
-                                            Text("編集")
+                                            Text(stringResource(R.string.edit))
                                         }
                                         TextButton(
                                             onClick = { onAction(OrgClockUiAction.BeginDelete(entry)) },
                                         ) {
-                                            Text("削除")
+                                            Text(stringResource(R.string.delete))
                                         }
                                     }
                                 }
@@ -251,7 +255,7 @@ fun OrgClockScreen(
                 },
                 confirmButton = {
                     TextButton(onClick = { onAction(OrgClockUiAction.DismissHistory) }) {
-                        Text("閉じる")
+                        Text(stringResource(R.string.close))
                     }
                 },
             )
@@ -265,10 +269,10 @@ fun OrgClockScreen(
                         onAction(OrgClockUiAction.CancelDelete)
                     }
                 },
-                title = { Text("Clock履歴削除") },
+                title = { Text(stringResource(R.string.clock_history_delete_title)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("この履歴を削除しますか？")
+                        Text(stringResource(R.string.clock_history_delete_confirm))
                         Text(
                             "${entry.start.format(ClockDateTimeFormatter)} - ${entry.end.format(ClockDateTimeFormatter)}",
                             style = MaterialTheme.typography.bodySmall,
@@ -281,7 +285,7 @@ fun OrgClockScreen(
                         onClick = { onAction(OrgClockUiAction.CancelDelete) },
                         enabled = !state.deletingInProgress,
                     ) {
-                        Text("キャンセル")
+                        Text(stringResource(R.string.cancel))
                     }
                 },
                 confirmButton = {
@@ -289,7 +293,7 @@ fun OrgClockScreen(
                         onClick = { onAction(OrgClockUiAction.ConfirmDelete) },
                         enabled = !state.deletingInProgress,
                     ) {
-                        Text("削除")
+                        Text(stringResource(R.string.delete))
                     }
                 },
             )
@@ -300,7 +304,7 @@ fun OrgClockScreen(
             val draft = state.editingDraft
             AlertDialog(
                 onDismissRequest = { onAction(OrgClockUiAction.CancelEdit) },
-                title = { Text("Clock時刻編集") },
+                title = { Text(stringResource(R.string.clock_time_edit_title)) },
                 text = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
@@ -309,14 +313,14 @@ fun OrgClockScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         TimeFieldEditor(
-                            label = "開始",
+                            label = stringResource(R.string.start_label),
                             hour = draft.startHour,
                             minute = draft.startMinute,
                             onHourSelected = { onAction(OrgClockUiAction.SelectStartHour(it)) },
                             onMinuteSelected = { onAction(OrgClockUiAction.SelectStartMinute(it)) },
                         )
                         TimeFieldEditor(
-                            label = "終了",
+                            label = stringResource(R.string.end_label),
                             hour = draft.endHour,
                             minute = draft.endMinute,
                             onHourSelected = { onAction(OrgClockUiAction.SelectEndHour(it)) },
@@ -326,12 +330,12 @@ fun OrgClockScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { onAction(OrgClockUiAction.CancelEdit) }) {
-                        Text("キャンセル")
+                        Text(stringResource(R.string.cancel))
                     }
                 },
                 confirmButton = {
                     TextButton(onClick = { onAction(OrgClockUiAction.SaveEdit) }) {
-                        Text("保存")
+                        Text(stringResource(R.string.save))
                     }
                 },
             )
@@ -340,9 +344,9 @@ fun OrgClockScreen(
         if (state.createHeadingDialog != null) {
             val dialog = state.createHeadingDialog
             val dialogTitle = if (dialog.mode == CreateHeadingMode.L1) {
-                "Create L1 heading"
+                stringResource(R.string.create_l1_heading)
             } else {
-                "Create L2 heading"
+                stringResource(R.string.create_l2_heading)
             }
             AlertDialog(
                 onDismissRequest = {
@@ -355,7 +359,7 @@ fun OrgClockScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         if (dialog.mode == CreateHeadingMode.L2 && !dialog.parentL1Title.isNullOrBlank()) {
                             Text(
-                                "Parent: ${dialog.parentL1Title}",
+                                stringResource(R.string.parent_heading_label, dialog.parentL1Title),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -363,7 +367,7 @@ fun OrgClockScreen(
                         TextField(
                             value = dialog.titleInput,
                             onValueChange = { onAction(OrgClockUiAction.UpdateCreateHeadingTitle(it)) },
-                            label = { Text("Heading title") },
+                            label = { Text(stringResource(R.string.heading_title_label)) },
                             singleLine = true,
                             enabled = !dialog.submitting,
                             modifier = Modifier.fillMaxWidth(),
@@ -378,7 +382,7 @@ fun OrgClockScreen(
                                     onCheckedChange = { onAction(OrgClockUiAction.SetCreateHeadingTplTag(it)) },
                                     enabled = !dialog.submitting,
                                 )
-                                Text("Add TPL tag")
+                                Text(stringResource(R.string.add_tpl_tag))
                             }
                         }
                     }
@@ -388,7 +392,7 @@ fun OrgClockScreen(
                         onClick = { onAction(OrgClockUiAction.DismissCreateHeadingDialog) },
                         enabled = !dialog.submitting,
                     ) {
-                        Text("Cancel")
+                        Text(stringResource(R.string.cancel))
                     }
                 },
                 confirmButton = {
@@ -396,7 +400,13 @@ fun OrgClockScreen(
                         onClick = { onAction(OrgClockUiAction.SubmitCreateHeading) },
                         enabled = !dialog.submitting,
                     ) {
-                        Text(if (dialog.submitting) "Creating..." else "Create")
+                        Text(
+                            if (dialog.submitting) {
+                                stringResource(R.string.creating)
+                            } else {
+                                stringResource(R.string.create)
+                            },
+                        )
                     }
                 },
             )
@@ -415,13 +425,13 @@ private fun RootSetupScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Text("Org Clock", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineSmall)
         StatusBanner(status)
         SectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Set your default org directory to start.", style = MaterialTheme.typography.bodyMedium)
+                Text(stringResource(R.string.set_default_org_directory), style = MaterialTheme.typography.bodyMedium)
                 Button(onClick = onPickRoot) {
-                    Text("Select org directory")
+                    Text(stringResource(R.string.select_org_directory))
                 }
             }
         }
@@ -444,11 +454,11 @@ private fun FilePickerScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onPickRoot) { Text("Change root") }
-            Button(onClick = onOpenSettings) { Text("Settings") }
+            Button(onClick = onPickRoot) { Text(stringResource(R.string.change_root)) }
+            Button(onClick = onOpenSettings) { Text(stringResource(R.string.settings)) }
         }
         StatusBanner(status)
-        Text("Select org file", style = MaterialTheme.typography.titleMedium)
+        Text(stringResource(R.string.select_org_file), style = MaterialTheme.typography.titleMedium)
 
         LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(files, key = { it.fileId }) { file ->
@@ -478,7 +488,7 @@ private fun FilePickerScreen(
                             DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
                                 .withLocale(Locale.getDefault())
                                 .format(it.atZone(java.time.ZoneId.systemDefault()))
-                        } ?: "Unknown modified time"
+                        } ?: stringResource(R.string.unknown_modified_time)
                         Text(modified, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
@@ -665,7 +675,7 @@ private fun RunningClocksPanel(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("記録中 ${runningItems.size}件", fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.running_count, runningItems.size), fontWeight = FontWeight.SemiBold)
             runningItems.forEach { item ->
                 val minutes = maxOf(0L, Duration.between(item.startedAt, now).toMinutes())
                 val startedText = remember(item.lineIndex, item.startedAt) {
@@ -691,7 +701,7 @@ private fun RunningClocksPanel(
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "$startedText 開始 / ${minutes}分経過",
+                            text = stringResource(R.string.started_elapsed, startedText, minutes),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f),
                         )
@@ -735,16 +745,16 @@ private fun HeadingListTopBar(
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = onOpenFilePicker) { Text("Files") }
-            Button(onClick = onOpenSettings) { Text("Settings") }
-            Button(onClick = onCreateL1) { Text("+L1") }
+            Button(onClick = onOpenFilePicker) { Text(stringResource(R.string.files)) }
+            Button(onClick = onOpenSettings) { Text(stringResource(R.string.settings)) }
+            Button(onClick = onCreateL1) { Text(stringResource(R.string.add_l1)) }
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(selectedFile?.displayName ?: "No file selected", style = MaterialTheme.typography.titleMedium)
+            Text(selectedFile?.displayName ?: stringResource(R.string.no_file_selected), style = MaterialTheme.typography.titleMedium)
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 if (showPerfOverlay) {
                     val perfSnapshot = performanceMonitor.snapshot
@@ -756,14 +766,14 @@ private fun HeadingListTopBar(
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     BulkHeadingActionButton(
-                        label = "+++",
-                        contentDescription = "Expand all headings",
+                        label = stringResource(R.string.expand_all_label),
+                        contentDescription = stringResource(R.string.expand_all_headings),
                         containerColor = StateSuccessFg,
                         onClick = onExpandAll,
                     )
                     BulkHeadingActionButton(
-                        label = "---",
-                        contentDescription = "Collapse all headings",
+                        label = stringResource(R.string.collapse_all_label),
+                        contentDescription = stringResource(R.string.collapse_all_headings),
                         containerColor = StateWarningFg,
                         onClick = onCollapseAll,
                     )
@@ -871,15 +881,15 @@ private fun SettingsScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("Settings", style = MaterialTheme.typography.headlineSmall)
+        Text(stringResource(R.string.settings), style = MaterialTheme.typography.headlineSmall)
         StatusBanner(status)
         SectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Current root", style = MaterialTheme.typography.titleMedium)
-                Text(rootUri?.toString() ?: "(none)", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(stringResource(R.string.current_root), style = MaterialTheme.typography.titleMedium)
+                Text(rootUri?.toString() ?: stringResource(R.string.none), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onChangeRoot) { Text("Change org directory") }
-                    Button(onClick = onBack) { Text("Back") }
+                    Button(onClick = onChangeRoot) { Text(stringResource(R.string.change_org_directory)) }
+                    Button(onClick = onBack) { Text(stringResource(R.string.back)) }
                 }
             }
         }
@@ -890,7 +900,7 @@ private fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("通知機能", style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.notification_feature), style = MaterialTheme.typography.titleMedium)
                     Switch(
                         checked = notificationEnabled,
                         onCheckedChange = onToggleNotificationEnabled,
@@ -898,31 +908,31 @@ private fun SettingsScreen(
                 }
                 Text(
                     if (notificationPermissionGranted) {
-                        "通知権限: 許可済み"
+                        stringResource(R.string.notification_permission_granted)
                     } else {
-                        "通知権限: 未許可"
+                        stringResource(R.string.notification_permission_not_granted)
                     },
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
                 if (!notificationPermissionGranted) {
                     Button(onClick = onOpenAppNotificationSettings) {
-                        Text("通知設定を開く")
+                        Text(stringResource(R.string.open_notification_settings))
                     }
                 }
-                Text("表示モード", style = MaterialTheme.typography.titleMedium)
+                Text(stringResource(R.string.display_mode), style = MaterialTheme.typography.titleMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { onChangeNotificationDisplayMode(NotificationDisplayMode.ActiveOnly) },
                         enabled = notificationDisplayMode != NotificationDisplayMode.ActiveOnly,
                     ) {
-                        Text("稼働中のみ")
+                        Text(stringResource(R.string.display_mode_active_only))
                     }
                     Button(
                         onClick = { onChangeNotificationDisplayMode(NotificationDisplayMode.Always) },
                         enabled = notificationDisplayMode != NotificationDisplayMode.Always,
                     ) {
-                        Text("常時表示")
+                        Text(stringResource(R.string.display_mode_always))
                     }
                 }
             }
@@ -951,7 +961,7 @@ private fun StatusBanner(status: UiStatus) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = status.message,
+            text = stringResource(status.messageResId, *status.messageArgs.toTypedArray()),
             color = fg,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             style = MaterialTheme.typography.bodySmall,
@@ -981,9 +991,9 @@ private fun ClockActionIconButton(
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
 ) {
     val (icon, label, color) = when (actionType) {
-        ClockActionType.Start -> Triple(Icons.Filled.PlayArrow, "Start", MaterialTheme.colorScheme.primary)
-        ClockActionType.Stop -> Triple(Icons.Filled.Stop, "Stop", StateSuccessFg)
-        ClockActionType.Cancel -> Triple(Icons.Filled.Close, "Cancel", StateWarningFg)
+        ClockActionType.Start -> Triple(Icons.Filled.PlayArrow, stringResource(R.string.start), MaterialTheme.colorScheme.primary)
+        ClockActionType.Stop -> Triple(Icons.Filled.Stop, stringResource(R.string.stop), StateSuccessFg)
+        ClockActionType.Cancel -> Triple(Icons.Filled.Close, stringResource(R.string.cancel), StateWarningFg)
     }
     val iconTint: Color = if (enabled) color else MaterialTheme.colorScheme.onSurfaceVariant
 

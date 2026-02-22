@@ -1,6 +1,7 @@
 package com.example.orgclock.ui.viewmodel
 
 import android.net.Uri
+import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
@@ -129,7 +130,7 @@ class OrgClockViewModelTest {
 
         val status = vm.uiState.value.status
         assertEquals(StatusTone.Warning, status.tone)
-        assertTrue(status.message.contains("Start failed"))
+        assertEquals(R.string.status_start_failed, status.messageResId)
     }
 
     @Test

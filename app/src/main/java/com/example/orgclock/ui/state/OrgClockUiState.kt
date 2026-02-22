@@ -2,6 +2,8 @@ package com.example.orgclock.ui.state
 
 import android.net.Uri
 import androidx.compose.runtime.Immutable
+import androidx.annotation.StringRes
+import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
@@ -28,7 +30,8 @@ enum class CreateHeadingMode {
 
 @Immutable
 data class UiStatus(
-    val message: String,
+    @StringRes val messageResId: Int,
+    val messageArgs: List<Any> = emptyList(),
     val tone: StatusTone,
 )
 
@@ -55,7 +58,7 @@ data class CreateHeadingDialogState(
 data class OrgClockUiState(
     val screen: Screen = Screen.RootSetup,
     val rootUri: Uri? = null,
-    val status: UiStatus = UiStatus("Select org directory", StatusTone.Info),
+    val status: UiStatus = UiStatus(R.string.status_select_org_directory, tone = StatusTone.Info),
     val files: List<OrgFileEntry> = emptyList(),
     val filesWithOpenClock: Set<String> = emptySet(),
     val selectedFile: OrgFileEntry? = null,
