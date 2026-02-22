@@ -1,0 +1,4 @@
+interface:
+  display_name: "Org Clock Kaizen"
+  short_description: "Track hardcoded code smells as ready tickets."
+  default_prompt: "Scan repo for hardcoded values and improvement opportunities, then update docs/kaizens tickets and indexes."
