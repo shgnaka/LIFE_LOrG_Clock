@@ -112,35 +112,133 @@ jobs:
           echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
           echo "Found APK: $APK_PATH"
 
-      - name: Install Firebase CLI
-        run: npm install --global firebase-tools
+      - name: Upload APK to App Distribution (REST)
+        id: upload
+        env:
+          FIREBASE_APP_ID_ANDROID: ${{ secrets.FIREBASE_APP_ID_ANDROID }}
+          APK_PATH: ${{ steps.apk.outputs.path }}
+          GCP_ACCESS_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          PROJECT_NUMBER=$(echo "$FIREBASE_APP_ID_ANDROID" | cut -d: -f2)
+          if [ -z "$PROJECT_NUMBER" ]; then
+            echo "::error::Unable to parse project number from FIREBASE_APP_ID_ANDROID"
+            exit 1
+          fi
+          APP_RESOURCE="projects/${PROJECT_NUMBER}/apps/${FIREBASE_APP_ID_ANDROID}"
+
+          UPLOAD_RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+            -H "X-Goog-Upload-Protocol: raw" \
+            -H "X-Goog-Upload-File-Name: $(basename "$APK_PATH")" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@$APK_PATH" \
+            "https://firebaseappdistribution.googleapis.com/upload/v1/${APP_RESOURCE}/releases:upload")
+
+          OPERATION_NAME=$(echo "$UPLOAD_RESPONSE" | jq -r '.name // empty')
+          if [ -z "$OPERATION_NAME" ]; then
+            echo "::error::Upload response did not include operation name"
+            echo "$UPLOAD_RESPONSE"
+            exit 1
+          fi
+
+          echo "operation=$OPERATION_NAME" >> "$GITHUB_OUTPUT"
+          echo "app_resource=$APP_RESOURCE" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for upload operation (REST)
+        id: operation
+        env:
+          OPERATION_NAME: ${{ steps.upload.outputs.operation }}
+          GCP_ACCESS_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            OPERATION_RESPONSE=$(curl -sS \
+              -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+              "https://firebaseappdistribution.googleapis.com/v1/${OPERATION_NAME}")
+
+            DONE=$(echo "$OPERATION_RESPONSE" | jq -r '.done // false')
+            if [ "$DONE" = "true" ]; then
+              ERROR_MESSAGE=$(echo "$OPERATION_RESPONSE" | jq -r '.error.message // empty')
+              if [ -n "$ERROR_MESSAGE" ]; then
+                echo "::error::Upload operation failed: $ERROR_MESSAGE"
+                echo "$OPERATION_RESPONSE"
+                exit 1
+              fi
+
+              RELEASE_NAME=$(echo "$OPERATION_RESPONSE" | jq -r '.response.release.name // .metadata.release.name // empty')
+              if [ -z "$RELEASE_NAME" ]; then
+                echo "::error::Release name not found in operation response"
+                echo "$OPERATION_RESPONSE"
+                exit 1
+              fi
+
+              echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "::error::Timed out waiting for upload operation to complete"
+          exit 1
+
+      - name: Update release notes (REST)
+        if: ${{ inputs.release_notes != '' }}
+        env:
+          RELEASE_NAME: ${{ steps.operation.outputs.release_name }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          GCP_ACCESS_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          PAYLOAD=$(jq -n --arg notes "$RELEASE_NOTES" '{releaseNotes: {text: $notes}}')
+
+          PATCH_RESPONSE=$(curl -sS -X PATCH \
+            -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "https://firebaseappdistribution.googleapis.com/v1/${RELEASE_NAME}?updateMask=releaseNotes.text")
+
+          PATCH_ERROR=$(echo "$PATCH_RESPONSE" | jq -r '.error.message // empty')
+          if [ -n "$PATCH_ERROR" ]; then
+            echo "::error::Failed to update release notes: $PATCH_ERROR"
+            echo "$PATCH_RESPONSE"
+            exit 1
+          fi
 
       - name: Distribute to Firebase App Distribution
         id: distribute
         env:
-          FIREBASE_APP_ID_ANDROID: ${{ secrets.FIREBASE_APP_ID_ANDROID }}
+          RELEASE_NAME: ${{ steps.operation.outputs.release_name }}
           TESTER_GROUP: ${{ inputs.tester_group }}
-          RELEASE_NOTES: ${{ inputs.release_notes }}
-          APK_PATH: ${{ steps.apk.outputs.path }}
+          GCP_ACCESS_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
         run: |
           set -euo pipefail
-          if [ -z "$RELEASE_NOTES" ]; then
-            RELEASE_NOTES="CI build from ${GITHUB_SHA}"
+          PAYLOAD=$(jq -n --arg group "$TESTER_GROUP" '{groupAliases: [$group]}')
+
+          DISTRIBUTE_RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "https://firebaseappdistribution.googleapis.com/v1/${RELEASE_NAME}:distribute")
+
+          DISTRIBUTE_ERROR=$(echo "$DISTRIBUTE_RESPONSE" | jq -r '.error.message // empty')
+          if [ -n "$DISTRIBUTE_ERROR" ]; then
+            echo "::error::Failed to distribute release: $DISTRIBUTE_ERROR"
+            echo "$DISTRIBUTE_RESPONSE"
+            exit 1
           fi
 
-          firebase appdistribution:distribute "$APK_PATH" \
-            --app "$FIREBASE_APP_ID_ANDROID" \
-            --groups "$TESTER_GROUP" \
-            --release-notes "$RELEASE_NOTES" \
-            --token "${{ steps.gcp-auth.outputs.access_token }}" | tee "$RUNNER_TEMP/firebase_distribute.log"
+          echo "Release distributed to group: $TESTER_GROUP"
 
       - name: Print distribution summary
         if: success()
         env:
           APK_PATH: ${{ steps.apk.outputs.path }}
+          RELEASE_NAME: ${{ steps.operation.outputs.release_name }}
         run: |
           set -euo pipefail
           echo "Distribution completed."
           echo "Git ref: ${{ inputs.git_ref }}"
           echo "APK: $APK_PATH"
+          echo "Release: $RELEASE_NAME"
           echo "Tester group: ${{ inputs.tester_group }}"

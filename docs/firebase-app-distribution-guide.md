@@ -53,7 +53,7 @@ JSON キーは使わず、GitHub OIDC で Google Cloud に認証します。
   例: `github-actions-firebase-distributor@org-clock-android.iam.gserviceaccount.com`
 
 サービスアカウントには、Firebase 配布に必要なロール（最低でも App Distribution へ書き込み可能な権限）を付与します。
-workflow 側では OIDC で発行した短命アクセストークンを `firebase appdistribution:distribute --token` に渡して認証します。
+workflow 側では OIDC で発行した短命アクセストークンを使い、App Distribution REST API（upload/distribute）を呼び出します。
 
 ### 2.4 Workload Identity Federation の作成
 
@@ -105,7 +105,17 @@ Google Cloud 側で以下を設定します。
 - `GCP_SERVICE_ACCOUNT_EMAIL` が正しいか確認
 - Workload Identity Provider で GitHub リポジトリの principal 条件を許可しているか確認
 - サービスアカウント権限を見直し
-- `firebase login` エラーが出る場合は、workflow が `--token` 付き実装に更新されているか確認
+
+### App Distribution REST エラー
+
+- `Upload response did not include operation name` の場合:
+  - `FIREBASE_APP_ID_ANDROID` の値が正しいか確認
+  - アップロード API 呼び出しのレスポンス本文を確認
+- `Upload operation failed` の場合:
+  - APK が対象アプリと一致しているか確認（applicationId / 署名）
+- `Failed to distribute release` の場合:
+  - `tester_group` が Firebase 側 group alias と一致しているか確認
+  - サービスアカウントに App Distribution 書き込み権限があるか確認
 
 ### グループ未検出エラー
 
