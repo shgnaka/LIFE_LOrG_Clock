@@ -25,8 +25,10 @@ import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
+import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.viewmodel.OrgClockViewModel
+import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -112,20 +114,17 @@ fun OrgClockRoute(
         dependencies.openAppNotificationSettings()
         viewModel.onAction(OrgClockUiAction.AppNotificationSettingsOpened)
     }
-    LaunchedEffect(
-        state.notificationEnabled,
-        state.notificationDisplayMode,
-        state.rootUri,
-        state.headings,
-    ) {
-        if (state.notificationEnabled && state.rootUri != null) {
-            dependencies.syncNotificationService(
-                state.notificationEnabled,
-                state.notificationDisplayMode,
-            )
-        } else {
+    val notificationSyncKey = remember(state) { buildNotificationSyncKey(state) }
+    LaunchedEffect(notificationSyncKey) {
+        if (!state.notificationEnabled || state.rootUri == null) {
             dependencies.stopNotificationService()
+            return@LaunchedEffect
         }
+        delay(NOTIFICATION_SYNC_DEBOUNCE_MS)
+        dependencies.syncNotificationService(
+            state.notificationEnabled,
+            state.notificationDisplayMode,
+        )
     }
 
     DisposableEffect(state.screen) {
@@ -185,3 +184,25 @@ private fun orgClockViewModelFactory(
         }
     }
 }
+
+internal data class NotificationSyncKey(
+    val notificationEnabled: Boolean,
+    val notificationDisplayMode: NotificationDisplayMode,
+    val rootUri: Uri?,
+    val openClockFootprint: Set<Int>,
+)
+
+internal fun buildNotificationSyncKey(state: OrgClockUiState): NotificationSyncKey {
+    return NotificationSyncKey(
+        notificationEnabled = state.notificationEnabled,
+        notificationDisplayMode = state.notificationDisplayMode,
+        rootUri = state.rootUri,
+        openClockFootprint = state.headings
+            .asSequence()
+            .filter { it.openClock != null }
+            .map { it.node.lineIndex }
+            .toSet(),
+    )
+}
+
+private const val NOTIFICATION_SYNC_DEBOUNCE_MS = 120L
