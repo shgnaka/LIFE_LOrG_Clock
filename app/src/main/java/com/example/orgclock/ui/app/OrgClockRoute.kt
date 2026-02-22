@@ -1,8 +1,8 @@
 package com.example.orgclock.ui.app
 
 import android.Manifest
-import android.os.Build
 import android.net.Uri
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.Composable
@@ -13,9 +13,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.data.RootAccess
@@ -27,79 +27,46 @@ import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.viewmodel.OrgClockViewModel
+import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZonedDateTime
+
+data class OrgClockRouteDependencies(
+    val loadSavedUri: () -> Uri?,
+    val saveUri: (Uri) -> Unit,
+    val openRoot: suspend (Uri) -> Result<RootAccess>,
+    val listFiles: suspend () -> Result<List<OrgFileEntry>>,
+    val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
+    val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
+    val startClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    val stopClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    val cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    val listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
+    val editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
+    val deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
+    val createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
+    val createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
+    val loadNotificationEnabled: () -> Boolean,
+    val saveNotificationEnabled: (Boolean) -> Unit,
+    val loadNotificationDisplayMode: () -> NotificationDisplayMode,
+    val saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
+    val notificationPermissionGrantedProvider: () -> Boolean,
+    val syncNotificationService: (Boolean, NotificationDisplayMode) -> Unit,
+    val stopNotificationService: () -> Unit,
+    val openAppNotificationSettings: () -> Unit,
+    val nowProvider: () -> ZonedDateTime,
+    val todayProvider: () -> LocalDate,
+    val zoneIdProvider: () -> ZoneId,
+    val showPerfOverlay: Boolean,
+)
 
 @Composable
 fun OrgClockRoute(
-    loadSavedUri: () -> Uri?,
-    saveUri: (Uri) -> Unit,
-    openRoot: suspend (Uri) -> Result<RootAccess>,
-    listFiles: suspend () -> Result<List<OrgFileEntry>>,
-    listFilesWithOpenClock: suspend () -> Result<Set<String>>,
-    listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
-    startClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    stopClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
-    editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
-    deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
-    createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
-    createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
-    loadNotificationEnabled: () -> Boolean,
-    saveNotificationEnabled: (Boolean) -> Unit,
-    loadNotificationDisplayMode: () -> NotificationDisplayMode,
-    saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
-    notificationPermissionGrantedProvider: () -> Boolean,
-    syncNotificationService: (Boolean, NotificationDisplayMode) -> Unit,
-    stopNotificationService: () -> Unit,
-    openAppNotificationSettings: () -> Unit,
+    dependencies: OrgClockRouteDependencies,
     performanceMonitor: PerformanceMonitor,
-    showPerfOverlay: Boolean,
 ) {
-    val factory = remember(
-        loadSavedUri,
-        saveUri,
-        openRoot,
-        listFiles,
-        listFilesWithOpenClock,
-        listHeadings,
-        startClock,
-        stopClock,
-        cancelClock,
-        listClosedClocks,
-        editClosedClock,
-        deleteClosedClock,
-        createL1Heading,
-        createL2Heading,
-        loadNotificationEnabled,
-        saveNotificationEnabled,
-        loadNotificationDisplayMode,
-        saveNotificationDisplayMode,
-        notificationPermissionGrantedProvider,
-        showPerfOverlay,
-    ) {
-        orgClockViewModelFactory(
-            loadSavedUri = loadSavedUri,
-            saveUri = saveUri,
-            openRoot = openRoot,
-            listFiles = listFiles,
-            listFilesWithOpenClock = listFilesWithOpenClock,
-            listHeadings = listHeadings,
-            startClock = startClock,
-            stopClock = stopClock,
-            cancelClock = cancelClock,
-            listClosedClocks = listClosedClocks,
-            editClosedClock = editClosedClock,
-            deleteClosedClock = deleteClosedClock,
-            createL1Heading = createL1Heading,
-            createL2Heading = createL2Heading,
-            loadNotificationEnabled = loadNotificationEnabled,
-            saveNotificationEnabled = saveNotificationEnabled,
-            loadNotificationDisplayMode = loadNotificationDisplayMode,
-            saveNotificationDisplayMode = saveNotificationDisplayMode,
-            notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
-            showPerfOverlay = showPerfOverlay,
-        )
+    val factory = remember(dependencies) {
+        orgClockViewModelFactory(dependencies)
     }
 
     val viewModel: OrgClockViewModel = viewModel(factory = factory)
@@ -142,7 +109,7 @@ fun OrgClockRoute(
     }
     LaunchedEffect(state.openAppNotificationSettingsPending) {
         if (!state.openAppNotificationSettingsPending) return@LaunchedEffect
-        openAppNotificationSettings()
+        dependencies.openAppNotificationSettings()
         viewModel.onAction(OrgClockUiAction.AppNotificationSettingsOpened)
     }
     LaunchedEffect(
@@ -152,12 +119,12 @@ fun OrgClockRoute(
         state.headings,
     ) {
         if (state.notificationEnabled && state.rootUri != null) {
-            syncNotificationService(
+            dependencies.syncNotificationService(
                 state.notificationEnabled,
                 state.notificationDisplayMode,
             )
         } else {
-            stopNotificationService()
+            dependencies.stopNotificationService()
         }
     }
 
@@ -174,32 +141,15 @@ fun OrgClockRoute(
     OrgClockScreen(
         state = state,
         performanceMonitor = performanceMonitor,
+        zoneIdProvider = dependencies.zoneIdProvider,
+        nowProvider = dependencies.nowProvider,
         onPickRoot = { rootPicker.launch(null) },
         onAction = viewModel::onAction,
     )
 }
 
 private fun orgClockViewModelFactory(
-    loadSavedUri: () -> Uri?,
-    saveUri: (Uri) -> Unit,
-    openRoot: suspend (Uri) -> Result<RootAccess>,
-    listFiles: suspend () -> Result<List<OrgFileEntry>>,
-    listFilesWithOpenClock: suspend () -> Result<Set<String>>,
-    listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
-    startClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    stopClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
-    editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
-    deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
-    createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
-    createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
-    loadNotificationEnabled: () -> Boolean,
-    saveNotificationEnabled: (Boolean) -> Unit,
-    loadNotificationDisplayMode: () -> NotificationDisplayMode,
-    saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
-    notificationPermissionGrantedProvider: () -> Boolean,
-    showPerfOverlay: Boolean,
+    dependencies: OrgClockRouteDependencies,
 ): ViewModelProvider.Factory {
     return object : ViewModelProvider.Factory {
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -207,26 +157,28 @@ private fun orgClockViewModelFactory(
                 throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
             }
             val viewModel = OrgClockViewModel(
-                loadSavedUri = loadSavedUri,
-                saveUri = saveUri,
-                openRoot = openRoot,
-                listFiles = listFiles,
-                listFilesWithOpenClock = listFilesWithOpenClock,
-                listHeadings = listHeadings,
-                startClock = startClock,
-                stopClock = stopClock,
-                cancelClock = cancelClock,
-                listClosedClocks = listClosedClocks,
-                editClosedClock = editClosedClock,
-                deleteClosedClock = deleteClosedClock,
-                createL1Heading = createL1Heading,
-                createL2Heading = createL2Heading,
-                loadNotificationEnabled = loadNotificationEnabled,
-                saveNotificationEnabled = saveNotificationEnabled,
-                loadNotificationDisplayMode = loadNotificationDisplayMode,
-                saveNotificationDisplayMode = saveNotificationDisplayMode,
-                notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
-                showPerfOverlay = showPerfOverlay,
+                loadSavedUri = dependencies.loadSavedUri,
+                saveUri = dependencies.saveUri,
+                openRoot = dependencies.openRoot,
+                listFiles = dependencies.listFiles,
+                listFilesWithOpenClock = dependencies.listFilesWithOpenClock,
+                listHeadings = dependencies.listHeadings,
+                startClock = dependencies.startClock,
+                stopClock = dependencies.stopClock,
+                cancelClock = dependencies.cancelClock,
+                listClosedClocks = dependencies.listClosedClocks,
+                editClosedClock = dependencies.editClosedClock,
+                deleteClosedClock = dependencies.deleteClosedClock,
+                createL1Heading = dependencies.createL1Heading,
+                createL2Heading = dependencies.createL2Heading,
+                loadNotificationEnabled = dependencies.loadNotificationEnabled,
+                saveNotificationEnabled = dependencies.saveNotificationEnabled,
+                loadNotificationDisplayMode = dependencies.loadNotificationDisplayMode,
+                saveNotificationDisplayMode = dependencies.saveNotificationDisplayMode,
+                notificationPermissionGrantedProvider = dependencies.notificationPermissionGrantedProvider,
+                nowProvider = dependencies.nowProvider,
+                todayProvider = dependencies.todayProvider,
+                showPerfOverlay = dependencies.showPerfOverlay,
             )
             return modelClass.cast(viewModel)
                 ?: throw IllegalStateException("Failed to cast ViewModel: ${modelClass.name}")

@@ -11,6 +11,8 @@ import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
 import org.junit.Rule
 import org.junit.Test
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class OrgClockScreenTest {
 
@@ -26,6 +28,8 @@ class OrgClockScreenTest {
                     status = UiStatus("Select org directory", StatusTone.Info),
                 ),
                 performanceMonitor = PerformanceMonitor(composeRule.activity.window),
+                zoneIdProvider = { ZoneId.systemDefault() },
+                nowProvider = { ZonedDateTime.now() },
                 onPickRoot = {},
                 onAction = {},
             )

@@ -86,6 +86,7 @@ import com.example.orgclock.ui.theme.StateWarningBg
 import com.example.orgclock.ui.theme.StateWarningFg
 import kotlinx.coroutines.delay
 import java.time.Duration
+import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -138,6 +139,8 @@ private val ClockDateTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPatt
 fun OrgClockScreen(
     state: OrgClockUiState,
     performanceMonitor: PerformanceMonitor,
+    zoneIdProvider: () -> ZoneId,
+    nowProvider: () -> ZonedDateTime,
     onPickRoot: () -> Unit,
     onAction: (OrgClockUiAction) -> Unit,
 ) {
@@ -152,6 +155,7 @@ fun OrgClockScreen(
                 status = state.status,
                 files = state.files,
                 filesWithOpenClock = state.filesWithOpenClock,
+                zoneIdProvider = zoneIdProvider,
                 onPickRoot = onPickRoot,
                 onSelectFile = { onAction(OrgClockUiAction.SelectFile(it)) },
                 onOpenSettings = { onAction(OrgClockUiAction.OpenSettings) },
@@ -174,6 +178,7 @@ fun OrgClockScreen(
                 onStart = { onAction(OrgClockUiAction.StartClock(it)) },
                 onStop = { onAction(OrgClockUiAction.StopClock(it)) },
                 onCancel = { onAction(OrgClockUiAction.CancelClock(it)) },
+                nowProvider = nowProvider,
                 performanceMonitor = performanceMonitor,
                 showPerfOverlay = state.showPerfOverlay,
             )
@@ -443,6 +448,7 @@ private fun FilePickerScreen(
     status: UiStatus,
     files: List<OrgFileEntry>,
     filesWithOpenClock: Set<String>,
+    zoneIdProvider: () -> ZoneId,
     onPickRoot: () -> Unit,
     onSelectFile: (OrgFileEntry) -> Unit,
     onOpenSettings: () -> Unit,
@@ -487,7 +493,7 @@ private fun FilePickerScreen(
                         val modified = file.modifiedAt?.let {
                             DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
                                 .withLocale(Locale.getDefault())
-                                .format(it.atZone(java.time.ZoneId.systemDefault()))
+                                .format(it.atZone(zoneIdProvider()))
                         } ?: stringResource(R.string.unknown_modified_time)
                         Text(modified, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -516,6 +522,7 @@ private fun HeadingListScreen(
     onStart: (HeadingViewItem) -> Unit,
     onStop: (HeadingViewItem) -> Unit,
     onCancel: (HeadingViewItem) -> Unit,
+    nowProvider: () -> ZonedDateTime,
     performanceMonitor: PerformanceMonitor,
     showPerfOverlay: Boolean,
 ) {
@@ -633,6 +640,7 @@ private fun HeadingListScreen(
                 onStop = { onStop(it.source) },
                 onCancel = { onCancel(it.source) },
                 pendingClockOps = pendingClockOps,
+                nowProvider = nowProvider,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
@@ -649,15 +657,16 @@ private fun RunningClocksPanel(
     onStop: (RunningClockUiItem) -> Unit,
     onCancel: (RunningClockUiItem) -> Unit,
     pendingClockOps: Set<Int>,
+    nowProvider: () -> ZonedDateTime,
     modifier: Modifier = Modifier,
 ) {
     if (runningItems.isEmpty()) return
 
-    var now by remember { mutableStateOf(ZonedDateTime.now()) }
+    var now by remember { mutableStateOf(nowProvider()) }
     LaunchedEffect(runningItems.isNotEmpty()) {
         if (!runningItems.isNotEmpty()) return@LaunchedEffect
         while (true) {
-            val current = ZonedDateTime.now()
+            val current = nowProvider()
             now = current
             val elapsedMs = (current.second * 1_000L) + (current.nano / 1_000_000L)
             val delayMs = RUNNING_PANEL_TICK_MS - elapsedMs

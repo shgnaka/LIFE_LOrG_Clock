@@ -15,6 +15,8 @@ import androidx.core.content.ContextCompat
 import com.example.orgclock.MainActivity
 import com.example.orgclock.R
 import com.example.orgclock.data.SafOrgRepository
+import com.example.orgclock.time.ClockEnvironment
+import com.example.orgclock.time.SystemClockEnvironment
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,7 +26,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.Duration
-import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 
@@ -34,6 +35,7 @@ class ClockInNotificationService : Service() {
     private val scanner by lazy { ClockInScanner(repository) }
     private val notificationPermissionChecker: NotificationPermissionChecker =
         DefaultNotificationPermissionChecker()
+    private val clockEnvironment: ClockEnvironment by lazy { clockEnvironmentFactory() }
     private var config: NotificationServiceConfig = NotificationServiceConfig()
 
     private var enabled: Boolean = true
@@ -125,7 +127,7 @@ class ClockInNotificationService : Service() {
             return true
         }
 
-        val result = scanner.scan(ZoneId.systemDefault())
+        val result = scanner.scan(clockEnvironment.zoneId())
         if (result.isFailure) {
             val reason = result.exceptionOrNull()?.message ?: "unknown"
             val notification = buildStatusNotification(
@@ -246,7 +248,7 @@ class ClockInNotificationService : Service() {
     }
 
     private fun elapsedMinutes(startedAt: ZonedDateTime): Long {
-        return maxOf(0L, Duration.between(startedAt, ZonedDateTime.now()).toMinutes())
+        return maxOf(0L, Duration.between(startedAt, clockEnvironment.now()).toMinutes())
     }
 
     private fun headingLabel(entry: ClockInEntry): String {
@@ -296,6 +298,8 @@ class ClockInNotificationService : Service() {
         private const val EXTRA_MAX_LINES = "max_lines"
 
         private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+        @Volatile
+        internal var clockEnvironmentFactory: () -> ClockEnvironment = { SystemClockEnvironment }
 
         fun sync(
             context: Context,
