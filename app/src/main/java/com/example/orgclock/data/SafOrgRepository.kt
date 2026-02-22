@@ -114,7 +114,7 @@ class SafOrgRepository(
     override suspend fun loadFile(fileId: String): Result<OrgDocument> = withContext(Dispatchers.IO) {
         runCatching {
             val rootDoc = root ?: throw IllegalStateException("Root is not opened")
-            val file = findFileById(rootDoc, fileId) ?: throw IllegalArgumentException("File not found")
+            val file = resolveFileById(rootDoc, fileId) ?: throw IllegalArgumentException("File not found")
             val rawText = readText(file.uri)
             val lines = parseLines(rawText)
             val date = parseDateFromFileName(file.name)
@@ -131,7 +131,7 @@ class SafOrgRepository(
         withContext(Dispatchers.IO) {
             runCatching {
                 val rootDoc = root ?: return@withContext SaveResult.ValidationError("Root is not opened")
-                val target = findFileById(rootDoc, fileId)
+                val target = resolveFileById(rootDoc, fileId)
                     ?: return@withContext SaveResult.ValidationError("File not found")
                 val fileName = target.name ?: return@withContext SaveResult.ValidationError("Invalid file name")
                 val existingRawText = readText(target.uri)
@@ -248,14 +248,21 @@ class SafOrgRepository(
         return DocumentFile.fromSingleUri(context, createdUri)
     }
 
-    private fun findFileById(rootDoc: DocumentFile, fileId: String): DocumentFile? {
+    private fun resolveFileById(rootDoc: DocumentFile, fileId: String): DocumentFile? {
         val uri = runCatching { Uri.parse(fileId) }.getOrNull() ?: return null
-        rootDoc.listFiles().forEach { file ->
-            if (file.uri == uri) {
-                return file
-            }
-        }
-        return null
+        if (!isUriUnderRoot(rootDoc.uri, uri)) return null
+        val file = DocumentFile.fromSingleUri(context, uri) ?: return null
+        return file.takeIf { it.exists() && it.isFile }
+    }
+
+    private fun isUriUnderRoot(rootUri: Uri, fileUri: Uri): Boolean {
+        val rootDocumentId = runCatching { DocumentsContract.getTreeDocumentId(rootUri) }
+            .getOrNull()
+            ?: return false
+        val fileDocumentId = runCatching { DocumentsContract.getDocumentId(fileUri) }
+            .getOrNull()
+            ?: return false
+        return fileDocumentId == rootDocumentId || fileDocumentId.startsWith("$rootDocumentId/")
     }
 
     private fun parseDateFromFileName(name: String?): LocalDate {
