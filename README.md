@@ -16,6 +16,8 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/features/clock-in-notification-spec.md`
 - 通知機能実装状況  
   `docs/features/clock-in-notification-status.md`
+- 改善チケット運用（Kaizen）  
+  `docs/kaizens/README.md`
 
 ## Quick Start
 
