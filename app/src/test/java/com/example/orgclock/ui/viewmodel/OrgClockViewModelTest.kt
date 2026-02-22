@@ -6,6 +6,7 @@ import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingNode
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
+import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
@@ -268,6 +269,42 @@ class OrgClockViewModelTest {
         assertEquals(StatusTone.Error, vm.uiState.value.status.tone)
     }
 
+    @Test
+    fun toggleNotificationEnabled_withoutPermission_requestsPermission() = runTest {
+        val vm = testViewModel(
+            loadNotificationEnabled = { false },
+            notificationPermissionGrantedProvider = { false },
+        )
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        vm.onAction(OrgClockUiAction.ToggleNotificationEnabled(true))
+
+        val state = vm.uiState.value
+        assertTrue(state.notificationPermissionRequestPending)
+        assertFalse(state.notificationEnabled)
+    }
+
+    @Test
+    fun notificationPermissionResult_granted_enablesNotification() = runTest {
+        var savedEnabled = false
+        val vm = testViewModel(
+            loadNotificationEnabled = { false },
+            notificationPermissionGrantedProvider = { false },
+            saveNotificationEnabled = { savedEnabled = it },
+        )
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        vm.onAction(OrgClockUiAction.ToggleNotificationEnabled(true))
+        vm.onAction(OrgClockUiAction.NotificationPermissionResult(true))
+
+        val state = vm.uiState.value
+        assertTrue(savedEnabled)
+        assertTrue(state.notificationEnabled)
+        assertTrue(state.notificationPermissionGranted)
+    }
+
     private fun sampleHeadings(): List<HeadingViewItem> {
         val root = HeadingViewItem(
             node = HeadingNode(
@@ -329,6 +366,11 @@ class OrgClockViewModelTest {
         deleteClosedClock: suspend (String, Int, Int) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         createL1Heading: suspend (String, String, Boolean) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit> = { _, _, _, _ -> Result.success(Unit) },
+        loadNotificationEnabled: () -> Boolean = { true },
+        saveNotificationEnabled: (Boolean) -> Unit = {},
+        loadNotificationDisplayMode: () -> NotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
+        saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit = {},
+        notificationPermissionGrantedProvider: () -> Boolean = { true },
         nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
         todayProvider: () -> LocalDate = { LocalDate.now() },
     ): OrgClockViewModel {
@@ -346,6 +388,11 @@ class OrgClockViewModelTest {
             deleteClosedClock = deleteClosedClock,
             createL1Heading = createL1Heading,
             createL2Heading = createL2Heading,
+            loadNotificationEnabled = loadNotificationEnabled,
+            saveNotificationEnabled = saveNotificationEnabled,
+            loadNotificationDisplayMode = loadNotificationDisplayMode,
+            saveNotificationDisplayMode = saveNotificationDisplayMode,
+            notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
             nowProvider = nowProvider,
             todayProvider = todayProvider,
             showPerfOverlay = true,
