@@ -147,6 +147,7 @@ fun OrgClockScreen(
             Screen.FilePicker -> FilePickerScreen(
                 status = state.status,
                 files = state.files,
+                filesWithOpenClock = state.filesWithOpenClock,
                 onPickRoot = onPickRoot,
                 onSelectFile = { onAction(OrgClockUiAction.SelectFile(it)) },
                 onOpenSettings = { onAction(OrgClockUiAction.OpenSettings) },
@@ -429,6 +430,7 @@ private fun RootSetupScreen(
 private fun FilePickerScreen(
     status: UiStatus,
     files: List<OrgFileEntry>,
+    filesWithOpenClock: Set<String>,
     onPickRoot: () -> Unit,
     onSelectFile: (OrgFileEntry) -> Unit,
     onOpenSettings: () -> Unit,
@@ -456,7 +458,20 @@ private fun FilePickerScreen(
                         .clickable { onSelectFile(file) },
                 ) {
                     Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(file.displayName, fontWeight = FontWeight.SemiBold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(file.displayName, fontWeight = FontWeight.SemiBold)
+                            if (file.fileId in filesWithOpenClock) {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(start = 8.dp)
+                                        .size(8.dp)
+                                        .background(StateSuccessFg, CircleShape),
+                                )
+                            }
+                        }
                         val modified = file.modifiedAt?.let {
                             DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
                                 .withLocale(Locale.getDefault())

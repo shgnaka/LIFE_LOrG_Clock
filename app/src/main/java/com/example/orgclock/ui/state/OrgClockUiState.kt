@@ -57,6 +57,7 @@ data class OrgClockUiState(
     val rootUri: Uri? = null,
     val status: UiStatus = UiStatus("Select org directory", StatusTone.Info),
     val files: List<OrgFileEntry> = emptyList(),
+    val filesWithOpenClock: Set<String> = emptySet(),
     val selectedFile: OrgFileEntry? = null,
     val headings: List<HeadingViewItem> = emptyList(),
     val pendingClockOps: Set<Int> = emptySet(),

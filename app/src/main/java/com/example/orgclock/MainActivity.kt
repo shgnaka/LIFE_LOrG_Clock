@@ -13,12 +13,14 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
 import com.example.orgclock.data.SafOrgRepository
 import com.example.orgclock.domain.ClockService
+import com.example.orgclock.notification.ClockInScanner
 import com.example.orgclock.notification.ClockInNotificationService
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.ui.app.OrgClockRoute
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.theme.OrgClockTheme
+import java.time.ZoneId
 
 class MainActivity : ComponentActivity() {
 
@@ -28,6 +30,7 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences(NotificationPrefs.PREFS_NAME, MODE_PRIVATE)
         val repository = SafOrgRepository(this)
         val clockService = ClockService(repository)
+        val clockInScanner = ClockInScanner(repository)
         val showPerfOverlay = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
         setContent {
@@ -38,6 +41,11 @@ class MainActivity : ComponentActivity() {
                     saveUri = { uri -> prefs.edit().putString(NotificationPrefs.KEY_ROOT_URI, uri.toString()).apply() },
                     openRoot = { uri -> repository.openRoot(uri) },
                     listFiles = { repository.listOrgFiles() },
+                    listFilesWithOpenClock = {
+                        clockInScanner.scan(ZoneId.systemDefault()).map { entries ->
+                            entries.asSequence().map { it.fileId }.toSet()
+                        }
+                    },
                     listHeadings = { fileId -> clockService.listHeadings(fileId) },
                     startClock = { fileId, lineIndex ->
                         clockService.startClockInFile(fileId, lineIndex, java.time.ZonedDateTime.now())

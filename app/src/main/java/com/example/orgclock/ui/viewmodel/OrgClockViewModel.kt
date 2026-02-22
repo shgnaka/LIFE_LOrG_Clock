@@ -32,6 +32,7 @@ class OrgClockViewModel(
     private val saveUri: (Uri) -> Unit,
     private val openRoot: suspend (Uri) -> Result<RootAccess>,
     private val listFiles: suspend () -> Result<List<OrgFileEntry>>,
+    private val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     private val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
     private val startClock: suspend (String, Int) -> Result<ClockMutationResult>,
     private val stopClock: suspend (String, Int) -> Result<ClockMutationResult>,
@@ -279,6 +280,7 @@ class OrgClockViewModel(
 
         val listed = result.getOrThrow()
         _uiState.update { it.copy(files = listed) }
+        refreshFilesWithOpenClock()
         val todayFileName = "${todayProvider()}.org"
         val today = listed.firstOrNull { it.displayName == todayFileName }
         if (today != null) {
@@ -292,6 +294,14 @@ class OrgClockViewModel(
                     status = UiStatus("Today's file not found. Please select a file.", StatusTone.Warning),
                 )
             }
+        }
+    }
+
+    private suspend fun refreshFilesWithOpenClock() {
+        val result = listFilesWithOpenClock()
+        if (result.isSuccess) {
+            val fileIds = result.getOrThrow()
+            _uiState.update { it.copy(filesWithOpenClock = fileIds) }
         }
     }
 
@@ -389,6 +399,7 @@ class OrgClockViewModel(
             updateHeadingOpenClock(lineIndex, OpenClockState(startedAt))
             updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
+            refreshFilesWithOpenClock()
             requestHeadingsSync(file)
         } else {
             updateHeadingOpenClock(lineIndex, item.openClock)
@@ -412,6 +423,7 @@ class OrgClockViewModel(
         if (result.isSuccess) {
             updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
+            refreshFilesWithOpenClock()
             requestHeadingsSync(file)
         } else {
             updateHeadingOpenClock(lineIndex, item.openClock)
@@ -435,6 +447,7 @@ class OrgClockViewModel(
         if (result.isSuccess) {
             updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
+            refreshFilesWithOpenClock()
             requestHeadingsSync(file)
         } else {
             updateHeadingOpenClock(lineIndex, item.openClock)
