@@ -4,6 +4,7 @@ import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.data.OrgRepository
 import com.example.orgclock.data.RootAccess
 import com.example.orgclock.data.SaveResult
+import com.example.orgclock.data.FileWriteIntent
 import com.example.orgclock.model.OrgDocument
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -69,6 +70,15 @@ private class FakeOrgRepository(
     override suspend fun loadFile(fileId: String): Result<OrgDocument> {
         return docs[fileId]?.let { Result.success(it) }
             ?: Result.failure(IllegalArgumentException("missing file: $fileId"))
+    }
+
+    override suspend fun saveFile(
+        fileId: String,
+        lines: List<String>,
+        expectedHash: String,
+        writeIntent: FileWriteIntent,
+    ): SaveResult {
+        return SaveResult.ValidationError("not used")
     }
 
     override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> {

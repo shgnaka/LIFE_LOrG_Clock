@@ -351,6 +351,14 @@ class ClockServiceTest {
     fun startClock_mapsValidationSaveFailureToIllegalArgumentException() = runBlocking {
         val repo = object : OrgRepository {
             override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+            override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
+            override suspend fun loadFile(fileId: String): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
+            override suspend fun saveFile(
+                fileId: String,
+                lines: List<String>,
+                expectedHash: String,
+                writeIntent: FileWriteIntent,
+            ): SaveResult = SaveResult.ValidationError("unsupported")
 
             override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> {
                 val lines = listOf("* Work", "** Project A")
@@ -378,6 +386,14 @@ class ClockServiceTest {
     fun startClock_mapsIoSaveFailureToIllegalStateException() = runBlocking {
         val repo = object : OrgRepository {
             override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+            override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
+            override suspend fun loadFile(fileId: String): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
+            override suspend fun saveFile(
+                fileId: String,
+                lines: List<String>,
+                expectedHash: String,
+                writeIntent: FileWriteIntent,
+            ): SaveResult = SaveResult.ValidationError("unsupported")
 
             override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> {
                 val lines = listOf("* Work", "** Project A")
@@ -409,6 +425,23 @@ class ClockServiceTest {
 
         override suspend fun openRoot(uri: Uri): Result<RootAccess> {
             return Result.success(RootAccess(uri, "test"))
+        }
+
+        override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> {
+            return Result.failure(UnsupportedOperationException())
+        }
+
+        override suspend fun loadFile(fileId: String): Result<OrgDocument> {
+            return Result.failure(UnsupportedOperationException())
+        }
+
+        override suspend fun saveFile(
+            fileId: String,
+            lines: List<String>,
+            expectedHash: String,
+            writeIntent: FileWriteIntent,
+        ): SaveResult {
+            return SaveResult.ValidationError("unsupported")
         }
 
         override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> {

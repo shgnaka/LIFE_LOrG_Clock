@@ -30,23 +30,15 @@ sealed interface SaveResult {
 
 interface OrgRepository {
     suspend fun openRoot(uri: Uri): Result<RootAccess>
-
-    suspend fun listOrgFiles(): Result<List<OrgFileEntry>> {
-        return Result.failure(UnsupportedOperationException("listOrgFiles is not implemented"))
-    }
-
-    suspend fun loadFile(fileId: String): Result<OrgDocument> {
-        return Result.failure(UnsupportedOperationException("loadFile is not implemented"))
-    }
+    suspend fun listOrgFiles(): Result<List<OrgFileEntry>>
+    suspend fun loadFile(fileId: String): Result<OrgDocument>
 
     suspend fun saveFile(
         fileId: String,
         lines: List<String>,
         expectedHash: String,
         writeIntent: FileWriteIntent = FileWriteIntent.UserEdit,
-    ): SaveResult {
-        return SaveResult.ValidationError("saveFile is not implemented")
-    }
+    ): SaveResult
 
     suspend fun loadDaily(date: LocalDate): Result<OrgDocument>
     suspend fun saveDaily(date: LocalDate, lines: List<String>, expectedHash: String): SaveResult
