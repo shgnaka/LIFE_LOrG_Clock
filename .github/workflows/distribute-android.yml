@@ -16,6 +16,10 @@ on:
         required: false
         default: ""
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   distribute:
     runs-on: ubuntu-latest
@@ -40,7 +44,8 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
           FIREBASE_APP_ID_ANDROID: ${{ secrets.FIREBASE_APP_ID_ANDROID }}
         run: |
           set -euo pipefail
@@ -49,7 +54,8 @@ jobs:
             ANDROID_KEYSTORE_PASSWORD
             ANDROID_KEY_ALIAS
             ANDROID_KEY_PASSWORD
-            FIREBASE_SERVICE_ACCOUNT_JSON
+            GCP_WORKLOAD_IDENTITY_PROVIDER
+            GCP_SERVICE_ACCOUNT_EMAIL
             FIREBASE_APP_ID_ANDROID
           )
           missing=0
@@ -62,6 +68,14 @@ jobs:
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
+
+      - name: Authenticate to Google Cloud (OIDC)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          create_credentials_file: true
+          export_environment_variables: true
 
       - name: Restore Android keystore
         env:
@@ -97,24 +111,12 @@ jobs:
           echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
           echo "Found APK: $APK_PATH"
 
-      - name: Write Firebase credentials
-        env:
-          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
-        run: |
-          set -euo pipefail
-          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-service-account.json"
-          if [ ! -s "$RUNNER_TEMP/firebase-service-account.json" ]; then
-            echo "::error::Firebase credential file is empty"
-            exit 1
-          fi
-
       - name: Install Firebase CLI
         run: npm install --global firebase-tools
 
       - name: Distribute to Firebase App Distribution
         id: distribute
         env:
-          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/firebase-service-account.json
           FIREBASE_APP_ID_ANDROID: ${{ secrets.FIREBASE_APP_ID_ANDROID }}
           TESTER_GROUP: ${{ inputs.tester_group }}
           RELEASE_NOTES: ${{ inputs.release_notes }}

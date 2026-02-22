@@ -37,8 +37,12 @@ Repository Secrets に以下を登録してください。
 - `ANDROID_KEYSTORE_PASSWORD`
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD`
-- `FIREBASE_SERVICE_ACCOUNT_JSON`  
-  Firebase サービスアカウント JSON（文字列としてそのまま登録）
+- `GCP_WORKLOAD_IDENTITY_PROVIDER`  
+  Workload Identity Provider のリソース名  
+  例: `projects/123456789/locations/global/workloadIdentityPools/github/providers/org-clock`
+- `GCP_SERVICE_ACCOUNT_EMAIL`  
+  OIDC 連携で使用するサービスアカウントのメールアドレス  
+  例: `github-actions-firebase-distributor@org-clock-android.iam.gserviceaccount.com`
 - `FIREBASE_APP_ID_ANDROID`  
   例: `1:1234567890:android:abc123def456`
 
