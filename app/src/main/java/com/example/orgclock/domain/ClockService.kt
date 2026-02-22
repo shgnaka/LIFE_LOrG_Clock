@@ -18,6 +18,20 @@ data class ClockMutationResult(
     val startedAt: ZonedDateTime? = null,
 )
 
+enum class ClockOperationCode {
+    InvalidHeadingLevel,
+    AlreadyRunning,
+    ValidationFailed,
+    IoFailed,
+    Conflict,
+}
+
+class ClockOperationException(
+    val code: ClockOperationCode,
+    message: String,
+    cause: Throwable? = null,
+) : RuntimeException(message, cause)
+
 class ClockService(
     private val repository: OrgRepository,
     private val parser: OrgParser = OrgParser(),
@@ -73,10 +87,20 @@ class ClockService(
     suspend fun startClockInFile(fileId: String, headingLineIndex: Int, now: ZonedDateTime): Result<ClockMutationResult> {
         val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
         if (parser.headingLevelAtLine(doc.lines, headingLineIndex) != 2) {
-            return Result.failure(IllegalArgumentException("Clock operation is only allowed on level-2 headings"))
+            return Result.failure(
+                ClockOperationException(
+                    code = ClockOperationCode.InvalidHeadingLevel,
+                    message = "Clock operation is only allowed on level-2 headings",
+                ),
+            )
         }
         if (parser.findOpenClockAtLine(doc.lines, headingLineIndex, now.zone) != null) {
-            return Result.failure(IllegalStateException("Clock already running for this heading"))
+            return Result.failure(
+                ClockOperationException(
+                    code = ClockOperationCode.AlreadyRunning,
+                    message = "Clock already running for this heading",
+                ),
+            )
         }
 
         val firstLines = runCatching { parser.appendOpenClockAtLine(doc.lines, headingLineIndex, now) }
@@ -86,12 +110,17 @@ class ClockService(
             return Result.success(ClockMutationResult(headingLineIndex = headingLineIndex, startedAt = now))
         }
         if (firstSave !is SaveResult.Conflict) {
-            return Result.failure(IllegalStateException(firstSave.asMessage()))
+            return Result.failure(firstSave.toClockOperationException())
         }
 
         val latestDoc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
         if (parser.findOpenClockAtLine(latestDoc.lines, headingLineIndex, now.zone) != null) {
-            return Result.failure(IllegalStateException("Clock already running for this heading"))
+            return Result.failure(
+                ClockOperationException(
+                    code = ClockOperationCode.AlreadyRunning,
+                    message = "Clock already running for this heading",
+                ),
+            )
         }
         val secondLines = runCatching { parser.appendOpenClockAtLine(latestDoc.lines, headingLineIndex, now) }
             .getOrElse { return Result.failure(it) }
@@ -99,14 +128,19 @@ class ClockService(
         return if (secondSave is SaveResult.Success) {
             Result.success(ClockMutationResult(headingLineIndex = headingLineIndex, startedAt = now))
         } else {
-            Result.failure(IllegalStateException(secondSave.asMessage()))
+            Result.failure(secondSave.toClockOperationException())
         }
     }
 
     suspend fun stopClockInFile(fileId: String, headingLineIndex: Int, now: ZonedDateTime): Result<ClockMutationResult> {
         val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
         if (parser.headingLevelAtLine(doc.lines, headingLineIndex) != 2) {
-            return Result.failure(IllegalArgumentException("Clock operation is only allowed on level-2 headings"))
+            return Result.failure(
+                ClockOperationException(
+                    code = ClockOperationCode.InvalidHeadingLevel,
+                    message = "Clock operation is only allowed on level-2 headings",
+                ),
+            )
         }
         val closeResult = runCatching { parser.closeLatestOpenClockAtLine(doc.lines, headingLineIndex, now) }
             .getOrElse { return Result.failure(it) }
@@ -116,14 +150,19 @@ class ClockService(
         return if (save is SaveResult.Success) {
             Result.success(ClockMutationResult(headingLineIndex = headingLineIndex))
         } else {
-            Result.failure(IllegalStateException(save.asMessage()))
+            Result.failure(save.toClockOperationException())
         }
     }
 
     suspend fun cancelClockInFile(fileId: String, headingLineIndex: Int): Result<ClockMutationResult> {
         val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
         if (parser.headingLevelAtLine(doc.lines, headingLineIndex) != 2) {
-            return Result.failure(IllegalArgumentException("Clock operation is only allowed on level-2 headings"))
+            return Result.failure(
+                ClockOperationException(
+                    code = ClockOperationCode.InvalidHeadingLevel,
+                    message = "Clock operation is only allowed on level-2 headings",
+                ),
+            )
         }
         val cancelled = runCatching { parser.cancelLatestOpenClockAtLine(doc.lines, headingLineIndex) }
             .getOrElse { return Result.failure(it) }
@@ -133,7 +172,7 @@ class ClockService(
         return if (save is SaveResult.Success) {
             Result.success(ClockMutationResult(headingLineIndex = headingLineIndex))
         } else {
-            Result.failure(IllegalStateException(save.asMessage()))
+            Result.failure(save.toClockOperationException())
         }
     }
 
@@ -386,12 +425,7 @@ class ClockService(
         if (saveResult is SaveResult.Success) {
             return Result.failure(IllegalStateException("Unexpected SaveResult.Success in failure mapper"))
         }
-        return when (saveResult) {
-            is SaveResult.ValidationError -> Result.failure(IllegalArgumentException(saveResult.reason))
-            is SaveResult.IoError -> Result.failure(IllegalStateException(saveResult.reason))
-            is SaveResult.Conflict -> Result.failure(IllegalStateException(saveResult.reason))
-            SaveResult.Success -> Result.failure(IllegalStateException("Unexpected SaveResult.Success in failure mapper"))
-        }
+        return Result.failure(saveResult.toClockOperationException())
     }
 
     private fun SaveResult.asMessage(): String {
@@ -400,6 +434,15 @@ class ClockService(
             is SaveResult.Conflict -> reason
             is SaveResult.ValidationError -> reason
             is SaveResult.IoError -> reason
+        }
+    }
+
+    private fun SaveResult.toClockOperationException(): ClockOperationException {
+        return when (this) {
+            is SaveResult.ValidationError -> ClockOperationException(ClockOperationCode.ValidationFailed, reason)
+            is SaveResult.IoError -> ClockOperationException(ClockOperationCode.IoFailed, reason)
+            is SaveResult.Conflict -> ClockOperationException(ClockOperationCode.Conflict, reason)
+            SaveResult.Success -> ClockOperationException(ClockOperationCode.IoFailed, "Unexpected save success mapping")
         }
     }
 }

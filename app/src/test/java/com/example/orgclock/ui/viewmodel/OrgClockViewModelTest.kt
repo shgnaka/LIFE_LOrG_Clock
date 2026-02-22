@@ -3,6 +3,8 @@ package com.example.orgclock.ui.viewmodel
 import android.net.Uri
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
+import com.example.orgclock.domain.ClockOperationCode
+import com.example.orgclock.domain.ClockOperationException
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingNode
@@ -120,7 +122,14 @@ class OrgClockViewModelTest {
     fun startClock_failureShowsWarningWhenAlreadyRunning() = runTest {
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
-            startClock = { _, _ -> Result.failure(IllegalStateException("Clock already running")) },
+            startClock = { _, _ ->
+                Result.failure(
+                    ClockOperationException(
+                        code = ClockOperationCode.AlreadyRunning,
+                        message = "Clock already running",
+                    ),
+                )
+            },
         )
 
         vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
@@ -130,6 +139,30 @@ class OrgClockViewModelTest {
 
         val status = vm.uiState.value.status
         assertEquals(StatusTone.Warning, status.tone)
+        assertEquals(R.string.status_start_failed, status.messageResId)
+    }
+
+    @Test
+    fun startClock_failureShowsErrorForUnknownCode() = runTest {
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            startClock = { _, _ ->
+                Result.failure(
+                    ClockOperationException(
+                        code = ClockOperationCode.IoFailed,
+                        message = "write failed",
+                    ),
+                )
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1]))
+        advanceUntilIdle()
+
+        val status = vm.uiState.value.status
+        assertEquals(StatusTone.Error, status.tone)
         assertEquals(R.string.status_start_failed, status.messageResId)
     }
 

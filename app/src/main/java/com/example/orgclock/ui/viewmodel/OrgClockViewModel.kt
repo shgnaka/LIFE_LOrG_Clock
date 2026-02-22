@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.data.RootAccess
+import com.example.orgclock.domain.ClockOperationCode
+import com.example.orgclock.domain.ClockOperationException
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
@@ -400,8 +402,12 @@ class OrgClockViewModel(
         val status = if (result.isSuccess) {
             status(R.string.status_clock_started, StatusTone.Success)
         } else {
-            val msg = result.exceptionOrNull()?.message ?: ""
-            val tone = if (msg.contains("already", ignoreCase = true)) StatusTone.Warning else StatusTone.Error
+            val error = result.exceptionOrNull()
+            val msg = error?.message ?: ""
+            val tone = when ((error as? ClockOperationException)?.code) {
+                ClockOperationCode.AlreadyRunning -> StatusTone.Warning
+                else -> StatusTone.Error
+            }
             status(R.string.status_start_failed, tone, msg)
         }
         if (result.isSuccess) {

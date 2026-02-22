@@ -105,6 +105,36 @@ class ClockServiceTest {
         )
 
         assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertTrue(ex is ClockOperationException)
+        assertEquals(ClockOperationCode.InvalidHeadingLevel, (ex as ClockOperationException).code)
+    }
+
+    @Test
+    fun startClockInFile_whenAlreadyRunning_returnsTypedAlreadyRunning() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:00:00]",
+                    ":END:",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.startClockInFile(
+            fileId = "f1",
+            headingLineIndex = 1,
+            now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+        )
+
+        assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertTrue(ex is ClockOperationException)
+        assertEquals(ClockOperationCode.AlreadyRunning, (ex as ClockOperationException).code)
     }
 
     @Test
@@ -348,7 +378,7 @@ class ClockServiceTest {
     }
 
     @Test
-    fun startClock_mapsValidationSaveFailureToIllegalArgumentException() = runBlocking {
+    fun startClock_mapsValidationSaveFailureToTypedValidationFailure() = runBlocking {
         val repo = object : OrgRepository {
             override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
             override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
@@ -378,12 +408,13 @@ class ClockServiceTest {
 
         assertTrue(result.isFailure)
         val ex = result.exceptionOrNull()
-        assertTrue(ex is IllegalArgumentException)
-        assertEquals("invalid heading", ex?.message)
+        assertTrue(ex is ClockOperationException)
+        assertEquals(ClockOperationCode.ValidationFailed, (ex as ClockOperationException).code)
+        assertEquals("invalid heading", ex.message)
     }
 
     @Test
-    fun startClock_mapsIoSaveFailureToIllegalStateException() = runBlocking {
+    fun startClock_mapsIoSaveFailureToTypedIoFailure() = runBlocking {
         val repo = object : OrgRepository {
             override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
             override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
@@ -413,8 +444,9 @@ class ClockServiceTest {
 
         assertTrue(result.isFailure)
         val ex = result.exceptionOrNull()
-        assertTrue(ex is IllegalStateException)
-        assertEquals("write failed", ex?.message)
+        assertTrue(ex is ClockOperationException)
+        assertEquals(ClockOperationCode.IoFailed, (ex as ClockOperationException).code)
+        assertEquals("write failed", ex.message)
     }
 
     private class FakeRepo(
