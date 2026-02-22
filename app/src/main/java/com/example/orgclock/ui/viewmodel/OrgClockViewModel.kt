@@ -69,15 +69,36 @@ class OrgClockViewModel(
     private var headingsSyncJob: Job? = null
 
     fun onAction(action: OrgClockUiAction) {
-        when (action) {
+        if (handleNavigationAction(action)) return
+        if (handleClockMutationAction(action)) return
+        if (handleHistoryEditDeleteAction(action)) return
+        if (handleCreateHeadingAction(action)) return
+        if (handleNotificationAction(action)) return
+        error("Unhandled OrgClockUiAction: $action")
+    }
+
+    private fun handleNavigationAction(action: OrgClockUiAction): Boolean {
+        return when (action) {
             OrgClockUiAction.Initialize -> {
-                if (initialized) return
-                initialized = true
-                viewModelScope.launch { initialize() }
+                if (initialized) {
+                    true
+                } else {
+                    initialized = true
+                    viewModelScope.launch { initialize() }
+                    true
+                }
             }
 
-            is OrgClockUiAction.PickRoot -> viewModelScope.launch { applyRoot(action.uri) }
-            is OrgClockUiAction.SelectFile -> viewModelScope.launch { loadHeadingsFor(action.file) }
+            is OrgClockUiAction.PickRoot -> {
+                viewModelScope.launch { applyRoot(action.uri) }
+                true
+            }
+
+            is OrgClockUiAction.SelectFile -> {
+                viewModelScope.launch { loadHeadingsFor(action.file) }
+                true
+            }
+
             is OrgClockUiAction.ToggleL1 -> {
                 _uiState.update { state ->
                     val collapsed = if (action.title in state.collapsedL1) {
@@ -87,6 +108,7 @@ class OrgClockViewModel(
                     }
                     state.copy(collapsedL1 = collapsed)
                 }
+                true
             }
 
             OrgClockUiAction.CollapseAll -> {
@@ -98,10 +120,63 @@ class OrgClockViewModel(
                         .toSet()
                     state.copy(collapsedL1 = l1Titles)
                 }
+                true
             }
 
-            OrgClockUiAction.ExpandAll -> _uiState.update { it.copy(collapsedL1 = emptySet()) }
-            is OrgClockUiAction.OpenHistory -> viewModelScope.launch { openHistory(action.item) }
+            OrgClockUiAction.ExpandAll -> {
+                _uiState.update { it.copy(collapsedL1 = emptySet()) }
+                true
+            }
+
+            OrgClockUiAction.OpenFilePicker -> {
+                _uiState.update { it.copy(screen = Screen.FilePicker) }
+                true
+            }
+
+            OrgClockUiAction.OpenSettings -> {
+                _uiState.update { it.copy(screen = Screen.Settings) }
+                true
+            }
+
+            OrgClockUiAction.BackFromSettings -> {
+                _uiState.update { state ->
+                    state.copy(screen = if (state.selectedFile != null) Screen.HeadingList else Screen.FilePicker)
+                }
+                true
+            }
+
+            else -> false
+        }
+    }
+
+    private fun handleClockMutationAction(action: OrgClockUiAction): Boolean {
+        return when (action) {
+            is OrgClockUiAction.StartClock -> {
+                viewModelScope.launch { startClock(action.item) }
+                true
+            }
+
+            is OrgClockUiAction.StopClock -> {
+                viewModelScope.launch { stopClock(action.item) }
+                true
+            }
+
+            is OrgClockUiAction.CancelClock -> {
+                viewModelScope.launch { cancelClock(action.item) }
+                true
+            }
+
+            else -> false
+        }
+    }
+
+    private fun handleHistoryEditDeleteAction(action: OrgClockUiAction): Boolean {
+        return when (action) {
+            is OrgClockUiAction.OpenHistory -> {
+                viewModelScope.launch { openHistory(action.item) }
+                true
+            }
+
             OrgClockUiAction.DismissHistory -> {
                 _uiState.update {
                     it.copy(
@@ -112,11 +187,9 @@ class OrgClockViewModel(
                         deletingInProgress = false,
                     )
                 }
+                true
             }
 
-            is OrgClockUiAction.StartClock -> viewModelScope.launch { startClock(action.item) }
-            is OrgClockUiAction.StopClock -> viewModelScope.launch { stopClock(action.item) }
-            is OrgClockUiAction.CancelClock -> viewModelScope.launch { cancelClock(action.item) }
             is OrgClockUiAction.BeginEdit -> {
                 _uiState.update {
                     it.copy(
@@ -129,9 +202,14 @@ class OrgClockViewModel(
                         ),
                     )
                 }
+                true
             }
 
-            OrgClockUiAction.CancelEdit -> _uiState.update { it.copy(editingEntry = null, editingDraft = null) }
+            OrgClockUiAction.CancelEdit -> {
+                _uiState.update { it.copy(editingEntry = null, editingDraft = null) }
+                true
+            }
+
             is OrgClockUiAction.BeginDelete -> {
                 _uiState.update {
                     it.copy(
@@ -139,88 +217,167 @@ class OrgClockViewModel(
                         deletingInProgress = false,
                     )
                 }
+                true
             }
 
-            OrgClockUiAction.CancelDelete -> _uiState.update { it.copy(deletingEntry = null, deletingInProgress = false) }
-            OrgClockUiAction.ConfirmDelete -> viewModelScope.launch { confirmDelete() }
-            is OrgClockUiAction.SelectStartHour -> _uiState.update { state ->
-                val draft = state.editingDraft ?: return@update state
-                state.copy(editingDraft = draft.copy(startHour = action.hour))
+            OrgClockUiAction.CancelDelete -> {
+                _uiState.update { it.copy(deletingEntry = null, deletingInProgress = false) }
+                true
             }
 
-            is OrgClockUiAction.SelectStartMinute -> _uiState.update { state ->
-                val draft = state.editingDraft ?: return@update state
-                state.copy(editingDraft = draft.copy(startMinute = action.minute))
+            OrgClockUiAction.ConfirmDelete -> {
+                viewModelScope.launch { confirmDelete() }
+                true
             }
 
-            is OrgClockUiAction.SelectEndHour -> _uiState.update { state ->
-                val draft = state.editingDraft ?: return@update state
-                state.copy(editingDraft = draft.copy(endHour = action.hour))
+            is OrgClockUiAction.SelectStartHour -> {
+                _uiState.update { state ->
+                    val draft = state.editingDraft ?: return@update state
+                    state.copy(editingDraft = draft.copy(startHour = action.hour))
+                }
+                true
             }
 
-            is OrgClockUiAction.SelectEndMinute -> _uiState.update { state ->
-                val draft = state.editingDraft ?: return@update state
-                state.copy(editingDraft = draft.copy(endMinute = action.minute))
+            is OrgClockUiAction.SelectStartMinute -> {
+                _uiState.update { state ->
+                    val draft = state.editingDraft ?: return@update state
+                    state.copy(editingDraft = draft.copy(startMinute = action.minute))
+                }
+                true
             }
 
-            OrgClockUiAction.SaveEdit -> viewModelScope.launch { saveEdit() }
-            OrgClockUiAction.OpenCreateL1Dialog -> _uiState.update {
-                it.copy(
-                    createHeadingDialog = CreateHeadingDialogState(
-                        mode = CreateHeadingMode.L1,
-                        canAttachTplTag = isDailyOrgFile(it.selectedFile),
-                    ),
-                )
+            is OrgClockUiAction.SelectEndHour -> {
+                _uiState.update { state ->
+                    val draft = state.editingDraft ?: return@update state
+                    state.copy(editingDraft = draft.copy(endHour = action.hour))
+                }
+                true
             }
 
-            is OrgClockUiAction.OpenCreateL2Dialog -> {
-                if (action.parent.node.level != 1) return
+            is OrgClockUiAction.SelectEndMinute -> {
+                _uiState.update { state ->
+                    val draft = state.editingDraft ?: return@update state
+                    state.copy(editingDraft = draft.copy(endMinute = action.minute))
+                }
+                true
+            }
+
+            OrgClockUiAction.SaveEdit -> {
+                viewModelScope.launch { saveEdit() }
+                true
+            }
+
+            else -> false
+        }
+    }
+
+    private fun handleCreateHeadingAction(action: OrgClockUiAction): Boolean {
+        return when (action) {
+            OrgClockUiAction.OpenCreateL1Dialog -> {
                 _uiState.update {
                     it.copy(
                         createHeadingDialog = CreateHeadingDialogState(
-                            mode = CreateHeadingMode.L2,
-                            parentL1LineIndex = action.parent.node.lineIndex,
-                            parentL1Title = action.parent.node.title,
+                            mode = CreateHeadingMode.L1,
                             canAttachTplTag = isDailyOrgFile(it.selectedFile),
                         ),
                     )
                 }
+                true
             }
 
-            is OrgClockUiAction.UpdateCreateHeadingTitle -> _uiState.update { state ->
-                val dialog = state.createHeadingDialog ?: return@update state
-                state.copy(createHeadingDialog = dialog.copy(titleInput = action.title))
-            }
-            is OrgClockUiAction.SetCreateHeadingTplTag -> _uiState.update { state ->
-                val dialog = state.createHeadingDialog ?: return@update state
-                if (!dialog.canAttachTplTag) {
-                    return@update state
+            is OrgClockUiAction.OpenCreateL2Dialog -> {
+                if (action.parent.node.level == 1) {
+                    _uiState.update {
+                        it.copy(
+                            createHeadingDialog = CreateHeadingDialogState(
+                                mode = CreateHeadingMode.L2,
+                                parentL1LineIndex = action.parent.node.lineIndex,
+                                parentL1Title = action.parent.node.title,
+                                canAttachTplTag = isDailyOrgFile(it.selectedFile),
+                            ),
+                        )
+                    }
                 }
-                state.copy(createHeadingDialog = dialog.copy(attachTplTag = action.enabled))
+                true
             }
 
-            OrgClockUiAction.SubmitCreateHeading -> viewModelScope.launch { submitCreateHeading() }
-            OrgClockUiAction.DismissCreateHeadingDialog -> _uiState.update {
-                it.copy(createHeadingDialog = null)
+            is OrgClockUiAction.UpdateCreateHeadingTitle -> {
+                _uiState.update { state ->
+                    val dialog = state.createHeadingDialog ?: return@update state
+                    state.copy(createHeadingDialog = dialog.copy(titleInput = action.title))
+                }
+                true
             }
-            OrgClockUiAction.OpenFilePicker -> _uiState.update { it.copy(screen = Screen.FilePicker) }
-            OrgClockUiAction.OpenSettings -> _uiState.update { it.copy(screen = Screen.Settings) }
-            OrgClockUiAction.BackFromSettings -> _uiState.update { state ->
-                state.copy(screen = if (state.selectedFile != null) Screen.HeadingList else Screen.FilePicker)
+
+            is OrgClockUiAction.SetCreateHeadingTplTag -> {
+                _uiState.update { state ->
+                    val dialog = state.createHeadingDialog ?: return@update state
+                    if (!dialog.canAttachTplTag) {
+                        return@update state
+                    }
+                    state.copy(createHeadingDialog = dialog.copy(attachTplTag = action.enabled))
+                }
+                true
             }
-            is OrgClockUiAction.ToggleNotificationEnabled -> toggleNotificationEnabled(action.enabled)
-            is OrgClockUiAction.ChangeNotificationDisplayMode -> changeNotificationDisplayMode(action.mode)
-            OrgClockUiAction.RequestNotificationPermissionHandled -> _uiState.update {
-                it.copy(notificationPermissionRequestPending = false)
+
+            OrgClockUiAction.SubmitCreateHeading -> {
+                viewModelScope.launch { submitCreateHeading() }
+                true
             }
-            is OrgClockUiAction.NotificationPermissionResult -> onNotificationPermissionResult(action.granted)
-            OrgClockUiAction.RefreshNotificationPermissionState -> refreshNotificationPermissionState()
-            OrgClockUiAction.OpenAppNotificationSettings -> _uiState.update {
-                it.copy(openAppNotificationSettingsPending = true)
+
+            OrgClockUiAction.DismissCreateHeadingDialog -> {
+                _uiState.update { it.copy(createHeadingDialog = null) }
+                true
             }
-            OrgClockUiAction.AppNotificationSettingsOpened -> _uiState.update {
-                it.copy(openAppNotificationSettingsPending = false)
+
+            else -> false
+        }
+    }
+
+    private fun handleNotificationAction(action: OrgClockUiAction): Boolean {
+        return when (action) {
+            is OrgClockUiAction.ToggleNotificationEnabled -> {
+                toggleNotificationEnabled(action.enabled)
+                true
             }
+
+            is OrgClockUiAction.ChangeNotificationDisplayMode -> {
+                changeNotificationDisplayMode(action.mode)
+                true
+            }
+
+            OrgClockUiAction.RequestNotificationPermissionHandled -> {
+                _uiState.update {
+                    it.copy(notificationPermissionRequestPending = false)
+                }
+                true
+            }
+
+            is OrgClockUiAction.NotificationPermissionResult -> {
+                onNotificationPermissionResult(action.granted)
+                true
+            }
+
+            OrgClockUiAction.RefreshNotificationPermissionState -> {
+                refreshNotificationPermissionState()
+                true
+            }
+
+            OrgClockUiAction.OpenAppNotificationSettings -> {
+                _uiState.update {
+                    it.copy(openAppNotificationSettingsPending = true)
+                }
+                true
+            }
+
+            OrgClockUiAction.AppNotificationSettingsOpened -> {
+                _uiState.update {
+                    it.copy(openAppNotificationSettingsPending = false)
+                }
+                true
+            }
+
+            else -> false
         }
     }
 
