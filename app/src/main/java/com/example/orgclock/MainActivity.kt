@@ -1,13 +1,20 @@
 package com.example.orgclock
 
+import android.Manifest
 import android.content.pm.ApplicationInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.provider.Settings
+import androidx.core.content.ContextCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
 import com.example.orgclock.data.SafOrgRepository
 import com.example.orgclock.domain.ClockService
+import com.example.orgclock.notification.ClockInNotificationService
+import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.ui.app.OrgClockRoute
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.theme.OrgClockTheme
@@ -17,7 +24,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val prefs = getSharedPreferences("org-clock", MODE_PRIVATE)
+        val prefs = getSharedPreferences(NotificationPrefs.PREFS_NAME, MODE_PRIVATE)
         val repository = SafOrgRepository(this)
         val clockService = ClockService(repository)
         val showPerfOverlay = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
@@ -26,8 +33,8 @@ class MainActivity : ComponentActivity() {
             val performanceMonitor = remember { PerformanceMonitor(window) }
             OrgClockTheme {
                 OrgClockRoute(
-                    loadSavedUri = { prefs.getString("root_uri", null)?.let(Uri::parse) },
-                    saveUri = { uri -> prefs.edit().putString("root_uri", uri.toString()).apply() },
+                    loadSavedUri = { prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)?.let(Uri::parse) },
+                    saveUri = { uri -> prefs.edit().putString(NotificationPrefs.KEY_ROOT_URI, uri.toString()).apply() },
                     openRoot = { uri -> repository.openRoot(uri) },
                     listFiles = { repository.listOrgFiles() },
                     listHeadings = { fileId -> clockService.listHeadings(fileId) },
@@ -55,10 +62,47 @@ class MainActivity : ComponentActivity() {
                     createL2Heading = { fileId, parentL1LineIndex, title, attachTplTag ->
                         clockService.createL2HeadingInFile(fileId, parentL1LineIndex, title, attachTplTag)
                     },
+                    loadNotificationEnabled = { prefs.getBoolean(NotificationPrefs.KEY_ENABLED, true) },
+                    saveNotificationEnabled = { enabled ->
+                        prefs.edit().putBoolean(NotificationPrefs.KEY_ENABLED, enabled).apply()
+                    },
+                    loadNotificationDisplayMode = {
+                        NotificationDisplayMode.fromStorage(
+                            prefs.getString(NotificationPrefs.KEY_DISPLAY_MODE, null),
+                        )
+                    },
+                    saveNotificationDisplayMode = { mode ->
+                        prefs.edit().putString(NotificationPrefs.KEY_DISPLAY_MODE, mode.storageValue).apply()
+                    },
+                    notificationPermissionGrantedProvider = { isNotificationPermissionGranted() },
+                    syncNotificationService = { enabled, mode, permissionGranted ->
+                        ClockInNotificationService.sync(this@MainActivity, enabled, mode, permissionGranted)
+                    },
+                    stopNotificationService = {
+                        ClockInNotificationService.stop(this@MainActivity)
+                    },
+                    openAppNotificationSettings = { openAppNotificationSettings() },
                     performanceMonitor = performanceMonitor,
                     showPerfOverlay = showPerfOverlay,
                 )
             }
         }
+    }
+
+    private fun isNotificationPermissionGranted(): Boolean {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
+            return true
+        }
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.POST_NOTIFICATIONS,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun openAppNotificationSettings() {
+        val intent = android.content.Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+            putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+        }
+        startActivity(intent)
     }
 }

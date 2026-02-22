@@ -5,6 +5,7 @@ import androidx.compose.runtime.Immutable
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
+import com.example.orgclock.notification.NotificationDisplayMode
 
 enum class Screen {
     RootSetup,
@@ -68,5 +69,11 @@ data class OrgClockUiState(
     val deletingEntry: ClosedClockEntry? = null,
     val deletingInProgress: Boolean = false,
     val createHeadingDialog: CreateHeadingDialogState? = null,
+    val notificationEnabled: Boolean = true,
+    val notificationDisplayMode: NotificationDisplayMode = NotificationDisplayMode.ActiveOnly,
+    val notificationPermissionGranted: Boolean = false,
+    val notificationPermissionRequestPending: Boolean = false,
+    val pendingEnableNotificationAfterPermission: Boolean = false,
+    val openAppNotificationSettingsPending: Boolean = false,
     val showPerfOverlay: Boolean = false,
 )

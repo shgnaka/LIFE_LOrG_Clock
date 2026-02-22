@@ -4,6 +4,7 @@ import android.net.Uri
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
+import com.example.orgclock.notification.NotificationDisplayMode
 
 sealed interface OrgClockUiAction {
     data object Initialize : OrgClockUiAction
@@ -36,4 +37,10 @@ sealed interface OrgClockUiAction {
     data object OpenFilePicker : OrgClockUiAction
     data object OpenSettings : OrgClockUiAction
     data object BackFromSettings : OrgClockUiAction
+    data class ToggleNotificationEnabled(val enabled: Boolean) : OrgClockUiAction
+    data class ChangeNotificationDisplayMode(val mode: NotificationDisplayMode) : OrgClockUiAction
+    data object RequestNotificationPermissionHandled : OrgClockUiAction
+    data class NotificationPermissionResult(val granted: Boolean) : OrgClockUiAction
+    data object OpenAppNotificationSettings : OrgClockUiAction
+    data object AppNotificationSettingsOpened : OrgClockUiAction
 }

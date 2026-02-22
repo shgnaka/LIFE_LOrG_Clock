@@ -1,5 +1,7 @@
 package com.example.orgclock.ui.app
 
+import android.Manifest
+import android.os.Build
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -17,6 +19,7 @@ import com.example.orgclock.data.RootAccess
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
+import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
@@ -38,6 +41,14 @@ fun OrgClockRoute(
     deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
     createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
     createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
+    loadNotificationEnabled: () -> Boolean,
+    saveNotificationEnabled: (Boolean) -> Unit,
+    loadNotificationDisplayMode: () -> NotificationDisplayMode,
+    saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
+    notificationPermissionGrantedProvider: () -> Boolean,
+    syncNotificationService: (Boolean, NotificationDisplayMode, Boolean) -> Unit,
+    stopNotificationService: () -> Unit,
+    openAppNotificationSettings: () -> Unit,
     performanceMonitor: PerformanceMonitor,
     showPerfOverlay: Boolean,
 ) {
@@ -55,6 +66,11 @@ fun OrgClockRoute(
         deleteClosedClock,
         createL1Heading,
         createL2Heading,
+        loadNotificationEnabled,
+        saveNotificationEnabled,
+        loadNotificationDisplayMode,
+        saveNotificationDisplayMode,
+        notificationPermissionGrantedProvider,
         showPerfOverlay,
     ) {
         orgClockViewModelFactory(
@@ -71,6 +87,11 @@ fun OrgClockRoute(
             deleteClosedClock = deleteClosedClock,
             createL1Heading = createL1Heading,
             createL2Heading = createL2Heading,
+            loadNotificationEnabled = loadNotificationEnabled,
+            saveNotificationEnabled = saveNotificationEnabled,
+            loadNotificationDisplayMode = loadNotificationDisplayMode,
+            saveNotificationDisplayMode = saveNotificationDisplayMode,
+            notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
             showPerfOverlay = showPerfOverlay,
         )
     }
@@ -83,9 +104,45 @@ fun OrgClockRoute(
             viewModel.onAction(OrgClockUiAction.PickRoot(uri))
         }
     }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        viewModel.onAction(OrgClockUiAction.NotificationPermissionResult(granted))
+    }
 
     LaunchedEffect(Unit) {
         viewModel.onAction(OrgClockUiAction.Initialize)
+    }
+    LaunchedEffect(state.notificationPermissionRequestPending) {
+        if (!state.notificationPermissionRequestPending) return@LaunchedEffect
+        viewModel.onAction(OrgClockUiAction.RequestNotificationPermissionHandled)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            viewModel.onAction(OrgClockUiAction.NotificationPermissionResult(true))
+        }
+    }
+    LaunchedEffect(state.openAppNotificationSettingsPending) {
+        if (!state.openAppNotificationSettingsPending) return@LaunchedEffect
+        openAppNotificationSettings()
+        viewModel.onAction(OrgClockUiAction.AppNotificationSettingsOpened)
+    }
+    LaunchedEffect(
+        state.notificationEnabled,
+        state.notificationDisplayMode,
+        state.notificationPermissionGranted,
+        state.rootUri,
+        state.headings,
+    ) {
+        if (state.notificationEnabled && state.notificationPermissionGranted && state.rootUri != null) {
+            syncNotificationService(
+                state.notificationEnabled,
+                state.notificationDisplayMode,
+                state.notificationPermissionGranted,
+            )
+        } else {
+            stopNotificationService()
+        }
     }
 
     DisposableEffect(state.screen) {
@@ -120,6 +177,11 @@ private fun orgClockViewModelFactory(
     deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
     createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
     createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
+    loadNotificationEnabled: () -> Boolean,
+    saveNotificationEnabled: (Boolean) -> Unit,
+    loadNotificationDisplayMode: () -> NotificationDisplayMode,
+    saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
+    notificationPermissionGrantedProvider: () -> Boolean,
     showPerfOverlay: Boolean,
 ): ViewModelProvider.Factory {
     return object : ViewModelProvider.Factory {
@@ -141,6 +203,11 @@ private fun orgClockViewModelFactory(
                 deleteClosedClock = deleteClosedClock,
                 createL1Heading = createL1Heading,
                 createL2Heading = createL2Heading,
+                loadNotificationEnabled = loadNotificationEnabled,
+                saveNotificationEnabled = saveNotificationEnabled,
+                loadNotificationDisplayMode = loadNotificationDisplayMode,
+                saveNotificationDisplayMode = saveNotificationDisplayMode,
+                notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
                 showPerfOverlay = showPerfOverlay,
             )
             return modelClass.cast(viewModel)

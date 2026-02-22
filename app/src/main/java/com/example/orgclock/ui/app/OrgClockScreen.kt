@@ -40,6 +40,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextButton
@@ -67,6 +68,7 @@ import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
 import com.example.orgclock.ui.state.CreateHeadingMode
+import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.ui.theme.CalmBorder
 import com.example.orgclock.ui.theme.CalmOnAccent
 import com.example.orgclock.ui.theme.CalmSurfaceAlt
@@ -174,7 +176,19 @@ fun OrgClockScreen(
             Screen.Settings -> SettingsScreen(
                 status = state.status,
                 rootUri = state.rootUri,
+                notificationEnabled = state.notificationEnabled,
+                notificationDisplayMode = state.notificationDisplayMode,
+                notificationPermissionGranted = state.notificationPermissionGranted,
                 onChangeRoot = onPickRoot,
+                onToggleNotificationEnabled = {
+                    onAction(OrgClockUiAction.ToggleNotificationEnabled(it))
+                },
+                onChangeNotificationDisplayMode = {
+                    onAction(OrgClockUiAction.ChangeNotificationDisplayMode(it))
+                },
+                onOpenAppNotificationSettings = {
+                    onAction(OrgClockUiAction.OpenAppNotificationSettings)
+                },
                 onBack = { onAction(OrgClockUiAction.BackFromSettings) },
             )
         }
@@ -824,7 +838,13 @@ private fun TimeFieldEditor(
 private fun SettingsScreen(
     status: UiStatus,
     rootUri: Uri?,
+    notificationEnabled: Boolean,
+    notificationDisplayMode: NotificationDisplayMode,
+    notificationPermissionGranted: Boolean,
     onChangeRoot: () -> Unit,
+    onToggleNotificationEnabled: (Boolean) -> Unit,
+    onChangeNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
+    onOpenAppNotificationSettings: () -> Unit,
     onBack: () -> Unit,
 ) {
     Column(
@@ -842,6 +862,50 @@ private fun SettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onChangeRoot) { Text("Change org directory") }
                     Button(onClick = onBack) { Text("Back") }
+                }
+            }
+        }
+        SectionCard {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("通知機能", style = MaterialTheme.typography.titleMedium)
+                    Switch(
+                        checked = notificationEnabled,
+                        onCheckedChange = onToggleNotificationEnabled,
+                    )
+                }
+                Text(
+                    if (notificationPermissionGranted) {
+                        "通知権限: 許可済み"
+                    } else {
+                        "通知権限: 未許可"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                if (!notificationPermissionGranted) {
+                    Button(onClick = onOpenAppNotificationSettings) {
+                        Text("通知設定を開く")
+                    }
+                }
+                Text("表示モード", style = MaterialTheme.typography.titleMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onChangeNotificationDisplayMode(NotificationDisplayMode.ActiveOnly) },
+                        enabled = notificationDisplayMode != NotificationDisplayMode.ActiveOnly,
+                    ) {
+                        Text("稼働中のみ")
+                    }
+                    Button(
+                        onClick = { onChangeNotificationDisplayMode(NotificationDisplayMode.Always) },
+                        enabled = notificationDisplayMode != NotificationDisplayMode.Always,
+                    ) {
+                        Text("常時表示")
+                    }
                 }
             }
         }

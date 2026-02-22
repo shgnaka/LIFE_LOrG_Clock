@@ -9,6 +9,7 @@ import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
+import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
@@ -40,6 +41,11 @@ class OrgClockViewModel(
     private val deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
     private val createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
     private val createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
+    private val loadNotificationEnabled: () -> Boolean,
+    private val saveNotificationEnabled: (Boolean) -> Unit,
+    private val loadNotificationDisplayMode: () -> NotificationDisplayMode,
+    private val saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
+    private val notificationPermissionGrantedProvider: () -> Boolean,
     private val nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
     private val todayProvider: () -> LocalDate = { LocalDate.now() },
     showPerfOverlay: Boolean,
@@ -193,10 +199,32 @@ class OrgClockViewModel(
             OrgClockUiAction.BackFromSettings -> _uiState.update { state ->
                 state.copy(screen = if (state.selectedFile != null) Screen.HeadingList else Screen.FilePicker)
             }
+            is OrgClockUiAction.ToggleNotificationEnabled -> toggleNotificationEnabled(action.enabled)
+            is OrgClockUiAction.ChangeNotificationDisplayMode -> changeNotificationDisplayMode(action.mode)
+            OrgClockUiAction.RequestNotificationPermissionHandled -> _uiState.update {
+                it.copy(notificationPermissionRequestPending = false)
+            }
+            is OrgClockUiAction.NotificationPermissionResult -> onNotificationPermissionResult(action.granted)
+            OrgClockUiAction.OpenAppNotificationSettings -> _uiState.update {
+                it.copy(openAppNotificationSettingsPending = true)
+            }
+            OrgClockUiAction.AppNotificationSettingsOpened -> _uiState.update {
+                it.copy(openAppNotificationSettingsPending = false)
+            }
         }
     }
 
     private suspend fun initialize() {
+        val notificationEnabled = loadNotificationEnabled()
+        val notificationDisplayMode = loadNotificationDisplayMode()
+        val notificationPermissionGranted = notificationPermissionGrantedProvider()
+        _uiState.update {
+            it.copy(
+                notificationEnabled = notificationEnabled,
+                notificationDisplayMode = notificationDisplayMode,
+                notificationPermissionGranted = notificationPermissionGranted,
+            )
+        }
         val saved = loadSavedUri()
         if (saved == null) {
             _uiState.update { it.copy(screen = Screen.RootSetup) }
@@ -558,6 +586,85 @@ class OrgClockViewModel(
     private fun roundToNearest5(minute: Int): Int {
         val normalized = ((minute + 2) / 5) * 5
         return if (normalized == 60) 55 else normalized
+    }
+
+    private fun toggleNotificationEnabled(enabled: Boolean) {
+        if (!enabled) {
+            saveNotificationEnabled(false)
+            _uiState.update {
+                it.copy(
+                    notificationEnabled = false,
+                    pendingEnableNotificationAfterPermission = false,
+                    notificationPermissionRequestPending = false,
+                    openAppNotificationSettingsPending = false,
+                )
+            }
+            return
+        }
+
+        val granted = notificationPermissionGrantedProvider()
+        if (granted) {
+            saveNotificationEnabled(true)
+            _uiState.update {
+                it.copy(
+                    notificationEnabled = true,
+                    notificationPermissionGranted = true,
+                    pendingEnableNotificationAfterPermission = false,
+                    notificationPermissionRequestPending = false,
+                    status = UiStatus("通知機能を有効化しました", StatusTone.Success),
+                )
+            }
+        } else {
+            _uiState.update {
+                it.copy(
+                    notificationPermissionGranted = false,
+                    pendingEnableNotificationAfterPermission = true,
+                    notificationPermissionRequestPending = true,
+                    status = UiStatus("通知権限が必要です", StatusTone.Warning),
+                )
+            }
+        }
+    }
+
+    private fun changeNotificationDisplayMode(mode: NotificationDisplayMode) {
+        saveNotificationDisplayMode(mode)
+        _uiState.update {
+            it.copy(
+                notificationDisplayMode = mode,
+                status = UiStatus("通知表示モードを更新しました", StatusTone.Success),
+            )
+        }
+    }
+
+    private fun onNotificationPermissionResult(granted: Boolean) {
+        _uiState.update { state ->
+            val shouldEnable = state.pendingEnableNotificationAfterPermission && granted
+            if (shouldEnable) {
+                saveNotificationEnabled(true)
+                state.copy(
+                    notificationEnabled = true,
+                    notificationPermissionGranted = true,
+                    notificationPermissionRequestPending = false,
+                    pendingEnableNotificationAfterPermission = false,
+                    status = UiStatus("通知権限を許可しました", StatusTone.Success),
+                )
+            } else {
+                if (state.pendingEnableNotificationAfterPermission) {
+                    saveNotificationEnabled(false)
+                }
+                state.copy(
+                    notificationEnabled = if (state.pendingEnableNotificationAfterPermission) false else state.notificationEnabled,
+                    notificationPermissionGranted = granted,
+                    notificationPermissionRequestPending = false,
+                    pendingEnableNotificationAfterPermission = false,
+                    status = if (!granted && state.pendingEnableNotificationAfterPermission) {
+                        UiStatus("通知権限が拒否されました。Settingsから許可してください。", StatusTone.Warning)
+                    } else {
+                        state.status
+                    },
+                )
+            }
+        }
     }
 
     private fun isDailyOrgFile(file: OrgFileEntry?): Boolean {
