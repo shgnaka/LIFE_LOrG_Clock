@@ -8,13 +8,14 @@ import com.example.orgclock.model.OrgDocument
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlinx.coroutines.test.runTest
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
 class ClockInScannerTest {
     @Test
-    fun scan_collectsOpenClocksFromAllFiles_sortedByLatestStart() {
+    fun scan_collectsOpenClocksFromAllFiles_sortedByLatestStart() = runTest {
         val repo = FakeOrgRepository(
             files = listOf(
                 OrgFileEntry("f1", "2026-02-22.org", Instant.now()),
