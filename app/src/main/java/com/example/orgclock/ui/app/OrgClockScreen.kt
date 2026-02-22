@@ -19,22 +19,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,8 +36,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -69,9 +61,7 @@ import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
-import com.example.orgclock.ui.state.CreateHeadingMode
 import com.example.orgclock.ui.time.RUNNING_PANEL_TICK_MS
-import com.example.orgclock.ui.time.minuteStepOptions
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.ui.theme.CalmBorder
 import com.example.orgclock.ui.theme.CalmOnAccent
@@ -133,7 +123,6 @@ private sealed interface HeadingListRow {
 }
 
 private val ClockStartTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
-private val ClockDateTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
 
 @Composable
 fun OrgClockScreen(
@@ -203,217 +192,46 @@ fun OrgClockScreen(
             )
         }
 
-        if (state.historyTarget != null) {
-            val target = state.historyTarget
-            AlertDialog(
-                onDismissRequest = {
-                    if (!state.historyLoading) {
-                        onAction(OrgClockUiAction.DismissHistory)
-                    }
-                },
-                title = {
-                    Text(stringResource(R.string.clock_history_title, target.node.title))
-                },
-                text = {
-                    if (state.historyLoading) {
-                        Text(stringResource(R.string.loading))
-                    } else {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .verticalScroll(rememberScrollState()),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            if (state.historyEntries.isEmpty()) {
-                                Text(stringResource(R.string.clock_history_empty))
-                            } else {
-                                state.historyEntries.forEach { entry ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically,
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(2.dp),
-                                        ) {
-                                            Text(
-                                                "${entry.start.format(ClockDateTimeFormatter)} - ${entry.end.format(ClockDateTimeFormatter)}",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                            )
-                                        }
-                                        TextButton(
-                                            onClick = { onAction(OrgClockUiAction.BeginEdit(entry)) },
-                                        ) {
-                                            Text(stringResource(R.string.edit))
-                                        }
-                                        TextButton(
-                                            onClick = { onAction(OrgClockUiAction.BeginDelete(entry)) },
-                                        ) {
-                                            Text(stringResource(R.string.delete))
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { onAction(OrgClockUiAction.DismissHistory) }) {
-                        Text(stringResource(R.string.close))
-                    }
-                },
+        state.historyTarget?.let { target ->
+            ClockHistoryDialog(
+                target = target,
+                historyEntries = state.historyEntries,
+                historyLoading = state.historyLoading,
+                onDismiss = { onAction(OrgClockUiAction.DismissHistory) },
+                onBeginEdit = { onAction(OrgClockUiAction.BeginEdit(it)) },
+                onBeginDelete = { onAction(OrgClockUiAction.BeginDelete(it)) },
             )
         }
 
-        if (state.deletingEntry != null) {
-            val entry = state.deletingEntry
-            AlertDialog(
-                onDismissRequest = {
-                    if (!state.deletingInProgress) {
-                        onAction(OrgClockUiAction.CancelDelete)
-                    }
-                },
-                title = { Text(stringResource(R.string.clock_history_delete_title)) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(stringResource(R.string.clock_history_delete_confirm))
-                        Text(
-                            "${entry.start.format(ClockDateTimeFormatter)} - ${entry.end.format(ClockDateTimeFormatter)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = { onAction(OrgClockUiAction.CancelDelete) },
-                        enabled = !state.deletingInProgress,
-                    ) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = { onAction(OrgClockUiAction.ConfirmDelete) },
-                        enabled = !state.deletingInProgress,
-                    ) {
-                        Text(stringResource(R.string.delete))
-                    }
-                },
+        state.deletingEntry?.let { entry ->
+            DeleteClockEntryDialog(
+                entry = entry,
+                deletingInProgress = state.deletingInProgress,
+                onCancel = { onAction(OrgClockUiAction.CancelDelete) },
+                onConfirmDelete = { onAction(OrgClockUiAction.ConfirmDelete) },
             )
         }
 
         if (state.editingEntry != null && state.editingDraft != null) {
-            val entry = state.editingEntry
-            val draft = state.editingDraft
-            AlertDialog(
-                onDismissRequest = { onAction(OrgClockUiAction.CancelEdit) },
-                title = { Text(stringResource(R.string.clock_time_edit_title)) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            "${entry.start.toLocalDate()} / ${entry.end.toLocalDate()}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        TimeFieldEditor(
-                            label = stringResource(R.string.start_label),
-                            hour = draft.startHour,
-                            minute = draft.startMinute,
-                            onHourSelected = { onAction(OrgClockUiAction.SelectStartHour(it)) },
-                            onMinuteSelected = { onAction(OrgClockUiAction.SelectStartMinute(it)) },
-                        )
-                        TimeFieldEditor(
-                            label = stringResource(R.string.end_label),
-                            hour = draft.endHour,
-                            minute = draft.endMinute,
-                            onHourSelected = { onAction(OrgClockUiAction.SelectEndHour(it)) },
-                            onMinuteSelected = { onAction(OrgClockUiAction.SelectEndMinute(it)) },
-                        )
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { onAction(OrgClockUiAction.CancelEdit) }) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { onAction(OrgClockUiAction.SaveEdit) }) {
-                        Text(stringResource(R.string.save))
-                    }
-                },
+            EditClockEntryDialog(
+                entry = state.editingEntry,
+                draft = state.editingDraft,
+                onCancel = { onAction(OrgClockUiAction.CancelEdit) },
+                onSelectStartHour = { onAction(OrgClockUiAction.SelectStartHour(it)) },
+                onSelectStartMinute = { onAction(OrgClockUiAction.SelectStartMinute(it)) },
+                onSelectEndHour = { onAction(OrgClockUiAction.SelectEndHour(it)) },
+                onSelectEndMinute = { onAction(OrgClockUiAction.SelectEndMinute(it)) },
+                onSave = { onAction(OrgClockUiAction.SaveEdit) },
             )
         }
 
-        if (state.createHeadingDialog != null) {
-            val dialog = state.createHeadingDialog
-            val dialogTitle = if (dialog.mode == CreateHeadingMode.L1) {
-                stringResource(R.string.create_l1_heading)
-            } else {
-                stringResource(R.string.create_l2_heading)
-            }
-            AlertDialog(
-                onDismissRequest = {
-                    if (!dialog.submitting) {
-                        onAction(OrgClockUiAction.DismissCreateHeadingDialog)
-                    }
-                },
-                title = { Text(dialogTitle) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        if (dialog.mode == CreateHeadingMode.L2 && !dialog.parentL1Title.isNullOrBlank()) {
-                            Text(
-                                stringResource(R.string.parent_heading_label, dialog.parentL1Title),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        TextField(
-                            value = dialog.titleInput,
-                            onValueChange = { onAction(OrgClockUiAction.UpdateCreateHeadingTitle(it)) },
-                            label = { Text(stringResource(R.string.heading_title_label)) },
-                            singleLine = true,
-                            enabled = !dialog.submitting,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        if (dialog.canAttachTplTag) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Checkbox(
-                                    checked = dialog.attachTplTag,
-                                    onCheckedChange = { onAction(OrgClockUiAction.SetCreateHeadingTplTag(it)) },
-                                    enabled = !dialog.submitting,
-                                )
-                                Text(stringResource(R.string.add_tpl_tag))
-                            }
-                        }
-                    }
-                },
-                dismissButton = {
-                    TextButton(
-                        onClick = { onAction(OrgClockUiAction.DismissCreateHeadingDialog) },
-                        enabled = !dialog.submitting,
-                    ) {
-                        Text(stringResource(R.string.cancel))
-                    }
-                },
-                confirmButton = {
-                    TextButton(
-                        onClick = { onAction(OrgClockUiAction.SubmitCreateHeading) },
-                        enabled = !dialog.submitting,
-                    ) {
-                        Text(
-                            if (dialog.submitting) {
-                                stringResource(R.string.creating)
-                            } else {
-                                stringResource(R.string.create)
-                            },
-                        )
-                    }
-                },
+        state.createHeadingDialog?.let { dialog ->
+            CreateHeadingInputDialog(
+                dialog = dialog,
+                onDismiss = { onAction(OrgClockUiAction.DismissCreateHeadingDialog) },
+                onUpdateTitle = { onAction(OrgClockUiAction.UpdateCreateHeadingTitle(it)) },
+                onSetTplTag = { onAction(OrgClockUiAction.SetCreateHeadingTplTag(it)) },
+                onSubmit = { onAction(OrgClockUiAction.SubmitCreateHeading) },
             )
         }
     }
@@ -816,58 +634,6 @@ private fun BulkHeadingActionButton(
                 this.contentDescription = contentDescription
             },
         )
-    }
-}
-
-@Composable
-private fun TimeFieldEditor(
-    label: String,
-    hour: Int,
-    minute: Int,
-    onHourSelected: (Int) -> Unit,
-    onMinuteSelected: (Int) -> Unit,
-) {
-    var hourExpanded by remember { mutableStateOf(false) }
-    var minuteExpanded by remember { mutableStateOf(false) }
-    val minuteOptions = remember { minuteStepOptions() }
-
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, style = MaterialTheme.typography.bodySmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box {
-                Button(onClick = { hourExpanded = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("%02d".format(hour))
-                }
-                DropdownMenu(expanded = hourExpanded, onDismissRequest = { hourExpanded = false }) {
-                    (0..23).forEach { h ->
-                        DropdownMenuItem(
-                            text = { Text("%02d".format(h)) },
-                            onClick = {
-                                onHourSelected(h)
-                                hourExpanded = false
-                            },
-                        )
-                    }
-                }
-            }
-            Text(":")
-            Box {
-                Button(onClick = { minuteExpanded = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
-                    Text("%02d".format(minute))
-                }
-                DropdownMenu(expanded = minuteExpanded, onDismissRequest = { minuteExpanded = false }) {
-                    minuteOptions.forEach { m ->
-                        DropdownMenuItem(
-                            text = { Text("%02d".format(m)) },
-                            onClick = {
-                                onMinuteSelected(m)
-                                minuteExpanded = false
-                            },
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 
