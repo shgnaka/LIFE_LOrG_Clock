@@ -12,6 +12,10 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/manual-smoke-test.md`
 - パフォーマンス計測手順  
   `docs/performance-benchmark.md`
+- 通知機能仕様  
+  `docs/features/clock-in-notification-spec.md`
+- 通知機能実装状況  
+  `docs/features/clock-in-notification-status.md`
 
 ## Quick Start
 
