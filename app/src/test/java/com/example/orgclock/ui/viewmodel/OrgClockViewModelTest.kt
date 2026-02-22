@@ -1,5 +1,6 @@
 package com.example.orgclock.ui.viewmodel
 
+import android.net.Uri
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
@@ -26,6 +27,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
+import org.mockito.Mockito
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -43,6 +45,27 @@ class OrgClockViewModelTest {
         advanceUntilIdle()
 
         assertEquals(Screen.RootSetup, vm.uiState.value.screen)
+    }
+
+    @Test
+    fun initialize_withSavedUri_loadsFilesWithOpenClock() = runTest {
+        // Use a mocked Uri in JVM tests; Android Uri static factories/fields are not reliable here.
+        val savedUri = Mockito.mock(Uri::class.java)
+        val vm = testViewModel(
+            loadSavedUri = { savedUri },
+            openRoot = { uri ->
+                Result.success(com.example.orgclock.data.RootAccess(uri, "org"))
+            },
+            todayProvider = { LocalDate.of(2026, 2, 16) },
+            listFiles = { Result.success(listOf(OrgFileEntry("f_today", "2026-02-16.org", null))) },
+            listFilesWithOpenClock = { Result.success(setOf("f_today")) },
+            listHeadings = { Result.success(emptyList()) },
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        assertEquals(setOf("f_today"), vm.uiState.value.filesWithOpenClock)
     }
 
     @Test
@@ -72,6 +95,24 @@ class OrgClockViewModelTest {
         vm.onAction(OrgClockUiAction.CollapseAll)
 
         assertTrue("Work" in vm.uiState.value.collapsedL1)
+    }
+
+    @Test
+    fun startClock_success_refreshesFilesWithOpenClock() = runTest {
+        var openFiles = emptySet<String>()
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            listFilesWithOpenClock = { Result.success(openFiles) },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+
+        openFiles = setOf("f1")
+        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1]))
+        advanceUntilIdle()
+
+        assertEquals(setOf("f1"), vm.uiState.value.filesWithOpenClock)
     }
 
     @Test
@@ -368,6 +409,7 @@ class OrgClockViewModelTest {
             Result.failure(UnsupportedOperationException())
         },
         listFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },
+        listFilesWithOpenClock: suspend () -> Result<Set<String>> = { Result.success(emptySet()) },
         listHeadings: suspend (String) -> Result<List<HeadingViewItem>> = { Result.success(emptyList()) },
         startClock: suspend (String, Int) -> Result<ClockMutationResult> = { _, lineIndex ->
             Result.success(ClockMutationResult(headingLineIndex = lineIndex))
@@ -396,6 +438,7 @@ class OrgClockViewModelTest {
             saveUri = saveUri,
             openRoot = openRoot,
             listFiles = listFiles,
+            listFilesWithOpenClock = listFilesWithOpenClock,
             listHeadings = listHeadings,
             startClock = startClock,
             stopClock = stopClock,
