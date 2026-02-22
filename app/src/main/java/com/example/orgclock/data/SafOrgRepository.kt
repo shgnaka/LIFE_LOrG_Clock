@@ -18,7 +18,7 @@ import java.time.format.DateTimeFormatter
 
 class SafOrgRepository(
     private val context: Context,
-    private val backupGenerations: Int = 20,
+    private val backupPolicy: BackupPolicyConfig = BackupPolicyConfig(),
 ) : OrgRepository {
     private val resolver: ContentResolver = context.contentResolver
     private var root: DocumentFile? = null
@@ -173,8 +173,12 @@ class SafOrgRepository(
         if (writeIntent == FileWriteIntent.UserEdit) return true
         val lastClockBackupAt = synchronized(lastClockBackupByFileId) {
             lastClockBackupByFileId[fileId]
-        } ?: return true
-        return (nowMs - lastClockBackupAt) >= CLOCK_BACKUP_INTERVAL_MS
+        }
+        return shouldCreateClockBackup(
+            lastClockBackupAtMs = lastClockBackupAt,
+            nowMs = nowMs,
+            clockBackupIntervalMs = backupPolicy.clockBackupIntervalMs,
+        )
     }
 
     private fun createBackupIfNeeded(rootDoc: DocumentFile, fileName: String, existingRawText: String): Boolean {
@@ -196,7 +200,7 @@ class SafOrgRepository(
             .filter { it.name?.startsWith(".${fileName}.bak.") == true }
             .sortedByDescending { it.name }
 
-        backups.drop(backupGenerations).forEach { it.delete() }
+        backupsToPrune(backups, backupPolicy.backupGenerations).forEach { it.delete() }
         return true
     }
 
@@ -261,7 +265,5 @@ class SafOrgRepository(
             .getOrElse { LocalDate.now(ZoneId.systemDefault()) }
     }
 
-    companion object {
-        private const val CLOCK_BACKUP_INTERVAL_MS: Long = 15 * 60 * 1000L
-    }
+    companion object
 }
