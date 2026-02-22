@@ -383,11 +383,14 @@ class ClockService(
     }
 
     private fun mapSaveFailure(saveResult: SaveResult): Result<ClockSession> {
+        if (saveResult is SaveResult.Success) {
+            return Result.failure(IllegalStateException("Unexpected SaveResult.Success in failure mapper"))
+        }
         return when (saveResult) {
             is SaveResult.ValidationError -> Result.failure(IllegalArgumentException(saveResult.reason))
             is SaveResult.IoError -> Result.failure(IllegalStateException(saveResult.reason))
             is SaveResult.Conflict -> Result.failure(IllegalStateException(saveResult.reason))
-            SaveResult.Success -> error("Success is not a failure")
+            SaveResult.Success -> Result.failure(IllegalStateException("Unexpected SaveResult.Success in failure mapper"))
         }
     }
 

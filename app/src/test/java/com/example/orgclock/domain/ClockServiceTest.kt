@@ -347,6 +347,60 @@ class ClockServiceTest {
         assertEquals("** Project B :TPL:", repo.files["f1"]!![2])
     }
 
+    @Test
+    fun startClock_mapsValidationSaveFailureToIllegalArgumentException() = runBlocking {
+        val repo = object : OrgRepository {
+            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+
+            override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> {
+                val lines = listOf("* Work", "** Project A")
+                return Result.success(OrgDocument(date, lines, "hash"))
+            }
+
+            override suspend fun saveDaily(date: LocalDate, lines: List<String>, expectedHash: String): SaveResult {
+                return SaveResult.ValidationError("invalid heading")
+            }
+        }
+        val service = ClockService(repo)
+
+        val result = service.startClock(
+            ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+            HeadingPath.parse("Work/Project A"),
+        )
+
+        assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertTrue(ex is IllegalArgumentException)
+        assertEquals("invalid heading", ex?.message)
+    }
+
+    @Test
+    fun startClock_mapsIoSaveFailureToIllegalStateException() = runBlocking {
+        val repo = object : OrgRepository {
+            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+
+            override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> {
+                val lines = listOf("* Work", "** Project A")
+                return Result.success(OrgDocument(date, lines, "hash"))
+            }
+
+            override suspend fun saveDaily(date: LocalDate, lines: List<String>, expectedHash: String): SaveResult {
+                return SaveResult.IoError("write failed")
+            }
+        }
+        val service = ClockService(repo)
+
+        val result = service.startClock(
+            ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+            HeadingPath.parse("Work/Project A"),
+        )
+
+        assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertTrue(ex is IllegalStateException)
+        assertEquals("write failed", ex?.message)
+    }
+
     private class FakeRepo(
         val files: MutableMap<LocalDate, List<String>>,
         private val conflictCountByDate: MutableMap<LocalDate, Int> = mutableMapOf(),

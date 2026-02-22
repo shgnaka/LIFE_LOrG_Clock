@@ -4,6 +4,7 @@ import com.example.orgclock.model.HeadingPath
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -74,6 +75,41 @@ class OrgParserTest {
         }
 
         assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun appendOpenClock_missingHeading_throwsIllegalArgumentException() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+        )
+        val now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
+
+        try {
+            parser.appendOpenClock(lines, HeadingPath.parse("Work/Unknown"), now)
+            fail("Expected IllegalArgumentException")
+        } catch (ex: IllegalArgumentException) {
+            assertTrue(ex.message!!.contains("Heading not found"))
+        }
+    }
+
+    @Test
+    fun closeLatestOpenClock_invalidTimestamp_throwsIllegalStateException() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+            ":LOGBOOK:",
+            "CLOCK: [invalid]",
+            ":END:",
+        )
+        val end = ZonedDateTime.of(2026, 2, 15, 10, 30, 0, 0, ZoneId.of("Asia/Tokyo"))
+
+        try {
+            parser.closeLatestOpenClock(lines, HeadingPath.parse("Work/Project A"), end)
+            fail("Expected IllegalStateException")
+        } catch (ex: IllegalStateException) {
+            assertTrue(ex.message!!.contains("Failed to parse CLOCK start timestamp"))
+        }
     }
 
     @Test

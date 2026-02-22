@@ -31,7 +31,7 @@ class SafOrgRepository(
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
             val rootDoc = DocumentFile.fromTreeUri(context, uri)
-                ?: error("Invalid tree uri")
+                ?: throw IllegalArgumentException("Invalid tree uri")
             require(rootDoc.isDirectory) { "Selected uri must be a directory." }
             root = rootDoc
             RootAccess(uri, rootDoc.name ?: "org")
@@ -40,7 +40,7 @@ class SafOrgRepository(
 
     override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> = withContext(Dispatchers.IO) {
         runCatching {
-            val rootDoc = root ?: error("Root is not opened")
+            val rootDoc = root ?: throw IllegalStateException("Root is not opened")
             val name = OrgPaths.dailyFileName(date)
             val file = rootDoc.findFile(name)
             val rawText = if (file == null) {
@@ -93,7 +93,7 @@ class SafOrgRepository(
 
     override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = withContext(Dispatchers.IO) {
         runCatching {
-            val rootDoc = root ?: error("Root is not opened")
+            val rootDoc = root ?: throw IllegalStateException("Root is not opened")
             rootDoc.listFiles()
                 .asSequence()
                 .filter { it.isFile }
@@ -113,8 +113,8 @@ class SafOrgRepository(
 
     override suspend fun loadFile(fileId: String): Result<OrgDocument> = withContext(Dispatchers.IO) {
         runCatching {
-            val rootDoc = root ?: error("Root is not opened")
-            val file = findFileById(rootDoc, fileId) ?: error("File not found")
+            val rootDoc = root ?: throw IllegalStateException("Root is not opened")
+            val file = findFileById(rootDoc, fileId) ?: throw IllegalArgumentException("File not found")
             val rawText = readText(file.uri)
             val lines = parseLines(rawText)
             val date = parseDateFromFileName(file.name)
