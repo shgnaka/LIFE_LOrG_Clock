@@ -48,8 +48,8 @@ class DefaultAppGraph(
             openRoot = { uri -> repository.openRoot(uri) },
             listFiles = { repository.listOrgFiles() },
             listFilesWithOpenClock = {
-                clockInScanner.scan(clockEnvironment.zoneId()).map { entries ->
-                    entries.asSequence().map { it.fileId }.toSet()
+                clockInScanner.scan(clockEnvironment.zoneId()).map { scanResult ->
+                    scanResult.entries.asSequence().map { it.fileId }.toSet()
                 }
             },
             listHeadings = { fileId -> clockService.listHeadings(fileId) },

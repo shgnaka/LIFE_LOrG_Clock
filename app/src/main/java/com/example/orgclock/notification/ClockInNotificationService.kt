@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.orgclock.MainActivity
@@ -138,13 +139,19 @@ class ClockInNotificationService : Service() {
             return true
         }
 
-        val entries = result.getOrThrow()
-        if (entries.isEmpty() && displayMode == NotificationDisplayMode.ActiveOnly) {
+        val scanResult = result.getOrThrow()
+        val entries = scanResult.entries
+        val failedFiles = scanResult.failedFiles
+        if (failedFiles.isNotEmpty()) {
+            val failureNames = failedFiles.take(3).joinToString { it.fileName }
+            Log.w(TAG, "Clock scan degraded: ${failedFiles.size} file(s) failed: $failureNames")
+        }
+        if (shouldStopForActiveOnly(displayMode, scanResult)) {
             stopServiceAndNotification()
             return false
         }
 
-        val notification = buildClockNotification(entries)
+        val notification = buildClockNotification(entries, failedFiles)
         notifyForeground(notification)
         return true
     }
@@ -174,16 +181,24 @@ class ClockInNotificationService : Service() {
         }
     }
 
-    private fun buildClockNotification(entries: List<ClockInEntry>): Notification {
+    private fun buildClockNotification(entries: List<ClockInEntry>, failedFiles: List<FileScanFailure>): Notification {
         val title = getString(R.string.notif_title_clock_in_count, entries.size)
         val summary = if (entries.isEmpty()) {
-            getString(R.string.notif_summary_no_active)
+            if (failedFiles.isEmpty()) {
+                getString(R.string.notif_summary_no_active)
+            } else {
+                getString(R.string.notif_summary_scan_degraded, failedFiles.size)
+            }
         } else {
             val first = entries.first()
             val heading = headingLabel(first)
             val minutes = elapsedMinutes(first.startedAt)
             val started = first.startedAt.format(TIME_FORMATTER)
-            getString(R.string.notif_summary_first_entry, heading, started, minutes)
+            if (failedFiles.isEmpty()) {
+                getString(R.string.notif_summary_first_entry, heading, started, minutes)
+            } else {
+                getString(R.string.notif_summary_first_entry_degraded, heading, started, minutes, failedFiles.size)
+            }
         }
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -216,7 +231,16 @@ class ClockInNotificationService : Service() {
             lines.forEach { line ->
                 inbox.addLine(line)
             }
+            if (failedFiles.isNotEmpty()) {
+                inbox.addLine(getString(R.string.notif_inbox_line_scan_degraded, failedFiles.size))
+            }
             builder.setStyle(inbox)
+        } else if (failedFiles.isNotEmpty()) {
+            builder.setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    getString(R.string.notif_summary_scan_degraded, failedFiles.size),
+                ),
+            )
         }
 
         return builder.build()
@@ -287,6 +311,7 @@ class ClockInNotificationService : Service() {
     }
 
     companion object {
+        private const val TAG = "ClockInNotificationSvc"
         private const val CHANNEL_ID = "clock_in_ongoing"
         private const val NOTIFICATION_ID = 1001
 
@@ -328,4 +353,13 @@ class ClockInNotificationService : Service() {
             context.startService(intent)
         }
     }
+}
+
+internal fun shouldStopForActiveOnly(
+    displayMode: NotificationDisplayMode,
+    scanResult: ClockInScanResult,
+): Boolean {
+    return displayMode == NotificationDisplayMode.ActiveOnly &&
+        scanResult.entries.isEmpty() &&
+        scanResult.failedFiles.isEmpty()
 }

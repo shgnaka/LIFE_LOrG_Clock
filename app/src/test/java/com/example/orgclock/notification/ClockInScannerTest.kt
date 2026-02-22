@@ -40,10 +40,58 @@ class ClockInScannerTest {
         val result = scanner.scan(ZoneId.of("Asia/Tokyo"))
 
         assertTrue(result.isSuccess)
-        val entries = result.getOrThrow()
+        val scanResult = result.getOrThrow()
+        val entries = scanResult.entries
         assertEquals(2, entries.size)
         assertEquals("B", entries[0].headingTitle)
         assertEquals("A", entries[1].headingTitle)
+        assertTrue(scanResult.failedFiles.isEmpty())
+    }
+
+    @Test
+    fun scan_collectsFailuresAndContinuesWhenSomeFilesFail() = runTest {
+        val repo = FakeOrgRepository(
+            files = listOf(
+                OrgFileEntry("ok", "ok.org", Instant.now()),
+                OrgFileEntry("broken", "broken.org", Instant.now()),
+            ),
+            docs = mapOf(
+                "ok" to doc(
+                    "* Work",
+                    "** A",
+                    "CLOCK: [2026-02-22 Sun 09:00:00]",
+                ),
+            ),
+            failures = mapOf(
+                "broken" to IllegalStateException("read failed"),
+            ),
+        )
+
+        val scanner = ClockInScanner(repo)
+        val result = scanner.scan(ZoneId.of("Asia/Tokyo"))
+
+        assertTrue(result.isSuccess)
+        val scanResult = result.getOrThrow()
+        assertEquals(1, scanResult.entries.size)
+        assertEquals("A", scanResult.entries.first().headingTitle)
+        assertEquals(1, scanResult.failedFiles.size)
+        assertEquals("broken", scanResult.failedFiles.first().fileId)
+        assertEquals("read failed", scanResult.failedFiles.first().reason)
+    }
+
+    @Test
+    fun scan_failsWhenListingFilesFails() = runTest {
+        val repo = FakeOrgRepository(
+            files = emptyList(),
+            docs = emptyMap(),
+            listFailure = IllegalStateException("list failed"),
+        )
+
+        val scanner = ClockInScanner(repo)
+        val result = scanner.scan(ZoneId.of("Asia/Tokyo"))
+
+        assertTrue(result.isFailure)
+        assertEquals("list failed", result.exceptionOrNull()?.message)
     }
 
     private fun doc(vararg lines: String): OrgDocument {
@@ -58,16 +106,20 @@ class ClockInScannerTest {
 private class FakeOrgRepository(
     private val files: List<OrgFileEntry>,
     private val docs: Map<String, OrgDocument>,
+    private val failures: Map<String, Throwable> = emptyMap(),
+    private val listFailure: Throwable? = null,
 ) : OrgRepository {
     override suspend fun openRoot(uri: android.net.Uri): Result<RootAccess> {
         return Result.success(RootAccess(uri, "root"))
     }
 
     override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> {
+        listFailure?.let { return Result.failure(it) }
         return Result.success(files)
     }
 
     override suspend fun loadFile(fileId: String): Result<OrgDocument> {
+        failures[fileId]?.let { return Result.failure(it) }
         return docs[fileId]?.let { Result.success(it) }
             ?: Result.failure(IllegalArgumentException("missing file: $fileId"))
     }
