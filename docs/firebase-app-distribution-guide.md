@@ -86,6 +86,9 @@ Google Cloud 側で以下を設定します。
 
 ## 5. よくある失敗と対処
 
+関連する障害調査:
+- `docs/incidents/2026-02-22-firebase-oidc-auth-investigation.md`
+
 ### `Missing required secret: ...`
 
 - GitHub Secrets のキー名を完全一致で再確認
