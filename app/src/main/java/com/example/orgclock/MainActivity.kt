@@ -15,6 +15,7 @@ import com.example.orgclock.notification.DefaultNotificationPermissionChecker
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.notification.NotificationPermissionChecker
 import com.example.orgclock.notification.NotificationPrefs
+import com.example.orgclock.notification.NotificationServiceConfig
 import com.example.orgclock.ui.app.OrgClockRoute
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.theme.OrgClockTheme
@@ -31,6 +32,7 @@ class MainActivity : ComponentActivity() {
         val repository = SafOrgRepository(this)
         val clockService = ClockService(repository)
         val clockInScanner = ClockInScanner(repository)
+        val notificationServiceConfig = NotificationServiceConfig()
         val showPerfOverlay = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
 
         setContent {
@@ -87,7 +89,12 @@ class MainActivity : ComponentActivity() {
                         notificationPermissionChecker.isGranted(this@MainActivity)
                     },
                     syncNotificationService = { enabled, mode ->
-                        ClockInNotificationService.sync(this@MainActivity, enabled, mode)
+                        ClockInNotificationService.sync(
+                            context = this@MainActivity,
+                            enabled = enabled,
+                            displayMode = mode,
+                            config = notificationServiceConfig,
+                        )
                     },
                     stopNotificationService = {
                         ClockInNotificationService.stop(this@MainActivity)

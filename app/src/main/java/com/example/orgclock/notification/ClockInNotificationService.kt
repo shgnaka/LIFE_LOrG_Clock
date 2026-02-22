@@ -34,6 +34,7 @@ class ClockInNotificationService : Service() {
     private val scanner by lazy { ClockInScanner(repository) }
     private val notificationPermissionChecker: NotificationPermissionChecker =
         DefaultNotificationPermissionChecker()
+    private var config: NotificationServiceConfig = NotificationServiceConfig()
 
     private var enabled: Boolean = true
     private var displayMode: NotificationDisplayMode = NotificationDisplayMode.ActiveOnly
@@ -55,6 +56,11 @@ class ClockInNotificationService : Service() {
                 enabled = intent?.getBooleanExtra(EXTRA_ENABLED, enabled) ?: enabled
                 displayMode = NotificationDisplayMode.fromStorage(
                     intent?.getStringExtra(EXTRA_DISPLAY_MODE) ?: displayMode.storageValue,
+                )
+                config = NotificationServiceConfig(
+                    scanIntervalMs = intent?.getLongExtra(EXTRA_SCAN_INTERVAL_MS, config.scanIntervalMs)
+                        ?: config.scanIntervalMs,
+                    maxLines = intent?.getIntExtra(EXTRA_MAX_LINES, config.maxLines) ?: config.maxLines,
                 )
 
                 if (!enabled || !notificationPermissionChecker.isGranted(this)) {
@@ -89,7 +95,7 @@ class ClockInNotificationService : Service() {
             if (!shouldContinue) {
                 return
             }
-            delay(SCAN_INTERVAL_MS)
+            delay(config.scanIntervalMs)
         }
     }
 
@@ -190,17 +196,23 @@ class ClockInNotificationService : Service() {
 
         if (entries.isNotEmpty()) {
             val inbox = NotificationCompat.InboxStyle()
-            entries.take(MAX_LINES).forEach { entry ->
-                val line = getString(
-                    R.string.notif_inbox_line_entry,
-                    headingLabel(entry),
-                    entry.startedAt.format(TIME_FORMATTER),
-                    elapsedMinutes(entry.startedAt),
-                )
+            val lines = buildInboxLines(
+                entries = entries,
+                maxLines = config.maxLines,
+                entryLineBuilder = { entry ->
+                    getString(
+                        R.string.notif_inbox_line_entry,
+                        headingLabel(entry),
+                        entry.startedAt.format(TIME_FORMATTER),
+                        elapsedMinutes(entry.startedAt),
+                    )
+                },
+                moreLineBuilder = { remaining ->
+                    getString(R.string.notif_inbox_line_more, remaining)
+                },
+            )
+            lines.forEach { line ->
                 inbox.addLine(line)
-            }
-            if (entries.size > MAX_LINES) {
-                inbox.addLine(getString(R.string.notif_inbox_line_more, entries.size - MAX_LINES))
             }
             builder.setStyle(inbox)
         }
@@ -275,13 +287,13 @@ class ClockInNotificationService : Service() {
     companion object {
         private const val CHANNEL_ID = "clock_in_ongoing"
         private const val NOTIFICATION_ID = 1001
-        private const val SCAN_INTERVAL_MS = 5 * 60 * 1000L
-        private const val MAX_LINES = 6
 
         private const val ACTION_SYNC = "com.example.orgclock.notification.SYNC"
         private const val ACTION_STOP = "com.example.orgclock.notification.STOP"
         private const val EXTRA_ENABLED = "enabled"
         private const val EXTRA_DISPLAY_MODE = "display_mode"
+        private const val EXTRA_SCAN_INTERVAL_MS = "scan_interval_ms"
+        private const val EXTRA_MAX_LINES = "max_lines"
 
         private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -289,6 +301,7 @@ class ClockInNotificationService : Service() {
             context: Context,
             enabled: Boolean,
             displayMode: NotificationDisplayMode,
+            config: NotificationServiceConfig = NotificationServiceConfig(),
         ) {
             if (!enabled) {
                 stop(context)
@@ -298,6 +311,8 @@ class ClockInNotificationService : Service() {
                 action = ACTION_SYNC
                 putExtra(EXTRA_ENABLED, enabled)
                 putExtra(EXTRA_DISPLAY_MODE, displayMode.storageValue)
+                putExtra(EXTRA_SCAN_INTERVAL_MS, config.scanIntervalMs)
+                putExtra(EXTRA_MAX_LINES, config.maxLines)
             }
             ContextCompat.startForegroundService(context, intent)
         }
