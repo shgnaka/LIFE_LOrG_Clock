@@ -1,13 +1,9 @@
 package com.example.orgclock
 
-import android.Manifest
 import android.content.pm.ApplicationInfo
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
-import androidx.core.content.ContextCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
@@ -15,7 +11,9 @@ import com.example.orgclock.data.SafOrgRepository
 import com.example.orgclock.domain.ClockService
 import com.example.orgclock.notification.ClockInScanner
 import com.example.orgclock.notification.ClockInNotificationService
+import com.example.orgclock.notification.DefaultNotificationPermissionChecker
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.notification.NotificationPermissionChecker
 import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.ui.app.OrgClockRoute
 import com.example.orgclock.ui.perf.PerformanceMonitor
@@ -23,6 +21,8 @@ import com.example.orgclock.ui.theme.OrgClockTheme
 import java.time.ZoneId
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermissionChecker: NotificationPermissionChecker =
+        DefaultNotificationPermissionChecker()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,7 +83,9 @@ class MainActivity : ComponentActivity() {
                     saveNotificationDisplayMode = { mode ->
                         prefs.edit().putString(NotificationPrefs.KEY_DISPLAY_MODE, mode.storageValue).apply()
                     },
-                    notificationPermissionGrantedProvider = { isNotificationPermissionGranted() },
+                    notificationPermissionGrantedProvider = {
+                        notificationPermissionChecker.isGranted(this@MainActivity)
+                    },
                     syncNotificationService = { enabled, mode ->
                         ClockInNotificationService.sync(this@MainActivity, enabled, mode)
                     },
@@ -96,18 +98,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-    }
-
-    private fun isNotificationPermissionGranted(): Boolean {
-        val notificationsEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
-            return notificationsEnabled
-        }
-        val runtimeGranted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.POST_NOTIFICATIONS,
-        ) == PackageManager.PERMISSION_GRANTED
-        return runtimeGranted && notificationsEnabled
     }
 
     private fun openAppNotificationSettings() {

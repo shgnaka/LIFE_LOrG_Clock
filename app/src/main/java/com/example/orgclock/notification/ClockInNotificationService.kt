@@ -1,6 +1,5 @@
 package com.example.orgclock.notification
 
-import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,12 +7,10 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.orgclock.MainActivity
 import com.example.orgclock.R
@@ -35,6 +32,8 @@ class ClockInNotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val repository by lazy { SafOrgRepository(this) }
     private val scanner by lazy { ClockInScanner(repository) }
+    private val notificationPermissionChecker: NotificationPermissionChecker =
+        DefaultNotificationPermissionChecker()
 
     private var enabled: Boolean = true
     private var displayMode: NotificationDisplayMode = NotificationDisplayMode.ActiveOnly
@@ -58,7 +57,7 @@ class ClockInNotificationService : Service() {
                     intent?.getStringExtra(EXTRA_DISPLAY_MODE) ?: displayMode.storageValue,
                 )
 
-                if (!enabled || !isNotificationPermissionGranted()) {
+                if (!enabled || !notificationPermissionChecker.isGranted(this)) {
                     stopServiceAndNotification()
                     return START_NOT_STICKY
                 }
@@ -95,7 +94,7 @@ class ClockInNotificationService : Service() {
     }
 
     private suspend fun refreshOnce(): Boolean {
-        if (!enabled || !isNotificationPermissionGranted()) {
+        if (!enabled || !notificationPermissionChecker.isGranted(this)) {
             stopServiceAndNotification()
             return false
         }
@@ -244,18 +243,6 @@ class ClockInNotificationService : Service() {
         } else {
             entry.headingTitle
         }
-    }
-
-    private fun isNotificationPermissionGranted(): Boolean {
-        val notificationsEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return notificationsEnabled
-        }
-        val runtimeGranted = ContextCompat.checkSelfPermission(
-            this,
-            Manifest.permission.POST_NOTIFICATIONS,
-        ) == PackageManager.PERMISSION_GRANTED
-        return runtimeGranted && notificationsEnabled
     }
 
     private fun loadRootUri(): Uri? {
