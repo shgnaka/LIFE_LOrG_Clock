@@ -4,6 +4,11 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val ciKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+val ciKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+val ciKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+val ciKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+
 android {
     namespace = "com.example.orgclock"
     compileSdk = 35
@@ -18,6 +23,22 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (
+            !ciKeystorePath.isNullOrBlank() &&
+            !ciKeystorePassword.isNullOrBlank() &&
+            !ciKeyAlias.isNullOrBlank() &&
+            !ciKeyPassword.isNullOrBlank()
+        ) {
+            create("ciRelease") {
+                storeFile = file(ciKeystorePath)
+                storePassword = ciKeystorePassword
+                keyAlias = ciKeyAlias
+                keyPassword = ciKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -25,6 +46,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            signingConfigs.findByName("ciRelease")?.let { signingConfig = it }
         }
     }
     compileOptions {
