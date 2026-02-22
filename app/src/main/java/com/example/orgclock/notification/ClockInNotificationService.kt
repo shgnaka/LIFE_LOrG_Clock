@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.orgclock.MainActivity
+import com.example.orgclock.R
 import com.example.orgclock.data.SafOrgRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -101,8 +102,8 @@ class ClockInNotificationService : Service() {
 
         val rootUri = loadRootUri() ?: run {
             val notification = buildStatusNotification(
-                title = "記録中",
-                summary = "org ルートが未設定です",
+                title = getString(R.string.notif_title_clock_in),
+                summary = getString(R.string.notif_status_root_not_set),
             )
             notifyForeground(notification)
             return true
@@ -112,8 +113,8 @@ class ClockInNotificationService : Service() {
         if (opened.isFailure) {
             val reason = opened.exceptionOrNull()?.message ?: "unknown"
             val notification = buildStatusNotification(
-                title = "記録中",
-                summary = "org ルートを開けません: $reason",
+                title = getString(R.string.notif_title_clock_in),
+                summary = getString(R.string.notif_status_root_open_failed, reason),
             )
             notifyForeground(notification)
             return true
@@ -123,8 +124,8 @@ class ClockInNotificationService : Service() {
         if (result.isFailure) {
             val reason = result.exceptionOrNull()?.message ?: "unknown"
             val notification = buildStatusNotification(
-                title = "記録中",
-                summary = "更新失敗: $reason",
+                title = getString(R.string.notif_title_clock_in),
+                summary = getString(R.string.notif_status_refresh_failed, reason),
             )
             notifyForeground(notification)
             return true
@@ -143,8 +144,8 @@ class ClockInNotificationService : Service() {
 
     private fun ensureForegroundPlaceholder() {
         val placeholder = buildStatusNotification(
-            title = "記録中",
-            summary = "同期中...",
+            title = getString(R.string.notif_title_clock_in),
+            summary = getString(R.string.notif_status_syncing),
         )
         startForegroundCompat(placeholder)
     }
@@ -167,15 +168,15 @@ class ClockInNotificationService : Service() {
     }
 
     private fun buildClockNotification(entries: List<ClockInEntry>): Notification {
-        val title = "記録中 ${entries.size}件"
+        val title = getString(R.string.notif_title_clock_in_count, entries.size)
         val summary = if (entries.isEmpty()) {
-            "稼働中の見出しはありません"
+            getString(R.string.notif_summary_no_active)
         } else {
             val first = entries.first()
             val heading = headingLabel(first)
             val minutes = elapsedMinutes(first.startedAt)
             val started = first.startedAt.format(TIME_FORMATTER)
-            "$heading / $started 開始 / ${minutes}分経過"
+            getString(R.string.notif_summary_first_entry, heading, started, minutes)
         }
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -191,11 +192,16 @@ class ClockInNotificationService : Service() {
         if (entries.isNotEmpty()) {
             val inbox = NotificationCompat.InboxStyle()
             entries.take(MAX_LINES).forEach { entry ->
-                val line = "${headingLabel(entry)} / ${entry.startedAt.format(TIME_FORMATTER)} / ${elapsedMinutes(entry.startedAt)}分"
+                val line = getString(
+                    R.string.notif_inbox_line_entry,
+                    headingLabel(entry),
+                    entry.startedAt.format(TIME_FORMATTER),
+                    elapsedMinutes(entry.startedAt),
+                )
                 inbox.addLine(line)
             }
             if (entries.size > MAX_LINES) {
-                inbox.addLine("他 ${entries.size - MAX_LINES} 件")
+                inbox.addLine(getString(R.string.notif_inbox_line_more, entries.size - MAX_LINES))
             }
             builder.setStyle(inbox)
         }
@@ -262,10 +268,10 @@ class ClockInNotificationService : Service() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Clock In",
+            getString(R.string.notif_channel_name),
             NotificationManager.IMPORTANCE_LOW,
         ).apply {
-            description = "Clock in 状態の常駐通知"
+            description = getString(R.string.notif_channel_description)
             setShowBadge(false)
         }
         val manager = getSystemService(NotificationManager::class.java)
