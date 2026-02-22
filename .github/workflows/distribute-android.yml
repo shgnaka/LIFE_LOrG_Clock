@@ -70,12 +70,13 @@ jobs:
           fi
 
       - name: Authenticate to Google Cloud (OIDC)
+        id: gcp-auth
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
-          create_credentials_file: true
-          export_environment_variables: true
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
 
       - name: Restore Android keystore
         env:
@@ -130,7 +131,8 @@ jobs:
           firebase appdistribution:distribute "$APK_PATH" \
             --app "$FIREBASE_APP_ID_ANDROID" \
             --groups "$TESTER_GROUP" \
-            --release-notes "$RELEASE_NOTES" | tee "$RUNNER_TEMP/firebase_distribute.log"
+            --release-notes "$RELEASE_NOTES" \
+            --token "${{ steps.gcp-auth.outputs.access_token }}" | tee "$RUNNER_TEMP/firebase_distribute.log"
 
       - name: Print distribution summary
         if: success()
