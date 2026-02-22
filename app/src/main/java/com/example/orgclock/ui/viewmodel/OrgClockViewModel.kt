@@ -18,6 +18,7 @@ import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
+import com.example.orgclock.ui.time.normalizeMinuteToStep
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -115,9 +116,9 @@ class OrgClockViewModel(
                         editingEntry = action.entry,
                         editingDraft = ClockEditDraft(
                             startHour = action.entry.start.hour,
-                            startMinute = roundToNearest5(action.entry.start.minute),
+                            startMinute = normalizeMinuteToStep(action.entry.start.minute),
                             endHour = action.entry.end.hour,
-                            endMinute = roundToNearest5(action.entry.end.minute),
+                            endMinute = normalizeMinuteToStep(action.entry.end.minute),
                         ),
                     )
                 }
@@ -595,11 +596,6 @@ class OrgClockViewModel(
                 status = UiStatus("Create heading failed: $message", tone),
             )
         }
-    }
-
-    private fun roundToNearest5(minute: Int): Int {
-        val normalized = ((minute + 2) / 5) * 5
-        return if (normalized == 60) 55 else normalized
     }
 
     private fun toggleNotificationEnabled(enabled: Boolean) {

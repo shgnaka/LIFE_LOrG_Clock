@@ -68,6 +68,8 @@ import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
 import com.example.orgclock.ui.state.CreateHeadingMode
+import com.example.orgclock.ui.time.RUNNING_PANEL_TICK_MS
+import com.example.orgclock.ui.time.minuteStepOptions
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.ui.theme.CalmBorder
 import com.example.orgclock.ui.theme.CalmOnAccent
@@ -647,8 +649,9 @@ private fun RunningClocksPanel(
         while (true) {
             val current = ZonedDateTime.now()
             now = current
-            val delayMs = 60_000L - ((current.second * 1000L) + (current.nano / 1_000_000L))
-            delay(if (delayMs > 0L) delayMs else 60_000L)
+            val elapsedMs = (current.second * 1_000L) + (current.nano / 1_000_000L)
+            val delayMs = RUNNING_PANEL_TICK_MS - elapsedMs
+            delay(if (delayMs > 0L) delayMs else RUNNING_PANEL_TICK_MS)
         }
     }
 
@@ -807,7 +810,7 @@ private fun TimeFieldEditor(
 ) {
     var hourExpanded by remember { mutableStateOf(false) }
     var minuteExpanded by remember { mutableStateOf(false) }
-    val minuteOptions = remember { (0..55 step 5).toList() }
+    val minuteOptions = remember { minuteStepOptions() }
 
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, style = MaterialTheme.typography.bodySmall)

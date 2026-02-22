@@ -363,6 +363,36 @@ class OrgClockViewModelTest {
         assertTrue(vm.uiState.value.notificationPermissionGranted)
     }
 
+    @Test
+    fun beginEdit_roundsMinutesBySharedStepBoundaries() = runTest {
+        val vm = testViewModel()
+        val zone = ZoneId.of("Asia/Tokyo")
+
+        val cases = listOf(
+            0 to 0,
+            2 to 0,
+            58 to 55,
+            59 to 55,
+        )
+
+        for ((input, expected) in cases) {
+            val start = ZonedDateTime.of(2026, 2, 16, 9, input, 0, 0, zone)
+            val end = ZonedDateTime.of(2026, 2, 16, 10, input, 0, 0, zone)
+            val entry = ClosedClockEntry(
+                headingLineIndex = 1,
+                clockLineIndex = 3,
+                start = start,
+                end = end,
+                durationMinutes = 60,
+            )
+
+            vm.onAction(OrgClockUiAction.BeginEdit(entry))
+            val draft = vm.uiState.value.editingDraft
+            assertEquals(expected, draft?.startMinute)
+            assertEquals(expected, draft?.endMinute)
+        }
+    }
+
     private fun sampleHeadings(): List<HeadingViewItem> {
         val root = HeadingViewItem(
             node = HeadingNode(
