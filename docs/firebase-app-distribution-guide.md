@@ -73,7 +73,8 @@ Google Cloud 側で以下を設定します。
 
 1. GitHub の `Actions` タブを開く
 2. `Distribute Android (Firebase)` を選択
-3. `Run workflow` を実行
+3. 必ず `Run workflow` で新規実行する（`Re-run jobs` は使わない）
+4. `Use workflow from` を `main` に設定して実行
    - `git_ref`: `main`（推奨）
    - `tester_group`: `internal-testers`（Firebase 側の group alias と一致）
    - `release_notes`: 任意（空なら自動生成）
@@ -83,6 +84,9 @@ Google Cloud 側で以下を設定します。
 - Actions ジョブが成功する
 - テスターに配布通知が届く
 - 端末側でアプリ更新が可能
+- ログに `WORKFLOW_IMPL=rest-v1` が出力される
+- ステップ一覧に `Upload APK to App Distribution (REST)` と `Wait for upload operation (REST)` が存在する
+- `Distribute to Firebase App Distribution` ステップに `firebase appdistribution:distribute` が出ない
 
 ## 5. よくある失敗と対処
 
@@ -108,6 +112,8 @@ Google Cloud 側で以下を設定します。
 - `GCP_SERVICE_ACCOUNT_EMAIL` が正しいか確認
 - Workload Identity Provider で GitHub リポジトリの principal 条件を許可しているか確認
 - サービスアカウント権限を見直し
+- 先に run の実行定義を確認（`Head SHA` / `WORKFLOW_IMPL` / `Use workflow from`）
+  - `WORKFLOW_IMPL=rest-v1` が出ていない場合、旧 workflow 定義を実行している可能性が高い
 
 ### App Distribution REST エラー
 

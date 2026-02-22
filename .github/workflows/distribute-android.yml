@@ -31,6 +31,14 @@ jobs:
         with:
           ref: ${{ inputs.git_ref }}
 
+      - name: Print workflow fingerprint
+        run: |
+          set -euo pipefail
+          echo "WORKFLOW_IMPL=rest-v1"
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          echo "WORKFLOW_REF=${{ github.workflow_ref }}"
+          echo "INPUT_GIT_REF=${{ inputs.git_ref }}"
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -239,6 +247,9 @@ jobs:
           set -euo pipefail
           echo "Distribution completed."
           echo "Git ref: ${{ inputs.git_ref }}"
+          echo "Workflow impl: rest-v1"
+          echo "Head SHA: ${GITHUB_SHA}"
+          echo "Workflow ref: ${{ github.workflow_ref }}"
           echo "APK: $APK_PATH"
           echo "Release: $RELEASE_NAME"
           echo "Tester group: ${{ inputs.tester_group }}"

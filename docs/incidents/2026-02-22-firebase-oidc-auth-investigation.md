@@ -69,11 +69,21 @@ Error: Process completed with exit code 1.
 4. **ブラウザの run 参照ミス**  
    最新実行ではなく、古い失敗 run のログを見ていた。
 
-## 6. 今回時点での結論（暫定）
+## 6. 結論（確定）
 
 - エラー内容そのものは「CLI 認証方式の失敗」を示している。
 - ただし現行コードは REST 実装であり、**コードとログが一致していない**ため、
-  根本原因はまず「どの workflow revision が実行されたか」の確認が先。
+  根本原因は「実行された workflow revision のずれ」。
+
+### 6.1 確定した事実（run: `22270093588`）
+
+- 実行種別: `Re-run`
+- `Head branch`: `main`
+- `Head SHA`: `c3e5ebb`
+- 失敗ログ: `Failed to authenticate, have you run firebase login?`
+
+`c3e5ebb` は REST 化（`3a74ec5`）より前の世代であり、CLI 実装を含む。
+したがって本件は、旧 workflow 定義を再実行したことで CLI 経路が動作し、認証失敗した。
 
 ## 7. 検証チェックリスト（次回 run で必須）
 
@@ -94,12 +104,13 @@ GitHub Actions の実行画面で以下を確認する。
 1. 「再実行」ではなく「新規 Run workflow」を使う
 2. `Use workflow from` を `main` に固定する
 3. run 直後に step 名一覧で REST ステップの存在を確認する
+4. `Print workflow fingerprint` の `WORKFLOW_IMPL=rest-v1` を確認する
 
 ### 8.2 恒久策
 
 1. workflow にバージョン指紋を出力する  
    例: `echo "WORKFLOW_IMPL=rest-v1"`
-2. `Print distribution summary` に `GITHUB_SHA` を明示出力
+2. `Print distribution summary` に `GITHUB_SHA` / `WORKFLOW_REF` を明示出力
 3. 運用ガイドに「再実行時の定義ずれ注意」を追記
 
 ## 9. 追加で疑うべき要素（補助）
