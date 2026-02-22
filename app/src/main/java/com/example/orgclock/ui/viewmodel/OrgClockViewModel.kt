@@ -205,6 +205,7 @@ class OrgClockViewModel(
                 it.copy(notificationPermissionRequestPending = false)
             }
             is OrgClockUiAction.NotificationPermissionResult -> onNotificationPermissionResult(action.granted)
+            OrgClockUiAction.RefreshNotificationPermissionState -> refreshNotificationPermissionState()
             OrgClockUiAction.OpenAppNotificationSettings -> _uiState.update {
                 it.copy(openAppNotificationSettingsPending = true)
             }
@@ -663,6 +664,17 @@ class OrgClockViewModel(
                         state.status
                     },
                 )
+            }
+        }
+    }
+
+    private fun refreshNotificationPermissionState() {
+        val granted = notificationPermissionGrantedProvider()
+        _uiState.update { state ->
+            if (state.notificationPermissionGranted == granted) {
+                state
+            } else {
+                state.copy(notificationPermissionGranted = granted)
             }
         }
     }

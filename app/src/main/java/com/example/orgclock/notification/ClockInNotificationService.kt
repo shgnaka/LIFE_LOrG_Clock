@@ -13,6 +13,7 @@ import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.example.orgclock.MainActivity
 import com.example.orgclock.data.SafOrgRepository
@@ -36,7 +37,6 @@ class ClockInNotificationService : Service() {
 
     private var enabled: Boolean = true
     private var displayMode: NotificationDisplayMode = NotificationDisplayMode.ActiveOnly
-    private var permissionGranted: Boolean = false
     private var loopJob: Job? = null
 
     override fun onCreate() {
@@ -56,8 +56,6 @@ class ClockInNotificationService : Service() {
                 displayMode = NotificationDisplayMode.fromStorage(
                     intent?.getStringExtra(EXTRA_DISPLAY_MODE) ?: displayMode.storageValue,
                 )
-                permissionGranted = intent?.getBooleanExtra(EXTRA_PERMISSION_GRANTED, permissionGranted)
-                    ?: permissionGranted
 
                 if (!enabled || !isNotificationPermissionGranted()) {
                     stopServiceAndNotification()
@@ -243,16 +241,15 @@ class ClockInNotificationService : Service() {
     }
 
     private fun isNotificationPermissionGranted(): Boolean {
-        if (!permissionGranted) {
-            return false
-        }
+        val notificationsEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            return true
+            return notificationsEnabled
         }
-        return ContextCompat.checkSelfPermission(
+        val runtimeGranted = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
+        return runtimeGranted && notificationsEnabled
     }
 
     private fun loadRootUri(): Uri? {
@@ -292,7 +289,6 @@ class ClockInNotificationService : Service() {
         private const val ACTION_STOP = "com.example.orgclock.notification.STOP"
         private const val EXTRA_ENABLED = "enabled"
         private const val EXTRA_DISPLAY_MODE = "display_mode"
-        private const val EXTRA_PERMISSION_GRANTED = "permission_granted"
 
         private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -300,9 +296,8 @@ class ClockInNotificationService : Service() {
             context: Context,
             enabled: Boolean,
             displayMode: NotificationDisplayMode,
-            permissionGranted: Boolean,
         ) {
-            if (!enabled || !permissionGranted) {
+            if (!enabled) {
                 stop(context)
                 return
             }
@@ -310,7 +305,6 @@ class ClockInNotificationService : Service() {
                 action = ACTION_SYNC
                 putExtra(EXTRA_ENABLED, enabled)
                 putExtra(EXTRA_DISPLAY_MODE, displayMode.storageValue)
-                putExtra(EXTRA_PERMISSION_GRANTED, permissionGranted)
             }
             ContextCompat.startForegroundService(context, intent)
         }

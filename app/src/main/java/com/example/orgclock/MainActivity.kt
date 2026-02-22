@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
@@ -75,8 +76,8 @@ class MainActivity : ComponentActivity() {
                         prefs.edit().putString(NotificationPrefs.KEY_DISPLAY_MODE, mode.storageValue).apply()
                     },
                     notificationPermissionGrantedProvider = { isNotificationPermissionGranted() },
-                    syncNotificationService = { enabled, mode, permissionGranted ->
-                        ClockInNotificationService.sync(this@MainActivity, enabled, mode, permissionGranted)
+                    syncNotificationService = { enabled, mode ->
+                        ClockInNotificationService.sync(this@MainActivity, enabled, mode)
                     },
                     stopNotificationService = {
                         ClockInNotificationService.stop(this@MainActivity)
@@ -90,13 +91,15 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun isNotificationPermissionGranted(): Boolean {
+        val notificationsEnabled = NotificationManagerCompat.from(this).areNotificationsEnabled()
         if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) {
-            return true
+            return notificationsEnabled
         }
-        return ContextCompat.checkSelfPermission(
+        val runtimeGranted = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.POST_NOTIFICATIONS,
         ) == PackageManager.PERMISSION_GRANTED
+        return runtimeGranted && notificationsEnabled
     }
 
     private fun openAppNotificationSettings() {

@@ -41,6 +41,7 @@ sealed interface OrgClockUiAction {
     data class ChangeNotificationDisplayMode(val mode: NotificationDisplayMode) : OrgClockUiAction
     data object RequestNotificationPermissionHandled : OrgClockUiAction
     data class NotificationPermissionResult(val granted: Boolean) : OrgClockUiAction
+    data object RefreshNotificationPermissionState : OrgClockUiAction
     data object OpenAppNotificationSettings : OrgClockUiAction
     data object AppNotificationSettingsOpened : OrgClockUiAction
 }

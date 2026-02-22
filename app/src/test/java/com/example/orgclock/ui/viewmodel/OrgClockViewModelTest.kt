@@ -305,6 +305,23 @@ class OrgClockViewModelTest {
         assertTrue(state.notificationPermissionGranted)
     }
 
+    @Test
+    fun refreshNotificationPermissionState_updatesPermissionFromProvider() = runTest {
+        var granted = false
+        val vm = testViewModel(
+            notificationPermissionGrantedProvider = { granted },
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.notificationPermissionGranted)
+
+        granted = true
+        vm.onAction(OrgClockUiAction.RefreshNotificationPermissionState)
+
+        assertTrue(vm.uiState.value.notificationPermissionGranted)
+    }
+
     private fun sampleHeadings(): List<HeadingViewItem> {
         val root = HeadingViewItem(
             node = HeadingNode(

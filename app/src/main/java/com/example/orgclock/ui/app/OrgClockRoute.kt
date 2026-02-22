@@ -11,6 +11,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -46,7 +49,7 @@ fun OrgClockRoute(
     loadNotificationDisplayMode: () -> NotificationDisplayMode,
     saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     notificationPermissionGrantedProvider: () -> Boolean,
-    syncNotificationService: (Boolean, NotificationDisplayMode, Boolean) -> Unit,
+    syncNotificationService: (Boolean, NotificationDisplayMode) -> Unit,
     stopNotificationService: () -> Unit,
     openAppNotificationSettings: () -> Unit,
     performanceMonitor: PerformanceMonitor,
@@ -98,6 +101,7 @@ fun OrgClockRoute(
 
     val viewModel: OrgClockViewModel = viewModel(factory = factory)
     val state by viewModel.uiState.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     val rootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -112,6 +116,17 @@ fun OrgClockRoute(
 
     LaunchedEffect(Unit) {
         viewModel.onAction(OrgClockUiAction.Initialize)
+    }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.onAction(OrgClockUiAction.RefreshNotificationPermissionState)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
     LaunchedEffect(state.notificationPermissionRequestPending) {
         if (!state.notificationPermissionRequestPending) return@LaunchedEffect
@@ -130,15 +145,13 @@ fun OrgClockRoute(
     LaunchedEffect(
         state.notificationEnabled,
         state.notificationDisplayMode,
-        state.notificationPermissionGranted,
         state.rootUri,
         state.headings,
     ) {
-        if (state.notificationEnabled && state.notificationPermissionGranted && state.rootUri != null) {
+        if (state.notificationEnabled && state.rootUri != null) {
             syncNotificationService(
                 state.notificationEnabled,
                 state.notificationDisplayMode,
-                state.notificationPermissionGranted,
             )
         } else {
             stopNotificationService()
