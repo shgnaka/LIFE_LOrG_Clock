@@ -4,6 +4,7 @@ set -euo pipefail
 
 chmod +x ./gradlew
 mkdir -p artifacts/android-test
+INSTRUMENTATION_SMOKE_TIMEOUT_SEC=120
 
 EMULATOR_SERIAL="$(adb devices | awk '/^emulator-[0-9]+[[:space:]]+device$/ {print $1; exit}')"
 if [ -z "${EMULATOR_SERIAL}" ]; then
@@ -21,7 +22,17 @@ collect_diagnostics() {
   adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock.test > "artifacts/android-test/dumpsys-package-orgclock-test-${suffix}.txt" || true
   adb -s "${EMULATOR_SERIAL}" shell logcat -d -v time > "artifacts/android-test/logcat-${suffix}.txt" || true
   if adb -s "${EMULATOR_SERIAL}" shell pm list instrumentation | grep -q "com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner"; then
-    adb -s "${EMULATOR_SERIAL}" shell am instrument -w -m com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner > "artifacts/android-test/instrumentation-smoke-${suffix}.txt" || true
+    local smoke_log_path="artifacts/android-test/instrumentation-smoke-${suffix}.txt"
+    set +e
+    timeout "${INSTRUMENTATION_SMOKE_TIMEOUT_SEC}" adb -s "${EMULATOR_SERIAL}" shell am instrument -w -m com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner > "${smoke_log_path}" 2>&1
+    local smoke_status=$?
+    set -e
+
+    if [ "${smoke_status}" -eq 124 ]; then
+      echo "Instrumentation smoke timed out after ${INSTRUMENTATION_SMOKE_TIMEOUT_SEC}s" > "artifacts/android-test/instrumentation-smoke-timeout-${suffix}.txt"
+    elif [ "${smoke_status}" -ne 0 ]; then
+      echo "Instrumentation smoke exited with status ${smoke_status}" > "artifacts/android-test/instrumentation-smoke-failure-${suffix}.txt"
+    fi
   else
     echo "Instrumentation not installed for com.example.orgclock.test" > "artifacts/android-test/instrumentation-not-installed-${suffix}.txt"
   fi
@@ -131,6 +142,7 @@ if ! prepare_test_apks; then
 fi
 
 test_exit=0
+second_run_attempted=0
 run_gradle_logged "connected-first" :app:connectedDebugAndroidTest || test_exit=$?
 
 if [ "${test_exit}" -ne 0 ]; then
@@ -141,12 +153,18 @@ if [ "${test_exit}" -ne 0 ]; then
   wait_for_device_ready || true
   adb -s "${EMULATOR_SERIAL}" shell am force-stop com.example.orgclock || true
   adb -s "${EMULATOR_SERIAL}" shell pm clear com.example.orgclock.test || true
-  prepare_test_apks || true
-  test_exit=0
-  run_gradle_logged "connected-second" :app:connectedDebugAndroidTest || test_exit=$?
+  if ! prepare_test_apks; then
+    echo "Prepare phase failed during retry, aborting before second instrumentation run"
+    collect_diagnostics "prepare-retry-failure"
+    test_exit=1
+  else
+    second_run_attempted=1
+    test_exit=0
+    run_gradle_logged "connected-second" :app:connectedDebugAndroidTest || test_exit=$?
+  fi
 fi
 
-if [ "${test_exit}" -ne 0 ]; then
+if [ "${test_exit}" -ne 0 ] && [ "${second_run_attempted}" -eq 1 ]; then
   collect_diagnostics "after-second-failure"
 fi
 
