@@ -427,6 +427,161 @@ class OrgClockViewModelTest {
         }
     }
 
+    @Test
+    fun initialize_calledTwice_withSavedUri_runsInitializationOnlyOnce() = runTest {
+        val savedUri = Mockito.mock(Uri::class.java)
+        var openRootCalls = 0
+        val vm = testViewModel(
+            loadSavedUri = { savedUri },
+            openRoot = { uri ->
+                openRootCalls += 1
+                Result.success(com.example.orgclock.data.RootAccess(uri, "org"))
+            },
+            listFiles = { Result.success(emptyList()) },
+            todayProvider = { LocalDate.of(2026, 2, 16) },
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        assertEquals(1, openRootCalls)
+    }
+
+    @Test
+    fun initialize_withSavedUri_openRootFailure_routesToRootSetupAndError() = runTest {
+        val savedUri = Mockito.mock(Uri::class.java)
+        val vm = testViewModel(
+            loadSavedUri = { savedUri },
+            openRoot = { Result.failure(IllegalStateException("permission denied")) },
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        assertEquals(Screen.RootSetup, vm.uiState.value.screen)
+        assertEquals(StatusTone.Error, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun initialize_withRootAndListFilesFailure_routesToFilePickerWithError() = runTest {
+        val savedUri = Mockito.mock(Uri::class.java)
+        val vm = testViewModel(
+            loadSavedUri = { savedUri },
+            openRoot = { uri -> Result.success(com.example.orgclock.data.RootAccess(uri, "org")) },
+            listFiles = { Result.failure(IllegalStateException("list failed")) },
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        assertEquals(Screen.FilePicker, vm.uiState.value.screen)
+        assertEquals(StatusTone.Error, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun initialize_whenTodayFileMissing_setsWarningAndKeepsFilePicker() = runTest {
+        val savedUri = Mockito.mock(Uri::class.java)
+        val vm = testViewModel(
+            loadSavedUri = { savedUri },
+            openRoot = { uri -> Result.success(com.example.orgclock.data.RootAccess(uri, "org")) },
+            todayProvider = { LocalDate.of(2026, 2, 16) },
+            listFiles = { Result.success(listOf(OrgFileEntry("f1", "projects.org", null))) },
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        assertEquals(Screen.FilePicker, vm.uiState.value.screen)
+        assertEquals(StatusTone.Warning, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun stopClock_failure_restoresOptimisticOpenClock() = runTest {
+        val headings = sampleHeadingsWithOpenClock()
+        val vm = testViewModel(
+            listHeadings = { Result.success(headings) },
+            stopClock = { _, _ -> Result.failure(IllegalStateException("stop failed")) },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        val original = vm.uiState.value.headings.first { it.node.lineIndex == 1 }.openClock
+        vm.onAction(OrgClockUiAction.StopClock(vm.uiState.value.headings.first { it.node.lineIndex == 1 }))
+        advanceUntilIdle()
+
+        assertEquals(original, vm.uiState.value.headings.first { it.node.lineIndex == 1 }.openClock)
+        assertEquals(StatusTone.Error, vm.uiState.value.status.tone)
+        assertTrue(vm.uiState.value.pendingClockOps.isEmpty())
+    }
+
+    @Test
+    fun confirmDelete_whenAlreadyInProgress_ignoresSecondTrigger() = runTest {
+        var calls = 0
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            deleteClosedClock = { _, _, _ ->
+                calls += 1
+                kotlinx.coroutines.delay(1_000)
+                Result.success(Unit)
+            },
+        )
+        val entry = sampleClosedEntry()
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.BeginDelete(entry))
+        vm.onAction(OrgClockUiAction.ConfirmDelete)
+        runCurrent()
+        vm.onAction(OrgClockUiAction.ConfirmDelete)
+        advanceUntilIdle()
+
+        assertEquals(1, calls)
+        assertNull(vm.uiState.value.deletingEntry)
+        assertFalse(vm.uiState.value.deletingInProgress)
+    }
+
+    @Test
+    fun toggleNotificationEnabled_off_clearsAllPendingFlags() = runTest {
+        val vm = testViewModel(
+            loadNotificationEnabled = { false },
+            notificationPermissionGrantedProvider = { false },
+        )
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        vm.onAction(OrgClockUiAction.ToggleNotificationEnabled(true))
+        vm.onAction(OrgClockUiAction.ToggleNotificationEnabled(false))
+
+        val state = vm.uiState.value
+        assertFalse(state.notificationEnabled)
+        assertFalse(state.pendingEnableNotificationAfterPermission)
+        assertFalse(state.notificationPermissionRequestPending)
+        assertFalse(state.openAppNotificationSettingsPending)
+    }
+
+    @Test
+    fun notificationPermissionResult_denied_afterPending_showsWarningAndKeepsDisabled() = runTest {
+        var savedEnabled = true
+        val vm = testViewModel(
+            loadNotificationEnabled = { false },
+            notificationPermissionGrantedProvider = { false },
+            saveNotificationEnabled = { savedEnabled = it },
+        )
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        vm.onAction(OrgClockUiAction.ToggleNotificationEnabled(true))
+        vm.onAction(OrgClockUiAction.NotificationPermissionResult(false))
+
+        val state = vm.uiState.value
+        assertFalse(state.notificationEnabled)
+        assertFalse(state.pendingEnableNotificationAfterPermission)
+        assertFalse(state.notificationPermissionRequestPending)
+        assertEquals(StatusTone.Warning, state.status.tone)
+        assertFalse(savedEnabled)
+    }
+
     private fun sampleHeadings(): List<HeadingViewItem> {
         val root = HeadingViewItem(
             node = HeadingNode(
@@ -464,6 +619,35 @@ class OrgClockViewModelTest {
             end = end,
             durationMinutes = 30,
         )
+    }
+
+    private fun sampleHeadingsWithOpenClock(): List<HeadingViewItem> {
+        val zone = ZoneId.of("Asia/Tokyo")
+        val root = HeadingViewItem(
+            node = HeadingNode(
+                lineIndex = 0,
+                level = 1,
+                title = "Work",
+                path = HeadingPath.parse("Work"),
+                parentL1 = "Work",
+            ),
+            canStart = false,
+            openClock = null,
+        )
+        val child = HeadingViewItem(
+            node = HeadingNode(
+                lineIndex = 1,
+                level = 2,
+                title = "Project A",
+                path = HeadingPath.parse("Work/Project A"),
+                parentL1 = "Work",
+            ),
+            canStart = true,
+            openClock = com.example.orgclock.model.OpenClockState(
+                ZonedDateTime.of(2026, 2, 16, 9, 0, 0, 0, zone),
+            ),
+        )
+        return listOf(root, child)
     }
 
     private fun testViewModel(

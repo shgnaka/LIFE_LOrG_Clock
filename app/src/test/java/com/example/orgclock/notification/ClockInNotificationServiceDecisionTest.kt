@@ -25,6 +25,18 @@ class ClockInNotificationServiceDecisionTest {
         assertFalse(shouldStopForActiveOnly(NotificationDisplayMode.Always, empty))
     }
 
+    @Test
+    fun shouldStopForActiveOnly_neverStopsInAlwaysMode_evenWhenEmptyOrFailed() {
+        val empty = ClockInScanResult(entries = emptyList(), failedFiles = emptyList())
+        val failed = ClockInScanResult(
+            entries = emptyList(),
+            failedFiles = listOf(FileScanFailure("f1", "a.org", "read failed")),
+        )
+
+        assertFalse(shouldStopForActiveOnly(NotificationDisplayMode.Always, empty))
+        assertFalse(shouldStopForActiveOnly(NotificationDisplayMode.Always, failed))
+    }
+
     private fun sampleEntry(): ClockInEntry {
         return ClockInEntry(
             fileId = "f1",
