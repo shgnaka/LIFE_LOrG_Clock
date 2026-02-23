@@ -20,22 +20,30 @@ collect_diagnostics() {
   adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock > "artifacts/android-test/dumpsys-package-orgclock-${suffix}.txt" || true
   adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock.test > "artifacts/android-test/dumpsys-package-orgclock-test-${suffix}.txt" || true
   adb -s "${EMULATOR_SERIAL}" shell logcat -d -v time > "artifacts/android-test/logcat-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell am instrument -w -m com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner > "artifacts/android-test/instrumentation-smoke-${suffix}.txt" || true
+  if adb -s "${EMULATOR_SERIAL}" shell pm list instrumentation | grep -q "com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner"; then
+    adb -s "${EMULATOR_SERIAL}" shell am instrument -w -m com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner > "artifacts/android-test/instrumentation-smoke-${suffix}.txt" || true
+  else
+    echo "Instrumentation not installed for com.example.orgclock.test" > "artifacts/android-test/instrumentation-not-installed-${suffix}.txt"
+  fi
 }
 
 wait_for_device_ready() {
   local boot_ok=0
   local dev_boot_ok=0
   local ce_ok=0
-  local user_unlocked_ok=0
   local pm_ok=0
   local package_list_ok=0
+  local last_boot_completed=""
+  local last_dev_boot_completed=""
+  local last_ce_available=""
 
   for _ in $(seq 1 120); do
     boot_completed="$(adb -s "${EMULATOR_SERIAL}" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' | tr -d '\n')"
     dev_boot_completed="$(adb -s "${EMULATOR_SERIAL}" shell getprop dev.bootcomplete 2>/dev/null | tr -d '\r' | tr -d '\n')"
     ce_available="$(adb -s "${EMULATOR_SERIAL}" shell getprop sys.user.0.ce_available 2>/dev/null | tr -d '\r' | tr -d '\n')"
-    user_unlocked="$(adb -s "${EMULATOR_SERIAL}" shell cmd user is-user-unlocked 0 2>/dev/null | tr -d '\r' | tr -d '\n')"
+    last_boot_completed="${boot_completed}"
+    last_dev_boot_completed="${dev_boot_completed}"
+    last_ce_available="${ce_available}"
 
     if adb -s "${EMULATOR_SERIAL}" shell pm path android >/dev/null 2>&1; then
       pm_ok=1
@@ -57,14 +65,10 @@ wait_for_device_ready() {
     if [ "${ce_available}" = "true" ]; then
       ce_ok=1
     fi
-    if [ "${user_unlocked}" = "true" ]; then
-      user_unlocked_ok=1
-    fi
 
     if [ "${boot_ok}" -eq 1 ] &&
       [ "${dev_boot_ok}" -eq 1 ] &&
       [ "${ce_ok}" -eq 1 ] &&
-      [ "${user_unlocked_ok}" -eq 1 ] &&
       [ "${pm_ok}" -eq 1 ] &&
       [ "${package_list_ok}" -eq 1 ]; then
       return 0
@@ -72,6 +76,7 @@ wait_for_device_ready() {
     sleep 5
   done
 
+  echo "Readiness check failed: sys.boot_completed=${last_boot_completed} dev.bootcomplete=${last_dev_boot_completed} sys.user.0.ce_available=${last_ce_available} pm_ok=${pm_ok} package_list_ok=${package_list_ok}"
   return 1
 }
 
