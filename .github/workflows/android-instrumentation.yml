@@ -10,6 +10,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   android-test:
     runs-on: ubuntu-latest
@@ -34,7 +38,7 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -accel off -no-metrics -cores 2 -memory 2048
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 2 -memory 2048
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports
