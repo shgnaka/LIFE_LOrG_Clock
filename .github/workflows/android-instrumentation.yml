@@ -20,6 +20,8 @@ jobs:
   android-test:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      GRADLE_USER_HOME: /home/runner/.gradle
 
     steps:
       - name: Checkout
@@ -61,6 +63,8 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      GRADLE_USER_HOME: /home/runner/.gradle
 
     steps:
       - name: Checkout
