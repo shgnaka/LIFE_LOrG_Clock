@@ -5,6 +5,8 @@ set -euo pipefail
 chmod +x ./gradlew
 mkdir -p artifacts/android-test
 INSTRUMENTATION_SMOKE_TIMEOUT_SEC=120
+PM_SETTLE_ATTEMPTS=10
+PM_SETTLE_SLEEP_SEC=3
 
 EMULATOR_SERIAL="$(adb devices | awk '/^emulator-[0-9]+[[:space:]]+device$/ {print $1; exit}')"
 if [ -z "${EMULATOR_SERIAL}" ]; then
@@ -109,12 +111,48 @@ run_gradle_logged() {
   return "${status}"
 }
 
-prepare_test_apks() {
-  if ! run_gradle_logged "prepare" :app:assembleDebug :app:assembleDebugAndroidTest :app:installDebug :app:installDebugAndroidTest; then
+build_test_apks() {
+  if ! run_gradle_logged "build" :app:assembleDebug :app:assembleDebugAndroidTest; then
+    return 1
+  fi
+  return 0
+}
+
+install_test_apks() {
+  local suffix="$1"
+  if ! run_gradle_logged "${suffix}" :app:installDebug :app:installDebugAndroidTest; then
     return 1
   fi
   if ! ensure_instrumentation_installed; then
-    echo "Instrumentation package not installed after prepare phase"
+    echo "Instrumentation package not installed after install phase (${suffix})"
+    return 1
+  fi
+  return 0
+}
+
+wait_for_package_manager_settle() {
+  for _ in $(seq 1 "${PM_SETTLE_ATTEMPTS}"); do
+    if adb -s "${EMULATOR_SERIAL}" shell cmd package list packages >/dev/null 2>&1 &&
+      adb -s "${EMULATOR_SERIAL}" shell pm list instrumentation >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep "${PM_SETTLE_SLEEP_SEC}"
+  done
+  echo "Package manager did not settle in time"
+  return 1
+}
+
+recover_and_retry_install() {
+  collect_diagnostics "install-first-failure"
+  adb -s "${EMULATOR_SERIAL}" reconnect offline || true
+  adb -s "${EMULATOR_SERIAL}" wait-for-device || true
+  wait_for_device_ready || true
+  wait_for_package_manager_settle || true
+  adb -s "${EMULATOR_SERIAL}" shell am force-stop com.example.orgclock || true
+  adb -s "${EMULATOR_SERIAL}" shell pm uninstall com.example.orgclock || true
+  adb -s "${EMULATOR_SERIAL}" shell pm uninstall com.example.orgclock.test || true
+  if ! install_test_apks "install-second"; then
+    collect_diagnostics "install-second-failure"
     return 1
   fi
   return 0
@@ -136,8 +174,21 @@ adb -s "${EMULATOR_SERIAL}" shell settings put global window_animation_scale 0 |
 adb -s "${EMULATOR_SERIAL}" shell settings put global transition_animation_scale 0 || true
 adb -s "${EMULATOR_SERIAL}" shell settings put global animator_duration_scale 0 || true
 
-if ! prepare_test_apks; then
-  collect_diagnostics "prepare-failure"
+if ! build_test_apks; then
+  collect_diagnostics "build-failure"
+  exit 1
+fi
+
+if ! install_test_apks "install-first"; then
+  echo "Install phase failed, running adb recovery then retrying once"
+  if ! recover_and_retry_install; then
+    echo "Install phase failed after retry"
+    exit 1
+  fi
+fi
+
+if ! ensure_instrumentation_installed; then
+  collect_diagnostics "install-postcheck-failure"
   exit 1
 fi
 
@@ -153,9 +204,13 @@ if [ "${test_exit}" -ne 0 ]; then
   wait_for_device_ready || true
   adb -s "${EMULATOR_SERIAL}" shell am force-stop com.example.orgclock || true
   adb -s "${EMULATOR_SERIAL}" shell pm clear com.example.orgclock.test || true
-  if ! prepare_test_apks; then
-    echo "Prepare phase failed during retry, aborting before second instrumentation run"
-    collect_diagnostics "prepare-retry-failure"
+  if ! wait_for_package_manager_settle; then
+    echo "Package manager did not settle before second instrumentation run"
+    collect_diagnostics "pm-settle-retry-failure"
+    test_exit=1
+  elif ! install_test_apks "install-before-second-connected"; then
+    echo "Install phase failed during retry, aborting before second instrumentation run"
+    collect_diagnostics "install-before-second-connected-failure"
     test_exit=1
   else
     second_run_attempted=1
