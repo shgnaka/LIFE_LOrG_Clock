@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   android-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:
       GRADLE_USER_HOME: /home/runner/.gradle
@@ -38,11 +38,15 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 33
+          target: google_apis
           arch: x86_64
           profile: Nexus 6
+          disk-size: 8192M
+          ram-size: 3072M
+          heap-size: 512M
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 2 -memory 2048
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 2 -memory 2048 -partition-size 2048
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports

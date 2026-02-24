@@ -7,6 +7,7 @@ mkdir -p artifacts/android-test
 INSTRUMENTATION_SMOKE_TIMEOUT_SEC=120
 PM_SETTLE_ATTEMPTS=10
 PM_SETTLE_SLEEP_SEC=3
+INSTALL_NPE_REBOOT_RETRY_MAX=1
 
 EMULATOR_SERIAL="$(adb devices | awk '/^emulator-[0-9]+[[:space:]]+device$/ {print $1; exit}')"
 if [ -z "${EMULATOR_SERIAL}" ]; then
@@ -111,6 +112,24 @@ run_gradle_logged() {
   return "${status}"
 }
 
+write_failure_classification() {
+  local suffix="$1"
+  local reason="$2"
+  printf "reason=%s\n" "${reason}" > "artifacts/android-test/failure-classification-${suffix}.txt"
+}
+
+install_log_indicates_pm_npe() {
+  local suffix="$1"
+  local log_path="artifacts/android-test/gradle-${suffix}.log"
+  if [ ! -f "${log_path}" ]; then
+    return 1
+  fi
+  if grep -Eq "PackageManagerInternal\.freeStorage|StorageManagerService\.allocateBytes|NullPointerException" "${log_path}"; then
+    return 0
+  fi
+  return 1
+}
+
 build_test_apks() {
   if ! run_gradle_logged "build" :app:assembleDebug :app:assembleDebugAndroidTest; then
     return 1
@@ -158,6 +177,34 @@ recover_and_retry_install() {
   return 0
 }
 
+retry_install_after_device_reboot() {
+  local reboot_retry_count="$1"
+  if [ "${reboot_retry_count}" -ge "${INSTALL_NPE_REBOOT_RETRY_MAX}" ]; then
+    return 1
+  fi
+
+  write_failure_classification "install-first" "install_pm_npe_detected"
+  collect_diagnostics "install-npe-detected"
+  collect_diagnostics "emulator-reboot-before-install-retry"
+
+  adb -s "${EMULATOR_SERIAL}" reboot || true
+  adb -s "${EMULATOR_SERIAL}" wait-for-device || true
+  wait_for_device_ready || true
+  wait_for_package_manager_settle || true
+
+  adb -s "${EMULATOR_SERIAL}" shell settings put global window_animation_scale 0 || true
+  adb -s "${EMULATOR_SERIAL}" shell settings put global transition_animation_scale 0 || true
+  adb -s "${EMULATOR_SERIAL}" shell settings put global animator_duration_scale 0 || true
+
+  if ! install_test_apks "install-after-emulator-reboot"; then
+    write_failure_classification "install-after-emulator-reboot" "install_failed_after_reboot"
+    collect_diagnostics "install-after-emulator-reboot-failure"
+    return 1
+  fi
+  write_failure_classification "install-after-emulator-reboot" "install_recovered_after_reboot"
+  return 0
+}
+
 adb kill-server || true
 adb start-server
 adb -s "${EMULATOR_SERIAL}" wait-for-device
@@ -179,11 +226,22 @@ if ! build_test_apks; then
   exit 1
 fi
 
+install_reboot_retry_count=0
 if ! install_test_apks "install-first"; then
   echo "Install phase failed, running adb recovery then retrying once"
-  if ! recover_and_retry_install; then
-    echo "Install phase failed after retry"
-    exit 1
+  if install_log_indicates_pm_npe "install-first"; then
+    echo "Install failure matched package manager NPE pattern; rebooting device and retrying install once"
+    if ! retry_install_after_device_reboot "${install_reboot_retry_count}"; then
+      echo "Install phase failed after package manager NPE reboot retry"
+      exit 1
+    fi
+  else
+    write_failure_classification "install-first" "install_failed_non_npe"
+    if ! recover_and_retry_install; then
+      echo "Install phase failed after retry"
+      exit 1
+    fi
+    write_failure_classification "install-second" "install_recovered_via_adb_reconnect"
   fi
 fi
 
