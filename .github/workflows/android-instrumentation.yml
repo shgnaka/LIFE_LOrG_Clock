@@ -42,11 +42,10 @@ jobs:
           arch: x86_64
           profile: Nexus 6
           disk-size: 8192M
-          ram-size: 3072M
           heap-size: 512M
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 2 -memory 2048 -partition-size 2048
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 4 -memory 4096 -partition-size 2048
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports
@@ -89,7 +88,7 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 2 -memory 2048
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 4 -memory 4096
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports
@@ -132,7 +131,7 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 2 -memory 2048
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 4 -memory 4096
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports
