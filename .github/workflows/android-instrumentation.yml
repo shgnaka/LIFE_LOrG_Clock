@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 45
     env:
       GRADLE_USER_HOME: /home/runner/.gradle
+      ANDROID_TEST_LOG_KEEP_RUNS: 20
 
     steps:
       - name: Checkout
@@ -34,8 +35,28 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      - name: Prepare run-id and artifact directory
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::8}"
+          SHA_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          UTC_TS="$(date -u -d "@${SHA_EPOCH}" +%Y%m%dT%H%M%SZ)"
+          RUN_ID="${UTC_TS}_r${GITHUB_RUN_NUMBER}_a${GITHUB_RUN_ATTEMPT}_sha${SHORT_SHA}"
+          ARTIFACT_BASE_DIR="artifacts/ci/android-test/${RUN_ID}/api34"
+          echo "RUN_ID=${RUN_ID}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_BASE_DIR=${ARTIFACT_BASE_DIR}" >> "$GITHUB_ENV"
+          mkdir -p "${ARTIFACT_BASE_DIR}"
+
+      - name: Cleanup old android-test run logs
+        run: |
+          set -euo pipefail
+          bash .github/scripts/cleanup-ci-logs.sh artifacts/ci/android-test "${ANDROID_TEST_LOG_KEEP_RUNS}"
+
       - name: Run instrumentation tests on emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ARTIFACT_BASE_DIR: ${{ env.ARTIFACT_BASE_DIR }}
+          ANDROID_TEST_FLAVOR: api34
         with:
           api-level: 34
           arch: x86_64
@@ -54,7 +75,7 @@ jobs:
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
             app/build/outputs/logs
-            artifacts/android-test
+            ${{ env.ARTIFACT_BASE_DIR }}
             /tmp/android-runner
             /home/runner/.android/avd/*/emulator-user.log
 
@@ -65,6 +86,7 @@ jobs:
     timeout-minutes: 45
     env:
       GRADLE_USER_HOME: /home/runner/.gradle
+      ANDROID_TEST_LOG_KEEP_RUNS: 20
 
     steps:
       - name: Checkout
@@ -77,8 +99,28 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      - name: Prepare run-id and artifact directory
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::8}"
+          SHA_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
+          UTC_TS="$(date -u -d "@${SHA_EPOCH}" +%Y%m%dT%H%M%SZ)"
+          RUN_ID="${UTC_TS}_r${GITHUB_RUN_NUMBER}_a${GITHUB_RUN_ATTEMPT}_sha${SHORT_SHA}"
+          ARTIFACT_BASE_DIR="artifacts/ci/android-test/${RUN_ID}/api35"
+          echo "RUN_ID=${RUN_ID}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_BASE_DIR=${ARTIFACT_BASE_DIR}" >> "$GITHUB_ENV"
+          mkdir -p "${ARTIFACT_BASE_DIR}"
+
+      - name: Cleanup old android-test run logs
+        run: |
+          set -euo pipefail
+          bash .github/scripts/cleanup-ci-logs.sh artifacts/ci/android-test "${ANDROID_TEST_LOG_KEEP_RUNS}"
+
       - name: Run instrumentation tests on emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          ARTIFACT_BASE_DIR: ${{ env.ARTIFACT_BASE_DIR }}
+          ANDROID_TEST_FLAVOR: api35
         with:
           api-level: 35
           arch: x86_64
@@ -97,6 +139,6 @@ jobs:
             app/build/reports/androidTests
             app/build/outputs/androidTest-results
             app/build/outputs/logs
-            artifacts/android-test
+            ${{ env.ARTIFACT_BASE_DIR }}
             /tmp/android-runner
             /home/runner/.android/avd/*/emulator-user.log

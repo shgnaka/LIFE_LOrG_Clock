@@ -3,40 +3,52 @@
 set -euo pipefail
 
 chmod +x ./gradlew
-mkdir -p artifacts/android-test
 INSTRUMENTATION_SMOKE_TIMEOUT_SEC=120
 PM_SETTLE_ATTEMPTS=10
 PM_SETTLE_SLEEP_SEC=3
+ARTIFACT_BASE_DIR="${ARTIFACT_BASE_DIR:-artifacts/android-test}"
+ANDROID_TEST_FLAVOR="${ANDROID_TEST_FLAVOR:-unknown}"
+
+mkdir -p "${ARTIFACT_BASE_DIR}"
 
 EMULATOR_SERIAL="$(adb devices | awk '/^emulator-[0-9]+[[:space:]]+device$/ {print $1; exit}')"
 if [ -z "${EMULATOR_SERIAL}" ]; then
   EMULATOR_SERIAL="emulator-5554"
 fi
 
+{
+  echo "android_test_flavor=${ANDROID_TEST_FLAVOR}"
+  echo "artifact_base_dir=${ARTIFACT_BASE_DIR}"
+  echo "emulator_serial=${EMULATOR_SERIAL}"
+  echo "github_run_number=${GITHUB_RUN_NUMBER:-}"
+  echo "github_run_attempt=${GITHUB_RUN_ATTEMPT:-}"
+  echo "github_sha=${GITHUB_SHA:-}"
+} > "${ARTIFACT_BASE_DIR}/run-context.txt"
+
 collect_diagnostics() {
   local suffix="$1"
-  adb devices -l > "artifacts/android-test/adb-devices-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell getprop > "artifacts/android-test/getprop-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell pm list instrumentation > "artifacts/android-test/pm-list-instrumentation-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell cmd package list packages com.example.orgclock > "artifacts/android-test/package-list-orgclock-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell dumpsys activity processes > "artifacts/android-test/dumpsys-activity-processes-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock > "artifacts/android-test/dumpsys-package-orgclock-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock.test > "artifacts/android-test/dumpsys-package-orgclock-test-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell logcat -d -v time > "artifacts/android-test/logcat-${suffix}.txt" || true
+  adb devices -l > "${ARTIFACT_BASE_DIR}/adb-devices-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell getprop > "${ARTIFACT_BASE_DIR}/getprop-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell pm list instrumentation > "${ARTIFACT_BASE_DIR}/pm-list-instrumentation-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell cmd package list packages com.example.orgclock > "${ARTIFACT_BASE_DIR}/package-list-orgclock-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell dumpsys activity processes > "${ARTIFACT_BASE_DIR}/dumpsys-activity-processes-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock > "${ARTIFACT_BASE_DIR}/dumpsys-package-orgclock-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock.test > "${ARTIFACT_BASE_DIR}/dumpsys-package-orgclock-test-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell logcat -d -v time > "${ARTIFACT_BASE_DIR}/logcat-${suffix}.txt" || true
   if adb -s "${EMULATOR_SERIAL}" shell pm list instrumentation | grep -q "com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner"; then
-    local smoke_log_path="artifacts/android-test/instrumentation-smoke-${suffix}.txt"
+    local smoke_log_path="${ARTIFACT_BASE_DIR}/instrumentation-smoke-${suffix}.txt"
     set +e
     timeout "${INSTRUMENTATION_SMOKE_TIMEOUT_SEC}" adb -s "${EMULATOR_SERIAL}" shell am instrument -w -m com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner > "${smoke_log_path}" 2>&1
     local smoke_status=$?
     set -e
 
     if [ "${smoke_status}" -eq 124 ]; then
-      echo "Instrumentation smoke timed out after ${INSTRUMENTATION_SMOKE_TIMEOUT_SEC}s" > "artifacts/android-test/instrumentation-smoke-timeout-${suffix}.txt"
+      echo "Instrumentation smoke timed out after ${INSTRUMENTATION_SMOKE_TIMEOUT_SEC}s" > "${ARTIFACT_BASE_DIR}/instrumentation-smoke-timeout-${suffix}.txt"
     elif [ "${smoke_status}" -ne 0 ]; then
-      echo "Instrumentation smoke exited with status ${smoke_status}" > "artifacts/android-test/instrumentation-smoke-failure-${suffix}.txt"
+      echo "Instrumentation smoke exited with status ${smoke_status}" > "${ARTIFACT_BASE_DIR}/instrumentation-smoke-failure-${suffix}.txt"
     fi
   else
-    echo "Instrumentation not installed for com.example.orgclock.test" > "artifacts/android-test/instrumentation-not-installed-${suffix}.txt"
+    echo "Instrumentation not installed for com.example.orgclock.test" > "${ARTIFACT_BASE_DIR}/instrumentation-not-installed-${suffix}.txt"
   fi
 }
 
@@ -103,7 +115,7 @@ ensure_instrumentation_installed() {
 run_gradle_logged() {
   local suffix="$1"
   shift
-  local log_path="artifacts/android-test/gradle-${suffix}.log"
+  local log_path="${ARTIFACT_BASE_DIR}/gradle-${suffix}.log"
   set +e
   ./gradlew --stacktrace --info "$@" 2>&1 | tee "${log_path}"
   local status=${PIPESTATUS[0]}

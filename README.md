@@ -10,6 +10,8 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/firebase-app-distribution-guide.md`
 - 手動スモークテスト手順  
   `docs/manual-smoke-test.md`
+- CI android-test ログ管理  
+  `docs/ci-android-test-log-management.md`
 - パフォーマンス計測手順  
   `docs/performance-benchmark.md`
 - 通知機能仕様  
