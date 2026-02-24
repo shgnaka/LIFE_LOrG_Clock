@@ -1,8 +1,10 @@
 package com.example.orgclock.ui.app
 
 import androidx.activity.ComponentActivity
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import com.example.orgclock.R
 import com.example.orgclock.ui.perf.PerformanceMonitor
@@ -39,7 +41,7 @@ class OrgClockScreenTest {
         }
 
         composeRule.onNodeWithText("Org Clock").assertIsDisplayed()
-        composeRule.onNodeWithText("Select org directory").assertIsDisplayed()
+        composeRule.onAllNodesWithText("Select org directory").assertCountEquals(2)
     }
 
     @Test
@@ -70,7 +72,7 @@ class OrgClockScreenTest {
                 state = OrgClockUiState(
                     screen = Screen.Settings,
                     notificationEnabled = true,
-                    notificationPermissionGranted = true,
+                    notificationPermissionGranted = false,
                     notificationDisplayMode = NotificationDisplayMode.ActiveOnly,
                     status = UiStatus(messageResId = R.string.status_notification_enabled, tone = StatusTone.Info),
                 ),
