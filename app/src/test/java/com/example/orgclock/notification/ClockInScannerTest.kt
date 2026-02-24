@@ -94,6 +94,31 @@ class ClockInScannerTest {
         assertEquals("list failed", result.exceptionOrNull()?.message)
     }
 
+    @Test
+    fun scan_returnsOnlyFailedFiles_whenAllLoadsFail() = runTest {
+        val repo = FakeOrgRepository(
+            files = listOf(
+                OrgFileEntry("f1", "a.org", Instant.now()),
+                OrgFileEntry("f2", "b.org", Instant.now()),
+            ),
+            docs = emptyMap(),
+            failures = mapOf(
+                "f1" to IllegalStateException("read a failed"),
+                "f2" to IllegalStateException("read b failed"),
+            ),
+        )
+
+        val scanner = ClockInScanner(repo)
+        val result = scanner.scan(ZoneId.of("Asia/Tokyo"))
+
+        assertTrue(result.isSuccess)
+        val scanResult = result.getOrThrow()
+        assertTrue(scanResult.entries.isEmpty())
+        assertEquals(2, scanResult.failedFiles.size)
+        assertEquals("f1", scanResult.failedFiles[0].fileId)
+        assertEquals("f2", scanResult.failedFiles[1].fileId)
+    }
+
     private fun doc(vararg lines: String): OrgDocument {
         return OrgDocument(
             date = LocalDate.of(2026, 2, 22),

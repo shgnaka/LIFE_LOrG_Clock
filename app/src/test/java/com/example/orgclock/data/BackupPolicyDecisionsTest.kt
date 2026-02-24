@@ -42,5 +42,31 @@ class BackupPolicyDecisionsTest {
 
         assertEquals(listOf("b2", "b1"), toPrune)
     }
-}
 
+    @Test
+    fun shouldCreateClockBackup_returnsTrueAtExactIntervalBoundary() {
+        assertTrue(
+            shouldCreateClockBackup(
+                lastClockBackupAtMs = 1_000L,
+                nowMs = 1_600L,
+                clockBackupIntervalMs = 600L,
+            ),
+        )
+    }
+
+    @Test
+    fun backupsToPrune_negativeGenerations_prunesAll() {
+        val backups = listOf("b3", "b2", "b1")
+        val toPrune = backupsToPrune(backupsSortedDesc = backups, backupGenerations = -1)
+
+        assertEquals(backups, toPrune)
+    }
+
+    @Test
+    fun backupsToPrune_whenGenerationsExceedsSize_prunesNone() {
+        val backups = listOf("b3", "b2", "b1")
+        val toPrune = backupsToPrune(backupsSortedDesc = backups, backupGenerations = 10)
+
+        assertTrue(toPrune.isEmpty())
+    }
+}

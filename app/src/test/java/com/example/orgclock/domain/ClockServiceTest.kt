@@ -449,6 +449,255 @@ class ClockServiceTest {
         assertEquals("write failed", ex.message)
     }
 
+    @Test
+    fun startClock_retryConflict_thenSecondConflict_returnsTypedConflict() = runBlocking {
+        val repo = object : OrgRepository {
+            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+            override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
+            override suspend fun loadFile(fileId: String): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
+            override suspend fun saveFile(
+                fileId: String,
+                lines: List<String>,
+                expectedHash: String,
+                writeIntent: FileWriteIntent,
+            ): SaveResult = SaveResult.ValidationError("unsupported")
+
+            override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> {
+                val lines = listOf("* Work", "** Project A")
+                return Result.success(OrgDocument(date, lines, "hash-$date"))
+            }
+
+            override suspend fun saveDaily(date: LocalDate, lines: List<String>, expectedHash: String): SaveResult {
+                return SaveResult.Conflict("still conflicted")
+            }
+        }
+        val service = ClockService(repo)
+
+        val result = service.startClock(
+            ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+            HeadingPath.parse("Work/Project A"),
+        )
+
+        assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertTrue(ex is ClockOperationException)
+        assertEquals(ClockOperationCode.Conflict, (ex as ClockOperationException).code)
+        assertEquals("still conflicted", ex.message)
+    }
+
+    @Test
+    fun startClockInFile_whenConflictAndLatestAlreadyOpen_returnsTypedAlreadyRunning() = runBlocking {
+        val repo = object : OrgRepository {
+            var loadCount = 0
+
+            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+            override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
+            override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
+            override suspend fun saveDaily(date: LocalDate, lines: List<String>, expectedHash: String): SaveResult =
+                SaveResult.ValidationError("unsupported")
+
+            override suspend fun loadFile(fileId: String): Result<OrgDocument> {
+                loadCount += 1
+                val lines = if (loadCount == 1) {
+                    listOf("* Work", "** Project A", ":LOGBOOK:", ":END:")
+                } else {
+                    listOf("* Work", "** Project A", ":LOGBOOK:", "CLOCK: [2026-02-15 Sun 09:00:00]", ":END:")
+                }
+                return Result.success(OrgDocument(LocalDate.of(2026, 2, 15), lines, "hash-$loadCount"))
+            }
+
+            override suspend fun saveFile(
+                fileId: String,
+                lines: List<String>,
+                expectedHash: String,
+                writeIntent: FileWriteIntent,
+            ): SaveResult {
+                return SaveResult.Conflict("injected")
+            }
+        }
+        val service = ClockService(repo)
+
+        val result = service.startClockInFile(
+            fileId = "f1",
+            headingLineIndex = 1,
+            now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+        )
+
+        assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertTrue(ex is ClockOperationException)
+        assertEquals(ClockOperationCode.AlreadyRunning, (ex as ClockOperationException).code)
+    }
+
+    @Test
+    fun stopClockInFile_rejectsNonLevel2Heading() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:00:00]",
+                    ":END:",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.stopClockInFile(
+            fileId = "f1",
+            headingLineIndex = 0,
+            now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+        )
+
+        assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertTrue(ex is ClockOperationException)
+        assertEquals(ClockOperationCode.InvalidHeadingLevel, (ex as ClockOperationException).code)
+    }
+
+    @Test
+    fun cancelClockInFile_rejectsNonLevel2Heading() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:00:00]",
+                    ":END:",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.cancelClockInFile(fileId = "f1", headingLineIndex = 0)
+
+        assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertTrue(ex is ClockOperationException)
+        assertEquals(ClockOperationCode.InvalidHeadingLevel, (ex as ClockOperationException).code)
+    }
+
+    @Test
+    fun editClosedClockInFile_rejectsEndBeforeStart() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf("* Work", "** Project A"),
+            ),
+        )
+        val service = ClockService(repo)
+        val start = ZonedDateTime.of(2026, 2, 15, 11, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
+        val end = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
+
+        val result = service.editClosedClockInFile("f1", 1, 3, start, end)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+    }
+
+    @Test
+    fun stopClock_whenNoOpenClockInTodayAndYesterday_returnsFailed() = runBlocking {
+        val repo = FakeRepo(
+            mutableMapOf(
+                LocalDate.of(2026, 2, 14) to listOf("* Work", "** Project A", ":LOGBOOK:", ":END:"),
+                LocalDate.of(2026, 2, 15) to listOf("* Work", "** Project A", ":LOGBOOK:", ":END:"),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.stopClock(
+            ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+            HeadingPath.parse("Work/Project A"),
+        )
+
+        assertTrue(result is ClockService.ClockStopResult.Failed)
+        val failed = result as ClockService.ClockStopResult.Failed
+        assertTrue(failed.reason.contains("No open clock found"))
+    }
+
+    @Test
+    fun stopClock_acrossMidnight_whenPreviousSaveFails_returnsFailed() = runBlocking {
+        val date1 = LocalDate.of(2026, 2, 14)
+        val date2 = LocalDate.of(2026, 2, 15)
+        val repo = object : OrgRepository {
+            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+            override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
+            override suspend fun loadFile(fileId: String): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
+            override suspend fun saveFile(
+                fileId: String,
+                lines: List<String>,
+                expectedHash: String,
+                writeIntent: FileWriteIntent,
+            ): SaveResult = SaveResult.ValidationError("unsupported")
+
+            override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> {
+                val lines = if (date == date1) {
+                    listOf("* Work", "** Project A", ":LOGBOOK:", "CLOCK: [2026-02-14 Sat 23:50:00]", ":END:")
+                } else {
+                    listOf("* Work", "** Project A", ":LOGBOOK:", ":END:")
+                }
+                return Result.success(OrgDocument(date, lines, "hash-$date"))
+            }
+
+            override suspend fun saveDaily(date: LocalDate, lines: List<String>, expectedHash: String): SaveResult {
+                return if (date == date1) {
+                    SaveResult.IoError("disk full")
+                } else {
+                    SaveResult.Success
+                }
+            }
+        }
+        val service = ClockService(repo)
+
+        val result = service.stopClock(
+            ZonedDateTime.of(2026, 2, 15, 0, 10, 0, 0, ZoneId.of("Asia/Tokyo")),
+            HeadingPath.parse("Work/Project A"),
+        )
+
+        assertTrue(result is ClockService.ClockStopResult.Failed)
+        val failed = result as ClockService.ClockStopResult.Failed
+        assertTrue(failed.reason.contains("previous-day"))
+        assertTrue(failed.reason.contains("disk full"))
+    }
+
+    @Test
+    fun recoverOpenClocks_scansTodayAndYesterday() = runBlocking {
+        val repo = FakeRepo(
+            mutableMapOf(
+                LocalDate.of(2026, 2, 14) to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-14 Sat 23:50:00]",
+                    ":END:",
+                ),
+                LocalDate.of(2026, 2, 15) to listOf(
+                    "* Work",
+                    "** Project B",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:00:00]",
+                    ":END:",
+                ),
+            ),
+        )
+        val service = ClockService(repo)
+
+        val result = service.recoverOpenClocks(
+            now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+            candidates = listOf(
+                HeadingPath.parse("Work/Project A"),
+                HeadingPath.parse("Work/Project B"),
+            ),
+        )
+
+        assertTrue(result.isSuccess)
+        val openClocks = result.getOrThrow()
+        assertEquals(2, openClocks.size)
+        assertTrue(openClocks.any { it.fileDate == LocalDate.of(2026, 2, 14) && it.headingPath.toString() == "Work/Project A" })
+        assertTrue(openClocks.any { it.fileDate == LocalDate.of(2026, 2, 15) && it.headingPath.toString() == "Work/Project B" })
+    }
+
     private class FakeRepo(
         val files: MutableMap<LocalDate, List<String>>,
         private val conflictCountByDate: MutableMap<LocalDate, Int> = mutableMapOf(),
