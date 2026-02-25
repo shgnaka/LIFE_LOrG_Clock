@@ -45,7 +45,6 @@ jobs:
           heap-size: 512M
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-wait-timeout: 300
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 3 -memory 3072 -partition-size 2048
           script: bash .github/scripts/android-instrumentation.sh
 
@@ -89,7 +88,6 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-wait-timeout: 300
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 3 -memory 3072
           script: bash .github/scripts/android-instrumentation.sh
 
@@ -133,7 +131,6 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-wait-timeout: 300
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 3 -memory 3072
           script: bash .github/scripts/android-instrumentation.sh
 
