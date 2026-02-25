@@ -3,52 +3,41 @@
 set -euo pipefail
 
 chmod +x ./gradlew
+mkdir -p artifacts/android-test
 INSTRUMENTATION_SMOKE_TIMEOUT_SEC=120
 PM_SETTLE_ATTEMPTS=10
 PM_SETTLE_SLEEP_SEC=3
-ARTIFACT_BASE_DIR="${ARTIFACT_BASE_DIR:-artifacts/android-test}"
-ANDROID_TEST_FLAVOR="${ANDROID_TEST_FLAVOR:-unknown}"
-
-mkdir -p "${ARTIFACT_BASE_DIR}"
+INSTALL_REBOOT_RETRY_MAX=1
 
 EMULATOR_SERIAL="$(adb devices | awk '/^emulator-[0-9]+[[:space:]]+device$/ {print $1; exit}')"
 if [ -z "${EMULATOR_SERIAL}" ]; then
   EMULATOR_SERIAL="emulator-5554"
 fi
 
-{
-  echo "android_test_flavor=${ANDROID_TEST_FLAVOR}"
-  echo "artifact_base_dir=${ARTIFACT_BASE_DIR}"
-  echo "emulator_serial=${EMULATOR_SERIAL}"
-  echo "github_run_number=${GITHUB_RUN_NUMBER:-}"
-  echo "github_run_attempt=${GITHUB_RUN_ATTEMPT:-}"
-  echo "github_sha=${GITHUB_SHA:-}"
-} > "${ARTIFACT_BASE_DIR}/run-context.txt"
-
 collect_diagnostics() {
   local suffix="$1"
-  adb devices -l > "${ARTIFACT_BASE_DIR}/adb-devices-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell getprop > "${ARTIFACT_BASE_DIR}/getprop-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell pm list instrumentation > "${ARTIFACT_BASE_DIR}/pm-list-instrumentation-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell cmd package list packages com.example.orgclock > "${ARTIFACT_BASE_DIR}/package-list-orgclock-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell dumpsys activity processes > "${ARTIFACT_BASE_DIR}/dumpsys-activity-processes-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock > "${ARTIFACT_BASE_DIR}/dumpsys-package-orgclock-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock.test > "${ARTIFACT_BASE_DIR}/dumpsys-package-orgclock-test-${suffix}.txt" || true
-  adb -s "${EMULATOR_SERIAL}" shell logcat -d -v time > "${ARTIFACT_BASE_DIR}/logcat-${suffix}.txt" || true
+  adb devices -l > "artifacts/android-test/adb-devices-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell getprop > "artifacts/android-test/getprop-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell pm list instrumentation > "artifacts/android-test/pm-list-instrumentation-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell cmd package list packages com.example.orgclock > "artifacts/android-test/package-list-orgclock-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell dumpsys activity processes > "artifacts/android-test/dumpsys-activity-processes-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock > "artifacts/android-test/dumpsys-package-orgclock-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell dumpsys package com.example.orgclock.test > "artifacts/android-test/dumpsys-package-orgclock-test-${suffix}.txt" || true
+  adb -s "${EMULATOR_SERIAL}" shell logcat -d -v time > "artifacts/android-test/logcat-${suffix}.txt" || true
   if adb -s "${EMULATOR_SERIAL}" shell pm list instrumentation | grep -q "com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner"; then
-    local smoke_log_path="${ARTIFACT_BASE_DIR}/instrumentation-smoke-${suffix}.txt"
+    local smoke_log_path="artifacts/android-test/instrumentation-smoke-${suffix}.txt"
     set +e
     timeout "${INSTRUMENTATION_SMOKE_TIMEOUT_SEC}" adb -s "${EMULATOR_SERIAL}" shell am instrument -w -m com.example.orgclock.test/androidx.test.runner.AndroidJUnitRunner > "${smoke_log_path}" 2>&1
     local smoke_status=$?
     set -e
 
     if [ "${smoke_status}" -eq 124 ]; then
-      echo "Instrumentation smoke timed out after ${INSTRUMENTATION_SMOKE_TIMEOUT_SEC}s" > "${ARTIFACT_BASE_DIR}/instrumentation-smoke-timeout-${suffix}.txt"
+      echo "Instrumentation smoke timed out after ${INSTRUMENTATION_SMOKE_TIMEOUT_SEC}s" > "artifacts/android-test/instrumentation-smoke-timeout-${suffix}.txt"
     elif [ "${smoke_status}" -ne 0 ]; then
-      echo "Instrumentation smoke exited with status ${smoke_status}" > "${ARTIFACT_BASE_DIR}/instrumentation-smoke-failure-${suffix}.txt"
+      echo "Instrumentation smoke exited with status ${smoke_status}" > "artifacts/android-test/instrumentation-smoke-failure-${suffix}.txt"
     fi
   else
-    echo "Instrumentation not installed for com.example.orgclock.test" > "${ARTIFACT_BASE_DIR}/instrumentation-not-installed-${suffix}.txt"
+    echo "Instrumentation not installed for com.example.orgclock.test" > "artifacts/android-test/instrumentation-not-installed-${suffix}.txt"
   fi
 }
 
@@ -115,12 +104,30 @@ ensure_instrumentation_installed() {
 run_gradle_logged() {
   local suffix="$1"
   shift
-  local log_path="${ARTIFACT_BASE_DIR}/gradle-${suffix}.log"
+  local log_path="artifacts/android-test/gradle-${suffix}.log"
   set +e
   ./gradlew --stacktrace --info "$@" 2>&1 | tee "${log_path}"
   local status=${PIPESTATUS[0]}
   set -e
   return "${status}"
+}
+
+write_failure_classification() {
+  local suffix="$1"
+  local reason="$2"
+  printf "reason=%s\n" "${reason}" > "artifacts/android-test/failure-classification-${suffix}.txt"
+}
+
+install_log_indicates_pm_npe() {
+  local suffix="$1"
+  local log_path="artifacts/android-test/gradle-${suffix}.log"
+  if [ ! -f "${log_path}" ]; then
+    return 1
+  fi
+  if grep -Eq "PackageManagerInternal\.freeStorage|StorageManagerService\.allocateBytes|NullPointerException" "${log_path}"; then
+    return 0
+  fi
+  return 1
 }
 
 build_test_apks() {
@@ -170,6 +177,32 @@ recover_and_retry_install() {
   return 0
 }
 
+retry_install_after_device_reboot() {
+  local reboot_attempt=1
+  while [ "${reboot_attempt}" -le "${INSTALL_REBOOT_RETRY_MAX}" ]; do
+    collect_diagnostics "emulator-reboot-before-install-retry"
+    adb -s "${EMULATOR_SERIAL}" reboot || true
+    adb -s "${EMULATOR_SERIAL}" wait-for-device || true
+    wait_for_device_ready || true
+    wait_for_package_manager_settle || true
+
+    adb -s "${EMULATOR_SERIAL}" shell settings put global window_animation_scale 0 || true
+    adb -s "${EMULATOR_SERIAL}" shell settings put global transition_animation_scale 0 || true
+    adb -s "${EMULATOR_SERIAL}" shell settings put global animator_duration_scale 0 || true
+
+    if install_test_apks "install-after-emulator-reboot"; then
+      write_failure_classification "install-after-emulator-reboot" "install_recovered_after_reboot"
+      return 0
+    fi
+
+    collect_diagnostics "install-after-emulator-reboot-failure"
+    reboot_attempt=$((reboot_attempt + 1))
+  done
+
+  write_failure_classification "install-after-emulator-reboot" "install_failed_after_reboot"
+  return 1
+}
+
 adb kill-server || true
 adb start-server
 adb -s "${EMULATOR_SERIAL}" wait-for-device
@@ -193,9 +226,21 @@ fi
 
 if ! install_test_apks "install-first"; then
   echo "Install phase failed, running adb recovery then retrying once"
+  if install_log_indicates_pm_npe "install-first"; then
+    write_failure_classification "install-first" "install_failed_initial_pm_npe"
+  else
+    write_failure_classification "install-first" "install_failed_initial"
+  fi
+
   if ! recover_and_retry_install; then
-    echo "Install phase failed after retry"
-    exit 1
+    write_failure_classification "install-second" "install_reconnect_failed_then_reboot_retry"
+    echo "Install phase failed after adb reconnect retry, rebooting emulator and retrying once"
+    if ! retry_install_after_device_reboot; then
+      echo "Install phase failed after emulator reboot retry"
+      exit 1
+    fi
+  else
+    write_failure_classification "install-second" "install_recovered_via_adb_reconnect"
   fi
 fi
 
