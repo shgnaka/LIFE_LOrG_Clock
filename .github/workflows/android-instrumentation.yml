@@ -19,7 +19,7 @@ concurrency:
 jobs:
   android-test:
     runs-on: ubuntu-22.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       GRADLE_USER_HOME: /home/runner/.gradle
 
