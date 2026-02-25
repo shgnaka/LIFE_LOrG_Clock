@@ -46,7 +46,7 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 1200
           emulator-wait-timeout: 300
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 4 -memory 4096 -partition-size 2048
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 3 -memory 3072 -partition-size 2048
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports
@@ -90,7 +90,7 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 1200
           emulator-wait-timeout: 300
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 4 -memory 4096
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 3 -memory 3072
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports
@@ -134,7 +134,7 @@ jobs:
           disable-animations: true
           emulator-boot-timeout: 1200
           emulator-wait-timeout: 300
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 4 -memory 4096
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 3 -memory 3072
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports
