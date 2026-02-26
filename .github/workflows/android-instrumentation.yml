@@ -21,7 +21,7 @@ jobs:
     name: Android Instrumentation Tests (API 34)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       GRADLE_USER_HOME: /home/runner/.gradle
 
@@ -44,7 +44,7 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 3 -memory 3072
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 2 -memory 2048
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports
@@ -64,7 +64,7 @@ jobs:
     name: Android Instrumentation Tests (API 35)
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       GRADLE_USER_HOME: /home/runner/.gradle
 
@@ -87,7 +87,7 @@ jobs:
           profile: Nexus 6
           disable-animations: true
           emulator-boot-timeout: 1200
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 3 -memory 3072
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics -cores 2 -memory 2048
           script: bash .github/scripts/android-instrumentation.sh
 
       - name: Upload androidTest reports
