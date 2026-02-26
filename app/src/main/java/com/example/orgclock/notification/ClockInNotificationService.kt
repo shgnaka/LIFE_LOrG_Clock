@@ -206,7 +206,7 @@ class ClockInNotificationService : Service() {
             .setContentTitle(title)
             .setContentText(summary)
             .setStyle(NotificationCompat.BigTextStyle().bigText(summary))
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setContentIntent(createOpenAppPendingIntent())
@@ -252,7 +252,7 @@ class ClockInNotificationService : Service() {
             .setContentTitle(title)
             .setContentText(summary)
             .setStyle(NotificationCompat.BigTextStyle().bigText(summary))
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setContentIntent(createOpenAppPendingIntent())
@@ -294,7 +294,7 @@ class ClockInNotificationService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.notif_channel_name),
-            NotificationManager.IMPORTANCE_LOW,
+            NotificationManager.IMPORTANCE_MAX,
         ).apply {
             description = getString(R.string.notif_channel_description)
             setShowBadge(false)
