@@ -34,9 +34,7 @@
     <string name="notification_permission_granted">通知権限: 許可済み</string>
     <string name="notification_permission_not_granted">通知権限: 未許可</string>
     <string name="open_notification_settings">通知設定を開く</string>
-    <string name="display_mode">表示モード</string>
-    <string name="display_mode_active_only">稼働中のみ</string>
-    <string name="display_mode_always">常時表示</string>
+    <string name="keep_notification_visible">通知を常に表示</string>
     <string name="clock_history_title">Clock履歴: %1$s</string>
     <string name="clock_history_empty">履歴がありません。</string>
     <string name="clock_history_delete_title">Clock履歴削除</string>
@@ -74,7 +72,7 @@
     <string name="status_create_heading_failed">Create heading failed: %1$s</string>
     <string name="status_notification_enabled">通知機能を有効化しました</string>
     <string name="status_notification_permission_required">通知権限が必要です</string>
-    <string name="status_notification_display_mode_updated">通知表示モードを更新しました</string>
+    <string name="status_notification_display_mode_updated">通知の表示設定を更新しました</string>
     <string name="status_notification_permission_granted">通知権限を許可しました</string>
     <string name="status_notification_permission_denied">通知権限が拒否されました。Settingsから許可してください。</string>
     <string name="notif_title_clock_in_count">記録中 %1$d件</string>
@@ -85,6 +83,7 @@
     <string name="notif_inbox_line_entry">%1$s / %2$s / %3$d分</string>
     <string name="notif_inbox_line_more">他 %1$d 件</string>
     <string name="notif_inbox_line_scan_degraded">読込失敗 %1$d 件</string>
+    <string name="stop_clock">停止</string>
     <string name="notif_status_root_not_set">org ルートが未設定です</string>
     <string name="notif_status_root_open_failed">org ルートを開けません: %1$s</string>
     <string name="notif_status_refresh_failed">更新失敗: %1$s</string>

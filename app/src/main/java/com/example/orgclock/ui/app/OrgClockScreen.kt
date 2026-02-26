@@ -706,20 +706,25 @@ private fun SettingsScreen(
                         Text(stringResource(R.string.open_notification_settings))
                     }
                 }
-                Text(stringResource(R.string.display_mode), style = MaterialTheme.typography.titleMedium)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { onChangeNotificationDisplayMode(NotificationDisplayMode.ActiveOnly) },
-                        enabled = notificationDisplayMode != NotificationDisplayMode.ActiveOnly,
-                    ) {
-                        Text(stringResource(R.string.display_mode_active_only))
-                    }
-                    Button(
-                        onClick = { onChangeNotificationDisplayMode(NotificationDisplayMode.Always) },
-                        enabled = notificationDisplayMode != NotificationDisplayMode.Always,
-                    ) {
-                        Text(stringResource(R.string.display_mode_always))
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.keep_notification_visible),
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
+                    Switch(
+                        checked = notificationDisplayMode == NotificationDisplayMode.Always,
+                        onCheckedChange = { enabled ->
+                            onChangeNotificationDisplayMode(
+                                if (enabled) NotificationDisplayMode.Always
+                                else NotificationDisplayMode.ActiveOnly
+                            )
+                        },
+                        enabled = notificationEnabled,
+                    )
                 }
             }
         }
