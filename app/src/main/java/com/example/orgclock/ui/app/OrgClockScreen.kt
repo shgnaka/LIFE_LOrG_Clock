@@ -23,6 +23,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
@@ -160,6 +161,7 @@ fun OrgClockScreen(
                 onLongPressL1 = { onAction(OrgClockUiAction.OpenCreateL2Dialog(it)) },
                 onCollapseAll = { onAction(OrgClockUiAction.CollapseAll) },
                 onExpandAll = { onAction(OrgClockUiAction.ExpandAll) },
+                onRefresh = { onAction(OrgClockUiAction.RefreshHeadings) },
                 onLongPressL2 = { onAction(OrgClockUiAction.OpenHistory(it)) },
                 onOpenCreateL1 = { onAction(OrgClockUiAction.OpenCreateL1Dialog) },
                 onOpenFilePicker = { onAction(OrgClockUiAction.OpenFilePicker) },
@@ -333,6 +335,7 @@ private fun HeadingListScreen(
     onLongPressL1: (HeadingViewItem) -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
+    onRefresh: () -> Unit,
     onLongPressL2: (HeadingViewItem) -> Unit,
     onOpenCreateL1: () -> Unit,
     onOpenFilePicker: () -> Unit,
@@ -375,6 +378,7 @@ private fun HeadingListScreen(
             onCreateL1 = onOpenCreateL1,
             onCollapseAll = onCollapseAll,
             onExpandAll = onExpandAll,
+            onRefresh = onRefresh,
             performanceMonitor = performanceMonitor,
             showPerfOverlay = showPerfOverlay,
         )
@@ -562,6 +566,7 @@ private fun HeadingListTopBar(
     onCreateL1: () -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
+    onRefresh: () -> Unit,
     performanceMonitor: PerformanceMonitor,
     showPerfOverlay: Boolean,
 ) {
@@ -592,6 +597,12 @@ private fun HeadingListTopBar(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    IconButton(onClick = onRefresh) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = stringResource(R.string.refresh),
+                        )
+                    }
                     BulkHeadingActionButton(
                         label = stringResource(R.string.expand_all_label),
                         contentDescription = stringResource(R.string.expand_all_headings),

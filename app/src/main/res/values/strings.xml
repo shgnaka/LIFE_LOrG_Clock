@@ -23,6 +23,7 @@
     <string name="collapse_all_headings">Collapse all headings</string>
     <string name="expand_all_label">+++</string>
     <string name="collapse_all_label">---</string>
+    <string name="refresh">Refresh</string>
     <string name="running_count">記録中 %1$d件</string>
     <string name="started_elapsed">%1$s 開始 / %2$d分経過</string>
     <string name="current_root">Current root</string>
