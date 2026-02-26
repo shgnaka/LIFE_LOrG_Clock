@@ -83,6 +83,7 @@
     <string name="notif_inbox_line_entry">%1$s / %2$s / %3$d分</string>
     <string name="notif_inbox_line_more">他 %1$d 件</string>
     <string name="notif_inbox_line_scan_degraded">読込失敗 %1$d 件</string>
+    <string name="stop_clock">停止</string>
     <string name="notif_status_root_not_set">org ルートが未設定です</string>
     <string name="notif_status_root_open_failed">org ルートを開けません: %1$s</string>
     <string name="notif_status_refresh_failed">更新失敗: %1$s</string>

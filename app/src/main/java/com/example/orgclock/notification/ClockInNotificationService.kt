@@ -16,6 +16,8 @@ import androidx.core.content.ContextCompat
 import com.example.orgclock.MainActivity
 import com.example.orgclock.R
 import com.example.orgclock.data.SafOrgRepository
+import com.example.orgclock.domain.ClockService
+import com.example.orgclock.parser.OrgParser
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +36,7 @@ class ClockInNotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val repository by lazy { SafOrgRepository(this) }
     private val scanner by lazy { ClockInScanner(repository) }
+    private val clockService by lazy { ClockService(repository, OrgParser()) }
     private val notificationPermissionChecker: NotificationPermissionChecker =
         DefaultNotificationPermissionChecker()
     private val clockEnvironment: ClockEnvironment by lazy { clockEnvironmentFactory() }
@@ -53,6 +56,17 @@ class ClockInNotificationService : Service() {
             ACTION_STOP -> {
                 stopServiceAndNotification()
                 return START_NOT_STICKY
+            }
+
+            ACTION_STOP_CLOCK -> {
+                val fileId = intent.getStringExtra(EXTRA_FILE_ID) ?: return START_STICKY
+                val lineIndex = intent.getIntExtra(EXTRA_LINE_INDEX, -1)
+                if (lineIndex < 0) return START_STICKY
+                scope.launch {
+                    clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now())
+                    refreshOnce()
+                }
+                return START_STICKY
             }
 
             ACTION_SYNC, null -> {
@@ -151,9 +165,59 @@ class ClockInNotificationService : Service() {
             return false
         }
 
-        val notification = buildClockNotification(entries, failedFiles)
-        notifyForeground(notification)
+        notifyIndividualClockNotifications(entries)
         return true
+    }
+
+    private fun notifyIndividualClockNotifications(entries: List<ClockInEntry>) {
+        val manager = getSystemService(NotificationManager::class.java)
+        
+        val currentIds = entries.map { it.fileId to it.headingLineIndex }
+        entries.forEachIndexed { index, entry ->
+            val notificationId = NOTIFICATION_ID_BASE + index
+            val notification = buildIndividualClockNotification(entry)
+            manager.notify(notificationId, notification)
+        }
+
+        val maxId = entries.size
+        for (i in (maxId + 1)..100) {
+            manager.cancel(i)
+        }
+    }
+
+    private fun buildIndividualClockNotification(entry: ClockInEntry): Notification {
+        val stopIntent = Intent(this, ClockInNotificationService::class.java).apply {
+            action = ACTION_STOP_CLOCK
+            putExtra(EXTRA_FILE_ID, entry.fileId)
+            putExtra(EXTRA_LINE_INDEX, entry.headingLineIndex)
+        }
+        val stopPendingIntent = PendingIntent.getService(
+            this,
+            entry.headingLineIndex,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val title = headingLabel(entry)
+        val minutes = elapsedMinutes(entry.startedAt)
+        val started = entry.startedAt.format(TIME_FORMATTER)
+        val summary = getString(R.string.notif_summary_first_entry, title, started, minutes)
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle(entry.headingTitle)
+            .setContentText(summary)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(summary))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setOnlyAlertOnce(true)
+            .setOngoing(true)
+            .setContentIntent(createOpenAppPendingIntent())
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                getString(R.string.stop_clock),
+                stopPendingIntent,
+            )
+            .build()
     }
 
     private fun ensureForegroundPlaceholder() {
@@ -179,71 +243,6 @@ class ClockInNotificationService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
-    }
-
-    private fun buildClockNotification(entries: List<ClockInEntry>, failedFiles: List<FileScanFailure>): Notification {
-        val title = getString(R.string.notif_title_clock_in_count, entries.size)
-        val summary = if (entries.isEmpty()) {
-            if (failedFiles.isEmpty()) {
-                getString(R.string.notif_summary_no_active)
-            } else {
-                getString(R.string.notif_summary_scan_degraded, failedFiles.size)
-            }
-        } else {
-            val first = entries.first()
-            val heading = headingLabel(first)
-            val minutes = elapsedMinutes(first.startedAt)
-            val started = first.startedAt.format(TIME_FORMATTER)
-            if (failedFiles.isEmpty()) {
-                getString(R.string.notif_summary_first_entry, heading, started, minutes)
-            } else {
-                getString(R.string.notif_summary_first_entry_degraded, heading, started, minutes, failedFiles.size)
-            }
-        }
-
-        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle(title)
-            .setContentText(summary)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(summary))
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setOnlyAlertOnce(true)
-            .setOngoing(true)
-            .setContentIntent(createOpenAppPendingIntent())
-
-        if (entries.isNotEmpty()) {
-            val inbox = NotificationCompat.InboxStyle()
-            val lines = buildInboxLines(
-                entries = entries,
-                maxLines = config.maxLines,
-                entryLineBuilder = { entry ->
-                    getString(
-                        R.string.notif_inbox_line_entry,
-                        headingLabel(entry),
-                        entry.startedAt.format(TIME_FORMATTER),
-                        elapsedMinutes(entry.startedAt),
-                    )
-                },
-                moreLineBuilder = { remaining ->
-                    getString(R.string.notif_inbox_line_more, remaining)
-                },
-            )
-            lines.forEach { line ->
-                inbox.addLine(line)
-            }
-            if (failedFiles.isNotEmpty()) {
-                inbox.addLine(getString(R.string.notif_inbox_line_scan_degraded, failedFiles.size))
-            }
-            builder.setStyle(inbox)
-        } else if (failedFiles.isNotEmpty()) {
-            builder.setStyle(
-                NotificationCompat.BigTextStyle().bigText(
-                    getString(R.string.notif_summary_scan_degraded, failedFiles.size),
-                ),
-            )
-        }
-
-        return builder.build()
     }
 
     private fun buildStatusNotification(title: String, summary: String): Notification {
@@ -314,13 +313,17 @@ class ClockInNotificationService : Service() {
         private const val TAG = "ClockInNotificationSvc"
         private const val CHANNEL_ID = "clock_in_ongoing"
         private const val NOTIFICATION_ID = 1001
+        private const val NOTIFICATION_ID_BASE = 1000
 
         private const val ACTION_SYNC = "com.example.orgclock.notification.SYNC"
         private const val ACTION_STOP = "com.example.orgclock.notification.STOP"
+        private const val ACTION_STOP_CLOCK = "com.example.orgclock.notification.STOP_CLOCK"
         private const val EXTRA_ENABLED = "enabled"
         private const val EXTRA_DISPLAY_MODE = "display_mode"
         private const val EXTRA_SCAN_INTERVAL_MS = "scan_interval_ms"
         private const val EXTRA_MAX_LINES = "max_lines"
+        private const val EXTRA_FILE_ID = "file_id"
+        private const val EXTRA_LINE_INDEX = "line_index"
 
         private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
         @Volatile
