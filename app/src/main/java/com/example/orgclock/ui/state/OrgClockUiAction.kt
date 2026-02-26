@@ -13,6 +13,7 @@ sealed interface OrgClockUiAction {
     data class ToggleL1(val title: String) : OrgClockUiAction
     data object CollapseAll : OrgClockUiAction
     data object ExpandAll : OrgClockUiAction
+    data object RefreshHeadings : OrgClockUiAction
     data class OpenHistory(val item: HeadingViewItem) : OrgClockUiAction
     data object DismissHistory : OrgClockUiAction
     data class StartClock(val item: HeadingViewItem) : OrgClockUiAction

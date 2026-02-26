@@ -128,6 +128,14 @@ class OrgClockViewModel(
                 true
             }
 
+            OrgClockUiAction.RefreshHeadings -> {
+                val file = uiState.value.selectedFile
+                if (file != null) {
+                    viewModelScope.launch { loadHeadingsFor(file, updateStatus = false) }
+                }
+                true
+            }
+
             OrgClockUiAction.OpenFilePicker -> {
                 _uiState.update { it.copy(screen = Screen.FilePicker) }
                 true
@@ -573,7 +581,6 @@ class OrgClockViewModel(
             updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()
-            requestHeadingsSync(file)
         } else {
             updateHeadingOpenClock(lineIndex, item.openClock)
             updatePendingClock(lineIndex, false)
@@ -598,7 +605,6 @@ class OrgClockViewModel(
             updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()
-            requestHeadingsSync(file)
         } else {
             updateHeadingOpenClock(lineIndex, item.openClock)
             updatePendingClock(lineIndex, false)
@@ -623,7 +629,6 @@ class OrgClockViewModel(
             updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()
-            requestHeadingsSync(file)
         } else {
             updateHeadingOpenClock(lineIndex, item.openClock)
             updatePendingClock(lineIndex, false)
