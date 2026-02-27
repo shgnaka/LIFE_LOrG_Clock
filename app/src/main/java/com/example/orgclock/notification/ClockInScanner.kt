@@ -1,6 +1,6 @@
 package com.example.orgclock.notification
 
-import com.example.orgclock.data.OrgRepository
+import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.parser.OrgParser
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -26,7 +26,7 @@ data class ClockInScanResult(
 )
 
 class ClockInScanner(
-    private val repository: OrgRepository,
+    private val repository: ClockRepository,
     private val parser: OrgParser = OrgParser(),
 ) {
     suspend fun scan(zoneId: ZoneId): Result<ClockInScanResult> {

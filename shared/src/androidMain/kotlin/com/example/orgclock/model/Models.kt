@@ -1,10 +1,8 @@
 package com.example.orgclock.model
 
-import androidx.compose.runtime.Immutable
 import java.time.LocalDate
 import java.time.ZonedDateTime
 
-@Immutable
 data class HeadingPath(val segments: List<String>) {
     init {
         require(segments.isNotEmpty()) { "Heading path must have at least one segment." }
@@ -21,27 +19,23 @@ data class HeadingPath(val segments: List<String>) {
     }
 }
 
-@Immutable
 data class ClockEntry(
     val start: ZonedDateTime,
     val end: ZonedDateTime?,
 )
 
-@Immutable
 data class OpenClock(
     val fileDate: LocalDate,
     val headingPath: HeadingPath,
     val start: ZonedDateTime,
 )
 
-@Immutable
 data class OrgDocument(
     val date: LocalDate,
     val lines: List<String>,
     val hash: String,
 )
 
-@Immutable
 data class HeadingNode(
     val lineIndex: Int,
     val level: Int,
@@ -50,12 +44,10 @@ data class HeadingNode(
     val parentL1: String?,
 )
 
-@Immutable
 data class OpenClockState(
     val startedAt: ZonedDateTime,
 )
 
-@Immutable
 data class ClosedClockEntry(
     val headingLineIndex: Int,
     val clockLineIndex: Int,
@@ -64,7 +56,6 @@ data class ClosedClockEntry(
     val durationMinutes: Long,
 )
 
-@Immutable
 data class HeadingViewItem(
     val node: HeadingNode,
     val canStart: Boolean,

@@ -1,13 +1,14 @@
 package com.example.orgclock.domain
 
-import com.example.orgclock.data.OrgRepository
-import com.example.orgclock.data.SaveResult
+import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.data.FileWriteIntent
+import com.example.orgclock.data.SaveResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClock
 import com.example.orgclock.model.OpenClockState
+import com.example.orgclock.model.OrgDocument
 import com.example.orgclock.parser.OrgParser
 import java.time.LocalDate
 import java.time.LocalTime
@@ -33,7 +34,7 @@ class ClockOperationException(
 ) : RuntimeException(message, cause)
 
 class ClockService(
-    private val repository: OrgRepository,
+    private val repository: ClockRepository,
     private val parser: OrgParser = OrgParser(),
 ) {
 
@@ -312,7 +313,7 @@ class ClockService(
     }
 
     private suspend fun stopInSingleDocument(
-        doc: com.example.orgclock.model.OrgDocument,
+        doc: OrgDocument,
         headingPath: HeadingPath,
         end: ZonedDateTime,
     ): ClockStopResult {
@@ -341,8 +342,8 @@ class ClockService(
     }
 
     private suspend fun stopAcrossMidnight(
-        previousDoc: com.example.orgclock.model.OrgDocument,
-        todayDoc: com.example.orgclock.model.OrgDocument,
+        previousDoc: OrgDocument,
+        todayDoc: OrgDocument,
         headingPath: HeadingPath,
         start: ZonedDateTime,
         end: ZonedDateTime,
