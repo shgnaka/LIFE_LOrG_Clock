@@ -579,8 +579,8 @@ class OrgClockViewModel(
             status(R.string.status_start_failed, tone, msg)
         }
         if (result.isSuccess) {
-            val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt
-            updateHeadingOpenClock(lineIndex, OpenClockState(startedAt.toKotlinInstantCompat()))
+            val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt.toKotlinInstantCompat()
+            updateHeadingOpenClock(lineIndex, OpenClockState(startedAt))
             updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()

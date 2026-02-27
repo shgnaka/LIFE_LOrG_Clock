@@ -175,7 +175,7 @@ class OrgClockViewModelTest {
             nowProvider = { startedAt },
             startClock = { _, lineIndex ->
                 kotlinx.coroutines.delay(1_000)
-                Result.success(ClockMutationResult(headingLineIndex = lineIndex, startedAt = startedAt))
+                Result.success(ClockMutationResult(headingLineIndex = lineIndex, startedAt = startedAt.toKotlinInstantCompat()))
             },
         )
 
