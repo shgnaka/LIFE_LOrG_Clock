@@ -29,6 +29,19 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
 
 `installDebug` の詳細は `docs/install-debug-guide.md` を参照してください。
 
+## Kotlin Multiplatform Bootstrap
+
+- 共有モジュール `:shared` を追加しています（`commonMain` / `androidMain` / `iosMain`）。
+- Linux 環境では iOS アプリの実行・署名はできません。iOS ターゲットのコンパイル検証は macOS CI (`.github/workflows/verify-kmp-ios.yml`) で実行します。
+
+ローカルでの確認例:
+
+```bash
+./gradlew :shared:tasks
+./gradlew :shared:compileDebugKotlinAndroid
+./gradlew :app:assembleDebug
+```
+
 ## CI Distribution (No ADB / No USB)
 
 `adb` や USB 転送を使わずに端末へ更新を反映する場合は、GitHub Actions から Firebase App Distribution へ配布します。
