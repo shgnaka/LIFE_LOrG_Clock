@@ -136,6 +136,11 @@ class OrgClockViewModel(
                 true
             }
 
+            OrgClockUiAction.RefreshFiles -> {
+                viewModelScope.launch { refreshFilesAndRoute() }
+                true
+            }
+
             OrgClockUiAction.OpenFilePicker -> {
                 _uiState.update { it.copy(screen = Screen.FilePicker) }
                 true

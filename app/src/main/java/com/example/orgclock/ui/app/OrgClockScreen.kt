@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -149,6 +150,7 @@ fun OrgClockScreen(
                 onPickRoot = onPickRoot,
                 onSelectFile = { onAction(OrgClockUiAction.SelectFile(it)) },
                 onOpenSettings = { onAction(OrgClockUiAction.OpenSettings) },
+                onRefreshFiles = { onAction(OrgClockUiAction.RefreshFiles) },
             )
 
             Screen.HeadingList -> HeadingListScreen(
@@ -272,6 +274,7 @@ private fun FilePickerScreen(
     onPickRoot: () -> Unit,
     onSelectFile: (OrgFileEntry) -> Unit,
     onOpenSettings: () -> Unit,
+    onRefreshFiles: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -279,9 +282,20 @@ private fun FilePickerScreen(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Button(onClick = onPickRoot) { Text(stringResource(R.string.change_root)) }
             Button(onClick = onOpenSettings) { Text(stringResource(R.string.settings)) }
+            Spacer(modifier = Modifier.weight(1f))
+            IconButton(onClick = onRefreshFiles) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = stringResource(R.string.refresh),
+                )
+            }
         }
         StatusBanner(status)
         Text(stringResource(R.string.select_org_file), style = MaterialTheme.typography.titleMedium)
