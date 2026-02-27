@@ -172,17 +172,33 @@ class ClockInNotificationService : Service() {
     private fun notifyIndividualClockNotifications(entries: List<ClockInEntry>) {
         val manager = getSystemService(NotificationManager::class.java)
         
-        val currentIds = entries.map { it.fileId to it.headingLineIndex }
-        entries.forEachIndexed { index, entry ->
-            val notificationId = NOTIFICATION_ID_BASE + index
-            val notification = buildIndividualClockNotification(entry)
-            manager.notify(notificationId, notification)
+        val currentIds = mutableSetOf<Int>()
+        
+        if (entries.isEmpty()) {
+            val notification = buildStatusNotification(
+                title = getString(R.string.notif_title_clock_in),
+                summary = getString(R.string.notif_summary_no_active),
+            )
+            manager.notify(NOTIFICATION_ID_BASE, notification)
+            currentIds.add(NOTIFICATION_ID_BASE)
+        } else {
+            entries.forEach { entry ->
+                val notificationId = getNotificationId(entry.fileId, entry.headingLineIndex)
+                val notification = buildIndividualClockNotification(entry)
+                manager.notify(notificationId, notification)
+                currentIds.add(notificationId)
+            }
         }
+        
+        for (i in NOTIFICATION_ID_BASE until NOTIFICATION_ID_BASE + 100) {
+            if (i !in currentIds) {
+                manager.cancel(i)
+            }
+        }
+    }
 
-        val maxId = entries.size
-        for (i in (maxId + 1)..100) {
-            manager.cancel(i)
-        }
+    private fun getNotificationId(fileId: String, lineIndex: Int): Int {
+        return NOTIFICATION_ID_BASE + Math.abs((fileId.hashCode() + lineIndex) % 100)
     }
 
     private fun buildIndividualClockNotification(entry: ClockInEntry): Notification {
@@ -191,9 +207,10 @@ class ClockInNotificationService : Service() {
             putExtra(EXTRA_FILE_ID, entry.fileId)
             putExtra(EXTRA_LINE_INDEX, entry.headingLineIndex)
         }
+        val notificationId = getNotificationId(entry.fileId, entry.headingLineIndex)
         val stopPendingIntent = PendingIntent.getService(
             this,
-            entry.headingLineIndex,
+            notificationId,
             stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
