@@ -13,7 +13,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.security.MessageDigest
-import java.time.LocalDate
+import kotlinx.datetime.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -23,14 +23,14 @@ class ClockServiceTest {
     fun stopClock_splitsAcrossMidnight() = runBlocking {
         val repo = FakeRepo(
             mutableMapOf(
-                LocalDate.of(2026, 2, 14) to listOf(
+                LocalDate(2026, 2, 14) to listOf(
                     "* Work",
                     "** Project A",
                     ":LOGBOOK:",
                     "CLOCK: [2026-02-14 Sat 23:50:00]",
                     ":END:",
                 ),
-                LocalDate.of(2026, 2, 15) to listOf(
+                LocalDate(2026, 2, 15) to listOf(
                     "* Work",
                     "** Project A",
                     ":LOGBOOK:",
@@ -46,14 +46,14 @@ class ClockServiceTest {
         )
 
         assertTrue(result is ClockService.ClockStopResult.Success)
-        assertTrue(repo.files[LocalDate.of(2026, 2, 14)]!!.any { it.contains("23:59:59") })
-        assertTrue(repo.files[LocalDate.of(2026, 2, 15)]!!.any { it.contains("00:00:00") })
+        assertTrue(repo.files[LocalDate(2026, 2, 14)]!!.any { it.contains("23:59:59") })
+        assertTrue(repo.files[LocalDate(2026, 2, 15)]!!.any { it.contains("00:00:00") })
     }
 
     @Test
     fun stopClock_acrossMidnight_retriesOnConflict() = runBlocking {
-        val date1 = LocalDate.of(2026, 2, 14)
-        val date2 = LocalDate.of(2026, 2, 15)
+        val date1 = LocalDate(2026, 2, 14)
+        val date2 = LocalDate(2026, 2, 15)
         val repo = FakeRepo(
             mutableMapOf(
                 date1 to listOf(
@@ -503,7 +503,7 @@ class ClockServiceTest {
                 } else {
                     listOf("* Work", "** Project A", ":LOGBOOK:", "CLOCK: [2026-02-15 Sun 09:00:00]", ":END:")
                 }
-                return Result.success(OrgDocument(LocalDate.of(2026, 2, 15), lines, "hash-$loadCount"))
+                return Result.success(OrgDocument(LocalDate(2026, 2, 15), lines, "hash-$loadCount"))
             }
 
             override suspend fun saveFile(
@@ -600,8 +600,8 @@ class ClockServiceTest {
     fun stopClock_whenNoOpenClockInTodayAndYesterday_returnsFailed() = runBlocking {
         val repo = FakeRepo(
             mutableMapOf(
-                LocalDate.of(2026, 2, 14) to listOf("* Work", "** Project A", ":LOGBOOK:", ":END:"),
-                LocalDate.of(2026, 2, 15) to listOf("* Work", "** Project A", ":LOGBOOK:", ":END:"),
+                LocalDate(2026, 2, 14) to listOf("* Work", "** Project A", ":LOGBOOK:", ":END:"),
+                LocalDate(2026, 2, 15) to listOf("* Work", "** Project A", ":LOGBOOK:", ":END:"),
             ),
         )
         val service = ClockService(repo)
@@ -618,8 +618,8 @@ class ClockServiceTest {
 
     @Test
     fun stopClock_acrossMidnight_whenPreviousSaveFails_returnsFailed() = runBlocking {
-        val date1 = LocalDate.of(2026, 2, 14)
-        val date2 = LocalDate.of(2026, 2, 15)
+        val date1 = LocalDate(2026, 2, 14)
+        val date2 = LocalDate(2026, 2, 15)
         val repo = object : OrgRepository {
             override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
             override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
@@ -665,14 +665,14 @@ class ClockServiceTest {
     fun recoverOpenClocks_scansTodayAndYesterday() = runBlocking {
         val repo = FakeRepo(
             mutableMapOf(
-                LocalDate.of(2026, 2, 14) to listOf(
+                LocalDate(2026, 2, 14) to listOf(
                     "* Work",
                     "** Project A",
                     ":LOGBOOK:",
                     "CLOCK: [2026-02-14 Sat 23:50:00]",
                     ":END:",
                 ),
-                LocalDate.of(2026, 2, 15) to listOf(
+                LocalDate(2026, 2, 15) to listOf(
                     "* Work",
                     "** Project B",
                     ":LOGBOOK:",
@@ -694,8 +694,8 @@ class ClockServiceTest {
         assertTrue(result.isSuccess)
         val openClocks = result.getOrThrow()
         assertEquals(2, openClocks.size)
-        assertTrue(openClocks.any { it.fileDate == LocalDate.of(2026, 2, 14) && it.headingPath.toString() == "Work/Project A" })
-        assertTrue(openClocks.any { it.fileDate == LocalDate.of(2026, 2, 15) && it.headingPath.toString() == "Work/Project B" })
+        assertTrue(openClocks.any { it.fileDate == LocalDate(2026, 2, 14) && it.headingPath.toString() == "Work/Project A" })
+        assertTrue(openClocks.any { it.fileDate == LocalDate(2026, 2, 15) && it.headingPath.toString() == "Work/Project B" })
     }
 
     private class FakeRepo(
@@ -777,7 +777,7 @@ class ClockServiceTest {
 
         override suspend fun loadFile(fileId: String): Result<OrgDocument> {
             val lines = files[fileId] ?: return Result.failure(IllegalArgumentException("missing file"))
-            return Result.success(OrgDocument(LocalDate.of(2026, 2, 15), lines, hash(lines.joinToString("\n"))))
+            return Result.success(OrgDocument(LocalDate(2026, 2, 15), lines, hash(lines.joinToString("\n"))))
         }
 
         override suspend fun saveFile(

@@ -10,9 +10,12 @@ import com.example.orgclock.model.OpenClock
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.model.OrgDocument
 import com.example.orgclock.parser.OrgParser
-import java.time.LocalDate
+import com.example.orgclock.time.toKotlinInstant
+import com.example.orgclock.time.toKotlinLocalDateCompat
+import com.example.orgclock.time.toJavaLocalDateCompat
 import java.time.LocalTime
 import java.time.ZonedDateTime
+import kotlinx.datetime.LocalDate
 
 data class ClockMutationResult(
     val headingLineIndex: Int,
@@ -50,7 +53,7 @@ class ClockService(
     }
 
     suspend fun startClock(dateTime: ZonedDateTime, headingPath: HeadingPath): Result<ClockSession> {
-        val date = dateTime.toLocalDate()
+        val date = dateTime.toLocalDate().toKotlinLocalDateCompat()
         val firstDoc = repository.loadDaily(date).getOrElse { return Result.failure(it) }
         val firstLines = runCatching { parser.appendOpenClock(firstDoc.lines, headingPath, dateTime) }
             .getOrElse { return Result.failure(it) }
@@ -79,7 +82,7 @@ class ClockService(
                 HeadingViewItem(
                     node = parsed.node,
                     canStart = parsed.node.level == 2,
-                    openClock = parsed.openClock?.let { OpenClockState(it) },
+                    openClock = parsed.openClock?.let { OpenClockState(it.toKotlinInstant()) },
                 )
             }
         }
@@ -275,7 +278,7 @@ class ClockService(
 
     suspend fun stopClock(dateTime: ZonedDateTime, headingPath: HeadingPath): ClockStopResult {
         val zone = dateTime.zone
-        val today = dateTime.toLocalDate()
+        val today = dateTime.toLocalDate().toKotlinLocalDateCompat()
         val todayDoc = repository.loadDaily(today).getOrElse {
             return ClockStopResult.Failed(it.message ?: "Failed to load today's file")
         }
@@ -285,7 +288,7 @@ class ClockService(
             return stopInSingleDocument(todayDoc, headingPath, dateTime)
         }
 
-        val yesterday = today.minusDays(1)
+        val yesterday = today.toJavaLocalDateCompat().minusDays(1).toKotlinLocalDateCompat()
         val yesterdayDoc = repository.loadDaily(yesterday).getOrElse {
             return ClockStopResult.Failed("No open clock found for $headingPath")
         }
@@ -297,14 +300,17 @@ class ClockService(
 
     suspend fun recoverOpenClocks(now: ZonedDateTime, candidates: List<HeadingPath>): Result<List<OpenClock>> {
         val zone = now.zone
-        val dates = listOf(now.toLocalDate(), now.toLocalDate().minusDays(1))
+        val dates = listOf(
+            now.toLocalDate().toKotlinLocalDateCompat(),
+            now.toLocalDate().minusDays(1).toKotlinLocalDateCompat(),
+        )
         val docs = dates.mapNotNull { date -> repository.loadDaily(date).getOrNull() }
 
         val openClocks = buildList {
             for (doc in docs) {
                 for (path in candidates) {
                     val open = parser.findOpenClock(doc.lines, path, zone) ?: continue
-                    add(OpenClock(doc.date, path, open))
+                    add(OpenClock(doc.date, path, open.toKotlinInstant()))
                 }
             }
         }

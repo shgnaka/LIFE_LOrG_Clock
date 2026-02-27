@@ -3,6 +3,7 @@ package com.example.orgclock.parser
 import com.example.orgclock.model.HeadingNode
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingPath
+import com.example.orgclock.time.toKotlinInstant
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -280,8 +281,8 @@ class OrgParser {
             results += ClosedClockEntry(
                 headingLineIndex = headingLineIndex,
                 clockLineIndex = i,
-                start = start,
-                end = end,
+                start = start.toKotlinInstant(),
+                end = end.toKotlinInstant(),
                 durationMinutes = durationMinutes,
             )
         }

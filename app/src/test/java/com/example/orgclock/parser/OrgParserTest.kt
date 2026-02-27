@@ -1,6 +1,7 @@
 package com.example.orgclock.parser
 
 import com.example.orgclock.model.HeadingPath
+import com.example.orgclock.time.toJavaZonedDateTime
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -253,8 +254,8 @@ class OrgParserTest {
         val entries = parser.listClosedClocksAtLine(lines, 1, ZoneId.of("Asia/Tokyo"))
 
         assertEquals(1, entries.size)
-        assertEquals(0, entries[0].start.second)
-        assertEquals(0, entries[0].end.second)
+        assertEquals(0, entries[0].start.toJavaZonedDateTime(ZoneId.of("Asia/Tokyo")).second)
+        assertEquals(0, entries[0].end.toJavaZonedDateTime(ZoneId.of("Asia/Tokyo")).second)
         assertEquals(30L, entries[0].durationMinutes)
     }
 
