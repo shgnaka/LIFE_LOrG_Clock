@@ -1,9 +1,7 @@
 package com.example.orgclock.domain
 
-import android.net.Uri
 import com.example.orgclock.data.OrgFileEntry
-import com.example.orgclock.data.OrgRepository
-import com.example.orgclock.data.RootAccess
+import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.data.SaveResult
 import com.example.orgclock.data.FileWriteIntent
 import com.example.orgclock.model.HeadingPath
@@ -381,8 +379,7 @@ class ClockServiceTest {
 
     @Test
     fun startClock_mapsValidationSaveFailureToTypedValidationFailure() = runBlocking {
-        val repo = object : OrgRepository {
-            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+        val repo = object : ClockRepository {
             override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
             override suspend fun loadFile(fileId: String): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
             override suspend fun saveFile(
@@ -417,8 +414,7 @@ class ClockServiceTest {
 
     @Test
     fun startClock_mapsIoSaveFailureToTypedIoFailure() = runBlocking {
-        val repo = object : OrgRepository {
-            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+        val repo = object : ClockRepository {
             override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
             override suspend fun loadFile(fileId: String): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
             override suspend fun saveFile(
@@ -453,8 +449,7 @@ class ClockServiceTest {
 
     @Test
     fun startClock_retryConflict_thenSecondConflict_returnsTypedConflict() = runBlocking {
-        val repo = object : OrgRepository {
-            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+        val repo = object : ClockRepository {
             override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
             override suspend fun loadFile(fileId: String): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
             override suspend fun saveFile(
@@ -489,10 +484,8 @@ class ClockServiceTest {
 
     @Test
     fun startClockInFile_whenConflictAndLatestAlreadyOpen_returnsTypedAlreadyRunning() = runBlocking {
-        val repo = object : OrgRepository {
+        val repo = object : ClockRepository {
             var loadCount = 0
-
-            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
             override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
             override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
             override suspend fun saveDaily(date: LocalDate, lines: List<String>, expectedHash: String): SaveResult =
@@ -622,8 +615,7 @@ class ClockServiceTest {
     fun stopClock_acrossMidnight_whenPreviousSaveFails_returnsFailed() = runBlocking {
         val date1 = LocalDate(2026, 2, 14)
         val date2 = LocalDate(2026, 2, 15)
-        val repo = object : OrgRepository {
-            override suspend fun openRoot(uri: Uri): Result<RootAccess> = Result.success(RootAccess(uri, "test"))
+        val repo = object : ClockRepository {
             override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
             override suspend fun loadFile(fileId: String): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
             override suspend fun saveFile(
@@ -703,12 +695,8 @@ class ClockServiceTest {
     private class FakeRepo(
         val files: MutableMap<LocalDate, List<String>>,
         private val conflictCountByDate: MutableMap<LocalDate, Int> = mutableMapOf(),
-    ) : OrgRepository {
+    ) : ClockRepository {
         val saveAttempts: MutableMap<LocalDate, Int> = mutableMapOf()
-
-        override suspend fun openRoot(uri: Uri): Result<RootAccess> {
-            return Result.success(RootAccess(uri, "test"))
-        }
 
         override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> {
             return Result.failure(UnsupportedOperationException())
@@ -766,12 +754,8 @@ class ClockServiceTest {
     private class FileRepo(
         val files: MutableMap<String, List<String>>,
         private val conflictCountByFileId: MutableMap<String, Int> = mutableMapOf(),
-    ) : OrgRepository {
+    ) : ClockRepository {
         val saveAttempts: MutableMap<String, Int> = mutableMapOf()
-
-        override suspend fun openRoot(uri: Uri): Result<RootAccess> {
-            return Result.success(RootAccess(uri, "test"))
-        }
 
         override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> {
             return Result.success(files.keys.map { OrgFileEntry(it, "$it.org", null) })

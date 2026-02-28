@@ -89,7 +89,7 @@ iOS 対応の目的は、既存 Android アプリのコアロジックを Kotlin
 
 - M0: Completed (`feat/ios/kmp-bootstrap`)
 - M1: Completed (`feat/ios/shared-core-migration-1` + 後続の datetime 移行を `feat/ios_support` へ反映済み)
-- M2: Next（repository 境界の platform-neutral 化を次フェーズとして進行）
+- M2: In progress（`feat/ios/repository-boundary-m2-1` で repository 境界の platform-neutral 化を実施中）
 
 ## 8. Update Workflow (for future Codex sessions)
 

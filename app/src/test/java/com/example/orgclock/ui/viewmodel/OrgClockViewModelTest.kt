@@ -58,7 +58,7 @@ class OrgClockViewModelTest {
         val vm = testViewModel(
             loadSavedUri = { savedUri },
             openRoot = { uri ->
-                Result.success(com.example.orgclock.data.RootAccess(uri, "org"))
+                Result.success(Unit)
             },
             todayProvider = { LocalDate.of(2026, 2, 16) },
             listFiles = { Result.success(listOf(OrgFileEntry("f_today", "2026-02-16.org", null))) },
@@ -436,7 +436,7 @@ class OrgClockViewModelTest {
             loadSavedUri = { savedUri },
             openRoot = { uri ->
                 openRootCalls += 1
-                Result.success(com.example.orgclock.data.RootAccess(uri, "org"))
+                Result.success(Unit)
             },
             listFiles = { Result.success(emptyList()) },
             todayProvider = { LocalDate.of(2026, 2, 16) },
@@ -469,7 +469,7 @@ class OrgClockViewModelTest {
         val savedUri = Mockito.mock(Uri::class.java)
         val vm = testViewModel(
             loadSavedUri = { savedUri },
-            openRoot = { uri -> Result.success(com.example.orgclock.data.RootAccess(uri, "org")) },
+            openRoot = { uri -> Result.success(Unit) },
             listFiles = { Result.failure(IllegalStateException("list failed")) },
         )
 
@@ -485,7 +485,7 @@ class OrgClockViewModelTest {
         val savedUri = Mockito.mock(Uri::class.java)
         val vm = testViewModel(
             loadSavedUri = { savedUri },
-            openRoot = { uri -> Result.success(com.example.orgclock.data.RootAccess(uri, "org")) },
+            openRoot = { uri -> Result.success(Unit) },
             todayProvider = { LocalDate.of(2026, 2, 16) },
             listFiles = { Result.success(listOf(OrgFileEntry("f1", "projects.org", null))) },
         )
@@ -654,7 +654,7 @@ class OrgClockViewModelTest {
     private fun testViewModel(
         loadSavedUri: () -> android.net.Uri? = { null },
         saveUri: (android.net.Uri) -> Unit = {},
-        openRoot: suspend (android.net.Uri) -> Result<com.example.orgclock.data.RootAccess> = {
+        openRoot: suspend (android.net.Uri) -> Result<Unit> = {
             Result.failure(UnsupportedOperationException())
         },
         listFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },

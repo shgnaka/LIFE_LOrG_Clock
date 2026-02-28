@@ -1,8 +1,7 @@
 package com.example.orgclock.notification
 
 import com.example.orgclock.data.OrgFileEntry
-import com.example.orgclock.data.OrgRepository
-import com.example.orgclock.data.RootAccess
+import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.data.SaveResult
 import com.example.orgclock.data.FileWriteIntent
 import com.example.orgclock.model.OrgDocument
@@ -133,10 +132,7 @@ private class FakeOrgRepository(
     private val docs: Map<String, OrgDocument>,
     private val failures: Map<String, Throwable> = emptyMap(),
     private val listFailure: Throwable? = null,
-) : OrgRepository {
-    override suspend fun openRoot(uri: android.net.Uri): Result<RootAccess> {
-        return Result.success(RootAccess(uri, "root"))
-    }
+) : ClockRepository {
 
     override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> {
         listFailure?.let { return Result.failure(it) }

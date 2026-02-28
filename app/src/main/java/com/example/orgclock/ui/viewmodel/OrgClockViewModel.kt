@@ -6,7 +6,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
-import com.example.orgclock.data.RootAccess
 import com.example.orgclock.domain.ClockOperationCode
 import com.example.orgclock.domain.ClockOperationException
 import com.example.orgclock.domain.ClockMutationResult
@@ -38,7 +37,7 @@ import java.time.ZonedDateTime
 class OrgClockViewModel(
     private val loadSavedUri: () -> Uri?,
     private val saveUri: (Uri) -> Unit,
-    private val openRoot: suspend (Uri) -> Result<RootAccess>,
+    private val openRoot: suspend (Uri) -> Result<Unit>,
     private val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     private val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     private val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,

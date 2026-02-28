@@ -6,6 +6,8 @@ import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import com.example.orgclock.data.ClockRepository
+import com.example.orgclock.data.RootAccessGateway
 import com.example.orgclock.data.SafOrgRepository
 import com.example.orgclock.domain.ClockService
 import com.example.orgclock.notification.ClockInNotificationService
@@ -34,7 +36,9 @@ class DefaultAppGraph(
     private val appContext: Context,
     private val clockEnvironment: ClockEnvironment = SystemClockEnvironment,
 ) : AppGraph {
-    private val repository by lazy { SafOrgRepository(appContext) }
+    private val safRepository by lazy { SafOrgRepository(appContext) }
+    private val repository: ClockRepository by lazy { safRepository }
+    private val rootAccessGateway: RootAccessGateway by lazy { safRepository }
     private val clockService by lazy { ClockService(repository) }
     private val clockInScanner by lazy { ClockInScanner(repository) }
     private val notificationServiceConfig: NotificationServiceConfig = NotificationServiceConfig()
@@ -49,7 +53,7 @@ class DefaultAppGraph(
         return OrgClockRouteDependencies(
             loadSavedUri = { prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)?.let(Uri::parse) },
             saveUri = { uri -> prefs.edit().putString(NotificationPrefs.KEY_ROOT_URI, uri.toString()).apply() },
-            openRoot = { uri -> repository.openRoot(uri) },
+            openRoot = { uri -> rootAccessGateway.openRoot(uri) },
             listFiles = { repository.listOrgFiles() },
             listFilesWithOpenClock = {
                 clockInScanner.scan(clockEnvironment.currentTimeZone()).map { scanResult ->
