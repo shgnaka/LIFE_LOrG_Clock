@@ -2,20 +2,16 @@ package com.example.orgclock.data
 
 import android.content.ContentResolver
 import android.content.Context
-import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
-import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.model.OrgDocument
-import com.example.orgclock.time.toKotlinInstantCompat
-import com.example.orgclock.time.toKotlinLocalDateCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.datetime.Instant
-import kotlinx.datetime.LocalDate
 import java.io.OutputStreamWriter
 import java.security.MessageDigest
+import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -23,22 +19,22 @@ import java.time.format.DateTimeFormatter
 class SafOrgRepository(
     private val context: Context,
     private val backupPolicy: BackupPolicyConfig = BackupPolicyConfig(),
-) : ClockRepository, RootAccessGateway {
+) : OrgRepository {
     private val resolver: ContentResolver = context.contentResolver
     private var root: DocumentFile? = null
     private val lastClockBackupByFileId = mutableMapOf<String, Long>()
 
-    override suspend fun openRoot(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
+    override suspend fun openRoot(uri: Uri): Result<RootAccess> = withContext(Dispatchers.IO) {
         runCatching {
             context.contentResolver.takePersistableUriPermission(
                 uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
             )
             val rootDoc = DocumentFile.fromTreeUri(context, uri)
                 ?: throw IllegalArgumentException("Invalid tree uri")
             require(rootDoc.isDirectory) { "Selected uri must be a directory." }
             root = rootDoc
-            Unit
+            RootAccess(uri, rootDoc.name ?: "org")
         }
     }
 
@@ -107,12 +103,10 @@ class SafOrgRepository(
                     OrgFileEntry(
                         fileId = file.uri.toString(),
                         displayName = name,
-                        modifiedAt = file.lastModified().takeIf { it > 0 }?.let {
-                            java.time.Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toKotlinInstantCompat()
-                        },
+                        modifiedAt = file.lastModified().takeIf { it > 0 }?.let(Instant::ofEpochMilli),
                     )
                 }
-                .sortedByDescending { it.modifiedAt?.toEpochMilliseconds() ?: Long.MIN_VALUE }
+                .sortedByDescending { it.modifiedAt ?: Instant.EPOCH }
                 .toList()
         }
     }
@@ -272,10 +266,10 @@ class SafOrgRepository(
     }
 
     private fun parseDateFromFileName(name: String?): LocalDate {
-        if (name == null) return java.time.LocalDate.now(ZoneId.systemDefault()).toKotlinLocalDateCompat()
+        if (name == null) return LocalDate.now(ZoneId.systemDefault())
         val raw = name.removeSuffix(".org")
-        return runCatching { java.time.LocalDate.parse(raw).toKotlinLocalDateCompat() }
-            .getOrElse { java.time.LocalDate.now(ZoneId.systemDefault()).toKotlinLocalDateCompat() }
+        return runCatching { LocalDate.parse(raw) }
+            .getOrElse { LocalDate.now(ZoneId.systemDefault()) }
     }
 
     companion object

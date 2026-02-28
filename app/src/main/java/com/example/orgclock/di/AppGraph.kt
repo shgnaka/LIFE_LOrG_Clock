@@ -6,8 +6,6 @@ import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.ComponentActivity
-import com.example.orgclock.data.ClockRepository
-import com.example.orgclock.data.RootAccessGateway
 import com.example.orgclock.data.SafOrgRepository
 import com.example.orgclock.domain.ClockService
 import com.example.orgclock.notification.ClockInNotificationService
@@ -18,11 +16,7 @@ import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.notification.NotificationServiceConfig
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
-import com.example.orgclock.time.toJavaLocalDateCompat
-import com.example.orgclock.time.toJavaZonedDateTime
-import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.time.today
-import kotlinx.datetime.toJavaZoneId
 import com.example.orgclock.ui.app.OrgClockRouteDependencies
 
 interface AppGraph {
@@ -36,9 +30,7 @@ class DefaultAppGraph(
     private val appContext: Context,
     private val clockEnvironment: ClockEnvironment = SystemClockEnvironment,
 ) : AppGraph {
-    private val safRepository by lazy { SafOrgRepository(appContext) }
-    private val repository: ClockRepository by lazy { safRepository }
-    private val rootAccessGateway: RootAccessGateway by lazy { safRepository }
+    private val repository by lazy { SafOrgRepository(appContext) }
     private val clockService by lazy { ClockService(repository) }
     private val clockInScanner by lazy { ClockInScanner(repository) }
     private val notificationServiceConfig: NotificationServiceConfig = NotificationServiceConfig()
@@ -53,35 +45,28 @@ class DefaultAppGraph(
         return OrgClockRouteDependencies(
             loadSavedUri = { prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)?.let(Uri::parse) },
             saveUri = { uri -> prefs.edit().putString(NotificationPrefs.KEY_ROOT_URI, uri.toString()).apply() },
-            openRoot = { uri -> rootAccessGateway.openRoot(uri) },
+            openRoot = { uri -> repository.openRoot(uri) },
             listFiles = { repository.listOrgFiles() },
             listFilesWithOpenClock = {
-                clockInScanner.scan(clockEnvironment.currentTimeZone()).map { scanResult ->
+                clockInScanner.scan(clockEnvironment.zoneId()).map { scanResult ->
                     scanResult.entries.asSequence().map { it.fileId }.toSet()
                 }
             },
-            listHeadings = { fileId -> clockService.listHeadings(fileId, clockEnvironment.currentTimeZone()) },
+            listHeadings = { fileId -> clockService.listHeadings(fileId) },
             startClock = { fileId, lineIndex ->
-                clockService.startClockInFile(fileId, lineIndex, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                clockService.startClockInFile(fileId, lineIndex, clockEnvironment.now())
             },
             stopClock = { fileId, lineIndex ->
-                clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now())
             },
             cancelClock = { fileId, lineIndex ->
                 clockService.cancelClockInFile(fileId, lineIndex)
             },
             listClosedClocks = { fileId, lineIndex ->
-                clockService.listClosedClocksInFile(fileId, lineIndex, clockEnvironment.currentTimeZone())
+                clockService.listClosedClocksInFile(fileId, lineIndex, clockEnvironment.now())
             },
             editClosedClock = { fileId, headingLineIndex, clockLineIndex, start, end ->
-                clockService.editClosedClockInFile(
-                    fileId,
-                    headingLineIndex,
-                    clockLineIndex,
-                    start.toKotlinInstantCompat(),
-                    end.toKotlinInstantCompat(),
-                    clockEnvironment.currentTimeZone(),
-                )
+                clockService.editClosedClockInFile(fileId, headingLineIndex, clockLineIndex, start, end)
             },
             deleteClosedClock = { fileId, headingLineIndex, clockLineIndex ->
                 clockService.deleteClosedClockInFile(fileId, headingLineIndex, clockLineIndex)
@@ -124,9 +109,9 @@ class DefaultAppGraph(
                 }
                 activity.startActivity(intent)
             },
-            nowProvider = { clockEnvironment.now().toJavaZonedDateTime(clockEnvironment.currentTimeZone().toJavaZoneId()) },
-            todayProvider = { clockEnvironment.today().toJavaLocalDateCompat() },
-            zoneIdProvider = { clockEnvironment.currentTimeZone().toJavaZoneId() },
+            nowProvider = { clockEnvironment.now() },
+            todayProvider = { clockEnvironment.today() },
+            zoneIdProvider = { clockEnvironment.zoneId() },
             showPerfOverlay = (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
         )
     }

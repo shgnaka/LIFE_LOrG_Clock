@@ -1,11 +1,7 @@
 package com.example.orgclock.notification
 
-import com.example.orgclock.data.ClockRepository
-import com.example.orgclock.time.toZonedDateTime
+import com.example.orgclock.data.OrgRepository
 import com.example.orgclock.parser.OrgParser
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toKotlinTimeZone
-import kotlinx.datetime.toJavaZoneId
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -30,10 +26,10 @@ data class ClockInScanResult(
 )
 
 class ClockInScanner(
-    private val repository: ClockRepository,
+    private val repository: OrgRepository,
     private val parser: OrgParser = OrgParser(),
 ) {
-    suspend fun scan(timeZone: TimeZone): Result<ClockInScanResult> {
+    suspend fun scan(zoneId: ZoneId): Result<ClockInScanResult> {
         val files = repository.listOrgFiles().getOrElse { return Result.failure(it) }
         val entries = mutableListOf<ClockInEntry>()
         val failedFiles = mutableListOf<FileScanFailure>()
@@ -49,7 +45,7 @@ class ClockInScanner(
                 continue
             }
             val doc = docResult.getOrThrow()
-            val parsedResult = runCatching { parser.parseHeadingsWithOpenClock(doc.lines, timeZone) }
+            val parsedResult = runCatching { parser.parseHeadingsWithOpenClock(doc.lines, zoneId) }
             if (parsedResult.isFailure) {
                 failedFiles += FileScanFailure(
                     fileId = file.fileId,
@@ -68,7 +64,7 @@ class ClockInScanner(
                         fileName = file.displayName,
                         headingTitle = heading.node.title,
                         l1Title = heading.node.parentL1,
-                        startedAt = heading.openClock!!.toZonedDateTime(timeZone.toJavaZoneId()),
+                        startedAt = heading.openClock!!,
                         headingLineIndex = heading.node.lineIndex,
                     )
                 }
@@ -83,6 +79,4 @@ class ClockInScanner(
             ),
         )
     }
-
-    suspend fun scan(zoneId: ZoneId): Result<ClockInScanResult> = scan(zoneId.toKotlinTimeZone())
 }

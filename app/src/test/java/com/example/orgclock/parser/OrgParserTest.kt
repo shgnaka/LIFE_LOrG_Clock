@@ -1,14 +1,11 @@
 package com.example.orgclock.parser
 
 import com.example.orgclock.model.HeadingPath
-import com.example.orgclock.time.toJavaZonedDateTime
-import com.example.orgclock.time.toKotlinInstantCompat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
-import kotlinx.datetime.toKotlinTimeZone
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -256,8 +253,8 @@ class OrgParserTest {
         val entries = parser.listClosedClocksAtLine(lines, 1, ZoneId.of("Asia/Tokyo"))
 
         assertEquals(1, entries.size)
-        assertEquals(0, entries[0].start.toJavaZonedDateTime(ZoneId.of("Asia/Tokyo")).second)
-        assertEquals(0, entries[0].end.toJavaZonedDateTime(ZoneId.of("Asia/Tokyo")).second)
+        assertEquals(0, entries[0].start.second)
+        assertEquals(0, entries[0].end.second)
         assertEquals(30L, entries[0].durationMinutes)
     }
 
@@ -376,49 +373,3 @@ class OrgParserTest {
         assertEquals("** Project B :TPL:", updated[2])
     }
 }
-
-private fun OrgParser.parseHeadingsWithOpenClock(lines: List<String>, zoneId: ZoneId) =
-    parseHeadingsWithOpenClock(lines, zoneId.toKotlinTimeZone())
-
-private fun OrgParser.appendOpenClock(lines: List<String>, headingPath: HeadingPath, start: ZonedDateTime) =
-    appendOpenClock(lines, headingPath, start.toKotlinInstantCompat(), start.zone.toKotlinTimeZone())
-
-private fun OrgParser.appendClosedClock(
-    lines: List<String>,
-    headingPath: HeadingPath,
-    start: ZonedDateTime,
-    end: ZonedDateTime,
-) = appendClosedClock(lines, headingPath, start.toKotlinInstantCompat(), end.toKotlinInstantCompat(), end.zone.toKotlinTimeZone())
-
-private fun OrgParser.appendOpenClockAtLine(lines: List<String>, headingLineIndex: Int, start: ZonedDateTime) =
-    appendOpenClockAtLine(lines, headingLineIndex, start.toKotlinInstantCompat(), start.zone.toKotlinTimeZone())
-
-private fun OrgParser.closeLatestOpenClock(lines: List<String>, headingPath: HeadingPath, end: ZonedDateTime) =
-    closeLatestOpenClock(lines, headingPath, end.toKotlinInstantCompat(), end.zone.toKotlinTimeZone())
-
-private fun OrgParser.closeLatestOpenClockAtLine(lines: List<String>, headingLineIndex: Int, end: ZonedDateTime) =
-    closeLatestOpenClockAtLine(lines, headingLineIndex, end.toKotlinInstantCompat(), end.zone.toKotlinTimeZone())
-
-private fun OrgParser.findOpenClock(lines: List<String>, headingPath: HeadingPath, zoneId: ZoneId) =
-    findOpenClock(lines, headingPath, zoneId.toKotlinTimeZone())
-
-private fun OrgParser.findOpenClockAtLine(lines: List<String>, headingLineIndex: Int, zoneId: ZoneId) =
-    findOpenClockAtLine(lines, headingLineIndex, zoneId.toKotlinTimeZone())
-
-private fun OrgParser.listClosedClocksAtLine(lines: List<String>, headingLineIndex: Int, zoneId: ZoneId) =
-    listClosedClocksAtLine(lines, headingLineIndex, zoneId.toKotlinTimeZone())
-
-private fun OrgParser.replaceClosedClockAtLine(
-    lines: List<String>,
-    headingLineIndex: Int,
-    clockLineIndex: Int,
-    newStart: ZonedDateTime,
-    newEnd: ZonedDateTime,
-) = replaceClosedClockAtLine(
-    lines,
-    headingLineIndex,
-    clockLineIndex,
-    newStart.toKotlinInstantCompat(),
-    newEnd.toKotlinInstantCompat(),
-    newEnd.zone.toKotlinTimeZone(),
-)

@@ -1,7 +1,8 @@
 package com.example.orgclock.notification
 
 import com.example.orgclock.data.OrgFileEntry
-import com.example.orgclock.data.ClockRepository
+import com.example.orgclock.data.OrgRepository
+import com.example.orgclock.data.RootAccess
 import com.example.orgclock.data.SaveResult
 import com.example.orgclock.data.FileWriteIntent
 import com.example.orgclock.model.OrgDocument
@@ -9,8 +10,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlinx.coroutines.test.runTest
-import kotlinx.datetime.Clock
-import kotlinx.datetime.LocalDate
+import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 class ClockInScannerTest {
@@ -18,8 +19,8 @@ class ClockInScannerTest {
     fun scan_collectsOpenClocksFromAllFiles_sortedByLatestStart() = runTest {
         val repo = FakeOrgRepository(
             files = listOf(
-                OrgFileEntry("f1", "2026-02-22.org", Clock.System.now()),
-                OrgFileEntry("f2", "projects.org", Clock.System.now()),
+                OrgFileEntry("f1", "2026-02-22.org", Instant.now()),
+                OrgFileEntry("f2", "projects.org", Instant.now()),
             ),
             docs = mapOf(
                 "f1" to doc(
@@ -51,8 +52,8 @@ class ClockInScannerTest {
     fun scan_collectsFailuresAndContinuesWhenSomeFilesFail() = runTest {
         val repo = FakeOrgRepository(
             files = listOf(
-                OrgFileEntry("ok", "ok.org", Clock.System.now()),
-                OrgFileEntry("broken", "broken.org", Clock.System.now()),
+                OrgFileEntry("ok", "ok.org", Instant.now()),
+                OrgFileEntry("broken", "broken.org", Instant.now()),
             ),
             docs = mapOf(
                 "ok" to doc(
@@ -97,8 +98,8 @@ class ClockInScannerTest {
     fun scan_returnsOnlyFailedFiles_whenAllLoadsFail() = runTest {
         val repo = FakeOrgRepository(
             files = listOf(
-                OrgFileEntry("f1", "a.org", Clock.System.now()),
-                OrgFileEntry("f2", "b.org", Clock.System.now()),
+                OrgFileEntry("f1", "a.org", Instant.now()),
+                OrgFileEntry("f2", "b.org", Instant.now()),
             ),
             docs = emptyMap(),
             failures = mapOf(
@@ -120,7 +121,7 @@ class ClockInScannerTest {
 
     private fun doc(vararg lines: String): OrgDocument {
         return OrgDocument(
-            date = LocalDate(2026, 2, 22),
+            date = LocalDate.of(2026, 2, 22),
             lines = lines.toList(),
             hash = "dummy",
         )
@@ -132,7 +133,10 @@ private class FakeOrgRepository(
     private val docs: Map<String, OrgDocument>,
     private val failures: Map<String, Throwable> = emptyMap(),
     private val listFailure: Throwable? = null,
-) : ClockRepository {
+) : OrgRepository {
+    override suspend fun openRoot(uri: android.net.Uri): Result<RootAccess> {
+        return Result.success(RootAccess(uri, "root"))
+    }
 
     override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> {
         listFailure?.let { return Result.failure(it) }

@@ -20,7 +20,6 @@ import com.example.orgclock.domain.ClockService
 import com.example.orgclock.parser.OrgParser
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
-import com.example.orgclock.time.toZonedDateTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,7 +31,6 @@ import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import kotlinx.datetime.toJavaZoneId
 
 class ClockInNotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -65,7 +63,7 @@ class ClockInNotificationService : Service() {
                 val lineIndex = intent.getIntExtra(EXTRA_LINE_INDEX, -1)
                 if (lineIndex < 0) return START_STICKY
                 scope.launch {
-                    clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                    clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now())
                     refreshOnce()
                 }
                 return START_STICKY
@@ -144,7 +142,7 @@ class ClockInNotificationService : Service() {
             return true
         }
 
-        val result = scanner.scan(clockEnvironment.currentTimeZone())
+        val result = scanner.scan(clockEnvironment.zoneId())
         if (result.isFailure) {
             val reason = result.exceptionOrNull()?.message ?: "unknown"
             val notification = buildStatusNotification(
@@ -290,10 +288,7 @@ class ClockInNotificationService : Service() {
     }
 
     private fun elapsedMinutes(startedAt: ZonedDateTime): Long {
-        val now = clockEnvironment
-            .now()
-            .toZonedDateTime(clockEnvironment.currentTimeZone().toJavaZoneId())
-        return maxOf(0L, Duration.between(startedAt, now).toMinutes())
+        return maxOf(0L, Duration.between(startedAt, clockEnvironment.now()).toMinutes())
     }
 
     private fun headingLabel(entry: ClockInEntry): String {

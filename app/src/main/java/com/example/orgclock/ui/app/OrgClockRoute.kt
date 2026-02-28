@@ -18,6 +18,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.orgclock.data.OrgFileEntry
+import com.example.orgclock.data.RootAccess
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
@@ -35,7 +36,7 @@ import java.time.ZonedDateTime
 data class OrgClockRouteDependencies(
     val loadSavedUri: () -> Uri?,
     val saveUri: (Uri) -> Unit,
-    val openRoot: suspend (Uri) -> Result<Unit>,
+    val openRoot: suspend (Uri) -> Result<RootAccess>,
     val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,

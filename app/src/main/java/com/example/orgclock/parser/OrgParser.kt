@@ -3,9 +3,8 @@ package com.example.orgclock.parser
 import com.example.orgclock.model.HeadingNode
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingPath
-import kotlinx.datetime.Instant
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toInstant
+import java.time.ZoneId
+import java.time.ZonedDateTime
 
 class OrgParser {
     private val headingRegex = Regex("^(\\*+)\\s+(.*)$")
@@ -20,12 +19,12 @@ class OrgParser {
 
     data class CloseOpenResult(
         val lines: List<String>,
-        val start: Instant,
+        val start: ZonedDateTime,
     )
 
     data class HeadingWithOpenClock(
         val node: HeadingNode,
-        val openClock: Instant?,
+        val openClock: ZonedDateTime?,
     )
 
     private data class ParsedHeading(
@@ -49,11 +48,11 @@ class OrgParser {
         }
     }
 
-    fun parseHeadingsWithOpenClock(lines: List<String>, timeZone: TimeZone): List<HeadingWithOpenClock> {
+    fun parseHeadingsWithOpenClock(lines: List<String>, zoneId: ZoneId): List<HeadingWithOpenClock> {
         val headings = parseHeadingsWithRanges(lines)
         if (headings.isEmpty()) return emptyList()
 
-        val openByLine = mutableMapOf<Int, Instant?>()
+        val openByLine = mutableMapOf<Int, ZonedDateTime?>()
         for (i in headings.indices) {
             val heading = headings[i]
             val next = headings.getOrNull(i + 1)
@@ -62,12 +61,12 @@ class OrgParser {
             } else {
                 heading.endExclusive
             }
-            var open: Instant? = null
+            var open: ZonedDateTime? = null
             for (lineIndex in heading.lineIndex + 1 until directEnd) {
                 val line = lines[lineIndex]
                 if (!line.contains("CLOCK:")) continue
                 val token = openClockRegex.matchEntire(line)?.groupValues?.get(1) ?: continue
-                val parsed = OrgTimestamps.parseLocal(token)?.toInstant(timeZone) ?: continue
+                val parsed = OrgTimestamps.parseLocal(token, zoneId) ?: continue
                 open = parsed
             }
             openByLine[heading.lineIndex] = open
@@ -137,17 +136,12 @@ class OrgParser {
         return match.groupValues[1].length
     }
 
-    fun appendOpenClock(
-        lines: List<String>,
-        headingPath: HeadingPath,
-        start: Instant,
-        timeZone: TimeZone,
-    ): List<String> {
+    fun appendOpenClock(lines: List<String>, headingPath: HeadingPath, start: ZonedDateTime): List<String> {
         val working = lines.toMutableList()
         val match = findHeading(working, headingPath)
             ?: throw IllegalArgumentException("Heading not found: $headingPath")
         val insertAt = ensureLogbookAndClockInsertionIndex(working, match)
-        working.add(insertAt, "CLOCK: ${OrgTimestamps.format(start, timeZone)}")
+        working.add(insertAt, "CLOCK: ${OrgTimestamps.format(start)}")
         return working
     }
 
@@ -195,41 +189,25 @@ class OrgParser {
         return working
     }
 
-    fun appendClosedClock(
-        lines: List<String>,
-        headingPath: HeadingPath,
-        start: Instant,
-        end: Instant,
-        timeZone: TimeZone,
-    ): List<String> {
+    fun appendClosedClock(lines: List<String>, headingPath: HeadingPath, start: ZonedDateTime, end: ZonedDateTime): List<String> {
         val working = lines.toMutableList()
         val match = findHeading(working, headingPath)
             ?: throw IllegalArgumentException("Heading not found: $headingPath")
         val insertAt = ensureLogbookAndClockInsertionIndex(working, match)
-        working.add(insertAt, closedClockLine(start, end, timeZone))
+        working.add(insertAt, closedClockLine(start, end))
         return working
     }
 
-    fun appendOpenClockAtLine(
-        lines: List<String>,
-        headingLineIndex: Int,
-        start: Instant,
-        timeZone: TimeZone,
-    ): List<String> {
+    fun appendOpenClockAtLine(lines: List<String>, headingLineIndex: Int, start: ZonedDateTime): List<String> {
         val working = lines.toMutableList()
         val match = findHeadingByLineIndex(working, headingLineIndex)
             ?: throw IllegalArgumentException("Heading not found at line: $headingLineIndex")
         val insertAt = ensureLogbookAndClockInsertionIndex(working, match)
-        working.add(insertAt, "CLOCK: ${OrgTimestamps.format(start, timeZone)}")
+        working.add(insertAt, "CLOCK: ${OrgTimestamps.format(start)}")
         return working
     }
 
-    fun closeLatestOpenClock(
-        lines: List<String>,
-        headingPath: HeadingPath,
-        end: Instant,
-        timeZone: TimeZone,
-    ): CloseOpenResult {
+    fun closeLatestOpenClock(lines: List<String>, headingPath: HeadingPath, end: ZonedDateTime): CloseOpenResult {
         val working = lines.toMutableList()
         val match = findHeading(working, headingPath)
             ?: throw IllegalArgumentException("Heading not found: $headingPath")
@@ -239,19 +217,15 @@ class OrgParser {
         val original = working[clockLineIndex]
         val startToken = openClockRegex.matchEntire(original)?.groupValues?.get(1)
             ?: throw IllegalStateException("Open CLOCK line malformed: $original")
-        val start = OrgTimestamps.parseLocal(startToken)?.toInstant(timeZone)
+        val zone = end.zone
+        val start = OrgTimestamps.parseLocal(startToken, zone)
             ?: throw IllegalStateException("Failed to parse CLOCK start timestamp: $startToken")
 
-        working[clockLineIndex] = closedClockLine(start, end, timeZone)
+        working[clockLineIndex] = closedClockLine(start, end)
         return CloseOpenResult(working, start)
     }
 
-    fun closeLatestOpenClockAtLine(
-        lines: List<String>,
-        headingLineIndex: Int,
-        end: Instant,
-        timeZone: TimeZone,
-    ): CloseOpenResult {
+    fun closeLatestOpenClockAtLine(lines: List<String>, headingLineIndex: Int, end: ZonedDateTime): CloseOpenResult {
         val working = lines.toMutableList()
         val match = findHeadingByLineIndex(working, headingLineIndex)
             ?: throw IllegalArgumentException("Heading not found at line: $headingLineIndex")
@@ -261,10 +235,10 @@ class OrgParser {
         val original = working[clockLineIndex]
         val startToken = openClockRegex.matchEntire(original)?.groupValues?.get(1)
             ?: throw IllegalStateException("Open CLOCK line malformed: $original")
-        val start = OrgTimestamps.parseLocal(startToken)?.toInstant(timeZone)
+        val start = OrgTimestamps.parseLocal(startToken, end.zone)
             ?: throw IllegalStateException("Failed to parse CLOCK start timestamp: $startToken")
 
-        working[clockLineIndex] = closedClockLine(start, end, timeZone)
+        working[clockLineIndex] = closedClockLine(start, end)
         return CloseOpenResult(working, start)
     }
 
@@ -278,30 +252,30 @@ class OrgParser {
         return working
     }
 
-    fun findOpenClock(lines: List<String>, headingPath: HeadingPath, timeZone: TimeZone): Instant? {
+    fun findOpenClock(lines: List<String>, headingPath: HeadingPath, zoneId: ZoneId): ZonedDateTime? {
         val match = findHeading(lines, headingPath) ?: return null
         val idx = findLatestOpenClockIndex(lines, match) ?: return null
         val token = openClockRegex.matchEntire(lines[idx])?.groupValues?.get(1) ?: return null
-        return OrgTimestamps.parseLocal(token)?.toInstant(timeZone)
+        return OrgTimestamps.parseLocal(token, zoneId)
     }
 
-    fun findOpenClockAtLine(lines: List<String>, headingLineIndex: Int, timeZone: TimeZone): Instant? {
+    fun findOpenClockAtLine(lines: List<String>, headingLineIndex: Int, zoneId: ZoneId): ZonedDateTime? {
         val match = findHeadingByLineIndex(lines, headingLineIndex) ?: return null
         val idx = findLatestOpenClockIndex(lines, match) ?: return null
         val token = openClockRegex.matchEntire(lines[idx])?.groupValues?.get(1) ?: return null
-        return OrgTimestamps.parseLocal(token)?.toInstant(timeZone)
+        return OrgTimestamps.parseLocal(token, zoneId)
     }
 
-    fun listClosedClocksAtLine(lines: List<String>, headingLineIndex: Int, timeZone: TimeZone): List<ClosedClockEntry> {
+    fun listClosedClocksAtLine(lines: List<String>, headingLineIndex: Int, zoneId: ZoneId): List<ClosedClockEntry> {
         val heading = findHeadingByLineIndex(lines, headingLineIndex) ?: return emptyList()
         val directEnd = directSectionEnd(lines, heading)
         val results = ArrayList<ClosedClockEntry>()
         for (i in heading.start + 1 until directEnd) {
             val match = closedClockRegex.matchEntire(lines[i]) ?: continue
-            val start = OrgTimestamps.parseLocal(match.groupValues[1])?.toInstant(timeZone) ?: continue
-            val end = OrgTimestamps.parseLocal(match.groupValues[2])?.toInstant(timeZone) ?: continue
+            val start = OrgTimestamps.parseLocal(match.groupValues[1], zoneId) ?: continue
+            val end = OrgTimestamps.parseLocal(match.groupValues[2], zoneId) ?: continue
             val durationMinutes = kotlin.runCatching {
-                (end - start).inWholeMinutes.coerceAtLeast(0L)
+                java.time.Duration.between(start, end).toMinutes().coerceAtLeast(0L)
             }.getOrDefault(0L)
             results += ClosedClockEntry(
                 headingLineIndex = headingLineIndex,
@@ -318,9 +292,8 @@ class OrgParser {
         lines: List<String>,
         headingLineIndex: Int,
         clockLineIndex: Int,
-        newStart: Instant,
-        newEnd: Instant,
-        timeZone: TimeZone,
+        newStart: ZonedDateTime,
+        newEnd: ZonedDateTime,
     ): List<String> {
         val working = lines.toMutableList()
         val heading = findHeadingByLineIndex(working, headingLineIndex)
@@ -334,7 +307,7 @@ class OrgParser {
         if (!closedClockRegex.matches(original)) {
             throw IllegalArgumentException("Closed CLOCK line not found at line: $clockLineIndex")
         }
-        working[clockLineIndex] = closedClockLine(newStart, newEnd, timeZone)
+        working[clockLineIndex] = closedClockLine(newStart, newEnd)
         return working
     }
 
@@ -456,9 +429,9 @@ class OrgParser {
         return heading.endExclusive
     }
 
-    private fun closedClockLine(start: Instant, end: Instant, timeZone: TimeZone): String {
+    private fun closedClockLine(start: ZonedDateTime, end: ZonedDateTime): String {
         val duration = OrgTimestamps.formatDuration(start, end)
-        return "CLOCK: ${OrgTimestamps.format(start, timeZone)}--${OrgTimestamps.format(end, timeZone)} =>  $duration"
+        return "CLOCK: ${OrgTimestamps.format(start)}--${OrgTimestamps.format(end)} =>  $duration"
     }
 
     private fun normalizeHeadingTitle(raw: String): String {
