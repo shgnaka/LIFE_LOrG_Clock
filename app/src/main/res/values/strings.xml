@@ -89,6 +89,8 @@
     <string name="notif_status_refresh_failed">更新失敗: %1$s</string>
     <string name="notif_status_syncing">同期中...</string>
     <string name="notif_title_clock_in">記録中</string>
+    <string name="notif_foreground_channel_name">Clock In Service</string>
+    <string name="notif_foreground_channel_description">同期状態とエラー状態のサービス通知</string>
     <string name="notif_channel_name">Clock In</string>
     <string name="notif_channel_description">Clock in 状態の常駐通知</string>
 </resources>
