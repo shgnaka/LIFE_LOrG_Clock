@@ -1,14 +1,8 @@
 package com.example.orgclock.data
 
-import android.net.Uri
 import com.example.orgclock.model.OrgDocument
-import java.time.Instant
-import java.time.LocalDate
-
-data class RootAccess(
-    val rootUri: Uri,
-    val displayName: String,
-)
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
 
 data class OrgFileEntry(
     val fileId: String,
@@ -28,8 +22,7 @@ sealed interface SaveResult {
     data class IoError(val reason: String) : SaveResult
 }
 
-interface OrgRepository {
-    suspend fun openRoot(uri: Uri): Result<RootAccess>
+interface ClockRepository {
     suspend fun listOrgFiles(): Result<List<OrgFileEntry>>
     suspend fun loadFile(fileId: String): Result<OrgDocument>
 

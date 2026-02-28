@@ -20,6 +20,10 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/features/clock-in-notification-status.md`
 - 改善チケット運用（Kaizen）  
   `docs/kaizens/README.md`
+- iOS 対応ロードマップ（Milestone 定義）  
+  `docs/ios-support/roadmap.md`
+- iOS 対応進捗ログ（Progress Ledger）  
+  `docs/ios-support/progress.md`
 
 ## Quick Start
 
@@ -28,6 +32,19 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
 ```
 
 `installDebug` の詳細は `docs/install-debug-guide.md` を参照してください。
+
+## Kotlin Multiplatform Bootstrap
+
+- 共有モジュール `:shared` を追加しています（`commonMain` / `androidMain` / `iosMain`）。
+- Linux 環境では iOS アプリの実行・署名はできません。iOS ターゲットのコンパイル検証は macOS CI (`.github/workflows/verify-kmp-ios.yml`) で実行します。
+
+ローカルでの確認例:
+
+```bash
+./gradlew :shared:tasks
+./gradlew :shared:compileDebugKotlinAndroid
+./gradlew :app:assembleDebug
+```
 
 ## CI Distribution (No ADB / No USB)
 

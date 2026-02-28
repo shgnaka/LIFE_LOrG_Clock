@@ -10,6 +10,7 @@ import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingNode
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
+import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
@@ -57,7 +58,7 @@ class OrgClockViewModelTest {
         val vm = testViewModel(
             loadSavedUri = { savedUri },
             openRoot = { uri ->
-                Result.success(com.example.orgclock.data.RootAccess(uri, "org"))
+                Result.success(Unit)
             },
             todayProvider = { LocalDate.of(2026, 2, 16) },
             listFiles = { Result.success(listOf(OrgFileEntry("f_today", "2026-02-16.org", null))) },
@@ -174,7 +175,7 @@ class OrgClockViewModelTest {
             nowProvider = { startedAt },
             startClock = { _, lineIndex ->
                 kotlinx.coroutines.delay(1_000)
-                Result.success(ClockMutationResult(headingLineIndex = lineIndex, startedAt = startedAt))
+                Result.success(ClockMutationResult(headingLineIndex = lineIndex, startedAt = startedAt.toKotlinInstantCompat()))
             },
         )
 
@@ -415,8 +416,8 @@ class OrgClockViewModelTest {
             val entry = ClosedClockEntry(
                 headingLineIndex = 1,
                 clockLineIndex = 3,
-                start = start,
-                end = end,
+                start = start.toKotlinInstantCompat(),
+                end = end.toKotlinInstantCompat(),
                 durationMinutes = 60,
             )
 
@@ -435,7 +436,7 @@ class OrgClockViewModelTest {
             loadSavedUri = { savedUri },
             openRoot = { uri ->
                 openRootCalls += 1
-                Result.success(com.example.orgclock.data.RootAccess(uri, "org"))
+                Result.success(Unit)
             },
             listFiles = { Result.success(emptyList()) },
             todayProvider = { LocalDate.of(2026, 2, 16) },
@@ -468,7 +469,7 @@ class OrgClockViewModelTest {
         val savedUri = Mockito.mock(Uri::class.java)
         val vm = testViewModel(
             loadSavedUri = { savedUri },
-            openRoot = { uri -> Result.success(com.example.orgclock.data.RootAccess(uri, "org")) },
+            openRoot = { uri -> Result.success(Unit) },
             listFiles = { Result.failure(IllegalStateException("list failed")) },
         )
 
@@ -484,7 +485,7 @@ class OrgClockViewModelTest {
         val savedUri = Mockito.mock(Uri::class.java)
         val vm = testViewModel(
             loadSavedUri = { savedUri },
-            openRoot = { uri -> Result.success(com.example.orgclock.data.RootAccess(uri, "org")) },
+            openRoot = { uri -> Result.success(Unit) },
             todayProvider = { LocalDate.of(2026, 2, 16) },
             listFiles = { Result.success(listOf(OrgFileEntry("f1", "projects.org", null))) },
         )
@@ -615,8 +616,8 @@ class OrgClockViewModelTest {
         return ClosedClockEntry(
             headingLineIndex = 1,
             clockLineIndex = 3,
-            start = start,
-            end = end,
+            start = start.toKotlinInstantCompat(),
+            end = end.toKotlinInstantCompat(),
             durationMinutes = 30,
         )
     }
@@ -644,7 +645,7 @@ class OrgClockViewModelTest {
             ),
             canStart = true,
             openClock = com.example.orgclock.model.OpenClockState(
-                ZonedDateTime.of(2026, 2, 16, 9, 0, 0, 0, zone),
+                ZonedDateTime.of(2026, 2, 16, 9, 0, 0, 0, zone).toKotlinInstantCompat(),
             ),
         )
         return listOf(root, child)
@@ -653,7 +654,7 @@ class OrgClockViewModelTest {
     private fun testViewModel(
         loadSavedUri: () -> android.net.Uri? = { null },
         saveUri: (android.net.Uri) -> Unit = {},
-        openRoot: suspend (android.net.Uri) -> Result<com.example.orgclock.data.RootAccess> = {
+        openRoot: suspend (android.net.Uri) -> Result<Unit> = {
             Result.failure(UnsupportedOperationException())
         },
         listFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },
