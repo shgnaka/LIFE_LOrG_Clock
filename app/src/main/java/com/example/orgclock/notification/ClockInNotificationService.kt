@@ -181,8 +181,8 @@ class ClockInNotificationService : Service() {
                 title = getString(R.string.notif_title_clock_in),
                 summary = getString(R.string.notif_summary_no_active),
             )
-            manager.notify(NOTIFICATION_ID_BASE, notification)
-            currentIds.add(NOTIFICATION_ID_BASE)
+            manager.notify(CLOCK_NOTIFICATION_BASE, notification)
+            currentIds.add(CLOCK_NOTIFICATION_BASE)
         } else {
             entries.forEach { entry ->
                 val notificationId = getNotificationId(entry.fileId, entry.headingLineIndex)
@@ -192,7 +192,7 @@ class ClockInNotificationService : Service() {
             }
         }
         
-        for (i in NOTIFICATION_ID_BASE until NOTIFICATION_ID_BASE + 100) {
+        for (i in CLOCK_NOTIFICATION_BASE until CLOCK_NOTIFICATION_BASE + CLOCK_NOTIFICATION_RANGE) {
             if (i !in currentIds) {
                 manager.cancel(i)
             }
@@ -200,7 +200,7 @@ class ClockInNotificationService : Service() {
     }
 
     private fun getNotificationId(fileId: String, lineIndex: Int): Int {
-        return NOTIFICATION_ID_BASE + Math.abs((fileId.hashCode() + lineIndex) % 100)
+        return CLOCK_NOTIFICATION_BASE + Math.abs((fileId.hashCode() + lineIndex) % CLOCK_NOTIFICATION_RANGE)
     }
 
     private fun buildIndividualClockNotification(entry: ClockInEntry): Notification {
@@ -249,18 +249,18 @@ class ClockInNotificationService : Service() {
 
     private fun notifyForeground(notification: Notification) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, notification)
+        manager.notify(FOREGROUND_NOTIFICATION_ID, notification)
     }
 
     private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
-                NOTIFICATION_ID,
+                FOREGROUND_NOTIFICATION_ID,
                 notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
             )
         } else {
-            startForeground(NOTIFICATION_ID, notification)
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
         }
     }
 
@@ -361,7 +361,6 @@ class ClockInNotificationService : Service() {
         private const val CLOCK_CHANNEL_ID = "clock_in_ongoing"
         private const val NOTIFICATION_ID = 1001
         private const val NOTIFICATION_ID_BASE = 1000
-
         private const val ACTION_SYNC = "com.example.orgclock.notification.SYNC"
         private const val ACTION_STOP = "com.example.orgclock.notification.STOP"
         private const val ACTION_STOP_CLOCK = "com.example.orgclock.notification.STOP_CLOCK"
