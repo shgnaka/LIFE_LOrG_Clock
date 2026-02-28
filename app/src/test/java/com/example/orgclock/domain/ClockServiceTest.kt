@@ -8,7 +8,9 @@ import com.example.orgclock.data.SaveResult
 import com.example.orgclock.data.FileWriteIntent
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.OrgDocument
+import com.example.orgclock.time.toKotlinInstantCompat
 import kotlinx.coroutines.runBlocking
+import kotlinx.datetime.toKotlinTimeZone
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -813,3 +815,49 @@ class ClockServiceTest {
         }
     }
 }
+
+private suspend fun ClockService.startClock(dateTime: ZonedDateTime, headingPath: HeadingPath): Result<ClockService.ClockSession> =
+    startClock(dateTime.toKotlinInstantCompat(), headingPath, dateTime.zone.toKotlinTimeZone())
+
+private suspend fun ClockService.startClockInFile(
+    fileId: String,
+    headingLineIndex: Int,
+    now: ZonedDateTime,
+): Result<ClockMutationResult> = startClockInFile(fileId, headingLineIndex, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
+
+private suspend fun ClockService.stopClockInFile(
+    fileId: String,
+    headingLineIndex: Int,
+    now: ZonedDateTime,
+): Result<ClockMutationResult> = stopClockInFile(fileId, headingLineIndex, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
+
+private suspend fun ClockService.listClosedClocksInFile(
+    fileId: String,
+    headingLineIndex: Int,
+    now: ZonedDateTime,
+) = listClosedClocksInFile(fileId, headingLineIndex, now.zone.toKotlinTimeZone())
+
+private suspend fun ClockService.editClosedClockInFile(
+    fileId: String,
+    headingLineIndex: Int,
+    clockLineIndex: Int,
+    newStart: ZonedDateTime,
+    newEnd: ZonedDateTime,
+) = editClosedClockInFile(
+    fileId,
+    headingLineIndex,
+    clockLineIndex,
+    newStart.toKotlinInstantCompat(),
+    newEnd.toKotlinInstantCompat(),
+    newEnd.zone.toKotlinTimeZone(),
+)
+
+private suspend fun ClockService.stopClock(
+    dateTime: ZonedDateTime,
+    headingPath: HeadingPath,
+) = stopClock(dateTime.toKotlinInstantCompat(), headingPath, dateTime.zone.toKotlinTimeZone())
+
+private suspend fun ClockService.recoverOpenClocks(
+    now: ZonedDateTime,
+    candidates: List<HeadingPath>,
+) = recoverOpenClocks(now.toKotlinInstantCompat(), candidates, now.zone.toKotlinTimeZone())
