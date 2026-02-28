@@ -64,7 +64,6 @@ import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
 import com.example.orgclock.ui.time.RUNNING_PANEL_TICK_MS
 import com.example.orgclock.notification.NotificationDisplayMode
-import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.ui.theme.CalmBorder
 import com.example.orgclock.ui.theme.CalmOnAccent
 import com.example.orgclock.ui.theme.CalmSurfaceAlt
@@ -83,7 +82,6 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 import java.util.Locale
-import kotlinx.datetime.Instant
 
 private enum class ClockActionType {
     Start,
@@ -101,7 +99,7 @@ private data class RunningClockUiItem(
     val lineIndex: Int,
     val l2Title: String,
     val l1Title: String?,
-    val startedAt: Instant,
+    val startedAt: ZonedDateTime,
     val showL1Hint: Boolean,
     val source: HeadingViewItem,
 )
@@ -315,7 +313,7 @@ private fun FilePickerScreen(
                         val modified = file.modifiedAt?.let {
                             DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
                                 .withLocale(Locale.getDefault())
-                                .format(it.toJavaZonedDateTime(zoneIdProvider()))
+                                .format(it.atZone(zoneIdProvider()))
                         } ?: stringResource(R.string.unknown_modified_time)
                         Text(modified, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -510,9 +508,9 @@ private fun RunningClocksPanel(
         ) {
             Text(stringResource(R.string.running_count, runningItems.size), fontWeight = FontWeight.SemiBold)
             runningItems.forEach { item ->
-                val minutes = maxOf(0L, Duration.between(item.startedAt.toJavaZonedDateTime(now.zone), now).toMinutes())
+                val minutes = maxOf(0L, Duration.between(item.startedAt, now).toMinutes())
                 val startedText = remember(item.lineIndex, item.startedAt) {
-                    item.startedAt.toJavaZonedDateTime(now.zone).format(ClockStartTimeFormatter)
+                    item.startedAt.format(ClockStartTimeFormatter)
                 }
                 Row(
                     modifier = Modifier.fillMaxWidth(),

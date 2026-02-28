@@ -22,10 +22,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.example.orgclock.R
 import com.example.orgclock.model.ClosedClockEntry
-import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.time.minuteStepOptions
-import java.time.ZoneId
 
 @Composable
 internal fun EditClockEntryDialog(
@@ -44,8 +42,7 @@ internal fun EditClockEntryDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "${entry.start.toJavaZonedDateTime(ZoneId.systemDefault()).toLocalDate()} / " +
-                        entry.end.toJavaZonedDateTime(ZoneId.systemDefault()).toLocalDate(),
+                    "${entry.start.toLocalDate()} / ${entry.end.toLocalDate()}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

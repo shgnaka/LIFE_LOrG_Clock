@@ -1,7 +1,10 @@
 package com.example.orgclock.data
 
-import kotlinx.datetime.LocalDate
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 object OrgPaths {
-    fun dailyFileName(date: LocalDate): String = "${date}.org"
+    private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
+
+    fun dailyFileName(date: LocalDate): String = "${date.format(dateFormatter)}.org"
 }

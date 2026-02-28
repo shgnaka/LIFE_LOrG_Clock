@@ -16,11 +16,7 @@ import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.notification.NotificationServiceConfig
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
-import com.example.orgclock.time.toJavaLocalDateCompat
-import com.example.orgclock.time.toJavaZonedDateTime
-import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.time.today
-import kotlinx.datetime.toJavaZoneId
 import com.example.orgclock.ui.app.OrgClockRouteDependencies
 
 interface AppGraph {
@@ -52,32 +48,25 @@ class DefaultAppGraph(
             openRoot = { uri -> repository.openRoot(uri) },
             listFiles = { repository.listOrgFiles() },
             listFilesWithOpenClock = {
-                clockInScanner.scan(clockEnvironment.currentTimeZone()).map { scanResult ->
+                clockInScanner.scan(clockEnvironment.zoneId()).map { scanResult ->
                     scanResult.entries.asSequence().map { it.fileId }.toSet()
                 }
             },
-            listHeadings = { fileId -> clockService.listHeadings(fileId, clockEnvironment.currentTimeZone()) },
+            listHeadings = { fileId -> clockService.listHeadings(fileId) },
             startClock = { fileId, lineIndex ->
-                clockService.startClockInFile(fileId, lineIndex, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                clockService.startClockInFile(fileId, lineIndex, clockEnvironment.now())
             },
             stopClock = { fileId, lineIndex ->
-                clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now())
             },
             cancelClock = { fileId, lineIndex ->
                 clockService.cancelClockInFile(fileId, lineIndex)
             },
             listClosedClocks = { fileId, lineIndex ->
-                clockService.listClosedClocksInFile(fileId, lineIndex, clockEnvironment.currentTimeZone())
+                clockService.listClosedClocksInFile(fileId, lineIndex, clockEnvironment.now())
             },
             editClosedClock = { fileId, headingLineIndex, clockLineIndex, start, end ->
-                clockService.editClosedClockInFile(
-                    fileId,
-                    headingLineIndex,
-                    clockLineIndex,
-                    start.toKotlinInstantCompat(),
-                    end.toKotlinInstantCompat(),
-                    clockEnvironment.currentTimeZone(),
-                )
+                clockService.editClosedClockInFile(fileId, headingLineIndex, clockLineIndex, start, end)
             },
             deleteClosedClock = { fileId, headingLineIndex, clockLineIndex ->
                 clockService.deleteClosedClockInFile(fileId, headingLineIndex, clockLineIndex)
@@ -120,9 +109,9 @@ class DefaultAppGraph(
                 }
                 activity.startActivity(intent)
             },
-            nowProvider = { clockEnvironment.now().toJavaZonedDateTime(clockEnvironment.currentTimeZone().toJavaZoneId()) },
-            todayProvider = { clockEnvironment.today().toJavaLocalDateCompat() },
-            zoneIdProvider = { clockEnvironment.currentTimeZone().toJavaZoneId() },
+            nowProvider = { clockEnvironment.now() },
+            todayProvider = { clockEnvironment.today() },
+            zoneIdProvider = { clockEnvironment.zoneId() },
             showPerfOverlay = (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
         )
     }

@@ -10,7 +10,6 @@ import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingNode
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
-import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
@@ -175,7 +174,7 @@ class OrgClockViewModelTest {
             nowProvider = { startedAt },
             startClock = { _, lineIndex ->
                 kotlinx.coroutines.delay(1_000)
-                Result.success(ClockMutationResult(headingLineIndex = lineIndex, startedAt = startedAt.toKotlinInstantCompat()))
+                Result.success(ClockMutationResult(headingLineIndex = lineIndex, startedAt = startedAt))
             },
         )
 
@@ -416,8 +415,8 @@ class OrgClockViewModelTest {
             val entry = ClosedClockEntry(
                 headingLineIndex = 1,
                 clockLineIndex = 3,
-                start = start.toKotlinInstantCompat(),
-                end = end.toKotlinInstantCompat(),
+                start = start,
+                end = end,
                 durationMinutes = 60,
             )
 
@@ -616,8 +615,8 @@ class OrgClockViewModelTest {
         return ClosedClockEntry(
             headingLineIndex = 1,
             clockLineIndex = 3,
-            start = start.toKotlinInstantCompat(),
-            end = end.toKotlinInstantCompat(),
+            start = start,
+            end = end,
             durationMinutes = 30,
         )
     }
@@ -645,7 +644,7 @@ class OrgClockViewModelTest {
             ),
             canStart = true,
             openClock = com.example.orgclock.model.OpenClockState(
-                ZonedDateTime.of(2026, 2, 16, 9, 0, 0, 0, zone).toKotlinInstantCompat(),
+                ZonedDateTime.of(2026, 2, 16, 9, 0, 0, 0, zone),
             ),
         )
         return listOf(root, child)

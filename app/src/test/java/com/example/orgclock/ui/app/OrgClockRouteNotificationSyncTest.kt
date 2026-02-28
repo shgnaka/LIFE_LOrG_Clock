@@ -6,7 +6,6 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
-import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.ui.state.OrgClockUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -75,7 +74,7 @@ class OrgClockRouteNotificationSyncTest {
             canStart = true,
             openClock = if (open) {
                 OpenClockState(
-                    startedAt = ZonedDateTime.of(2026, 2, 22, 9, 0, 0, 0, ZoneId.of("Asia/Tokyo")).toKotlinInstantCompat(),
+                    startedAt = ZonedDateTime.of(2026, 2, 22, 9, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
                 )
             } else {
                 null
