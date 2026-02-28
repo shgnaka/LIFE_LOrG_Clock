@@ -1,8 +1,8 @@
 package com.example.orgclock.data
 
 import com.example.orgclock.model.OrgDocument
-import java.time.Instant
-import java.time.LocalDate
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
 
 data class OrgFileEntry(
     val fileId: String,

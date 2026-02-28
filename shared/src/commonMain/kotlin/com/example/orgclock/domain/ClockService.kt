@@ -10,13 +10,21 @@ import com.example.orgclock.model.OpenClock
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.model.OrgDocument
 import com.example.orgclock.parser.OrgParser
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZonedDateTime
+import kotlinx.datetime.Clock
+import kotlinx.datetime.DateTimeUnit
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.LocalDateTime
+import kotlinx.datetime.LocalTime
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.atStartOfDayIn
+import kotlinx.datetime.minus
+import kotlinx.datetime.toInstant
+import kotlinx.datetime.toLocalDateTime
 
 data class ClockMutationResult(
     val headingLineIndex: Int,
-    val startedAt: ZonedDateTime? = null,
+    val startedAt: Instant? = null,
 )
 
 enum class ClockOperationCode {
@@ -41,7 +49,7 @@ class ClockService(
     data class ClockSession(
         val date: LocalDate,
         val headingPath: HeadingPath,
-        val startedAt: ZonedDateTime,
+        val startedAt: Instant,
     )
 
     sealed interface ClockStopResult {
@@ -49,10 +57,14 @@ class ClockService(
         data class Failed(val reason: String) : ClockStopResult
     }
 
-    suspend fun startClock(dateTime: ZonedDateTime, headingPath: HeadingPath): Result<ClockSession> {
-        val date = dateTime.toLocalDate()
+    suspend fun startClock(
+        dateTime: Instant,
+        headingPath: HeadingPath,
+        timeZone: TimeZone = TimeZone.currentSystemDefault(),
+    ): Result<ClockSession> {
+        val date = dateTime.toLocalDateTime(timeZone).date
         val firstDoc = repository.loadDaily(date).getOrElse { return Result.failure(it) }
-        val firstLines = runCatching { parser.appendOpenClock(firstDoc.lines, headingPath, dateTime) }
+        val firstLines = runCatching { parser.appendOpenClock(firstDoc.lines, headingPath, dateTime, timeZone) }
             .getOrElse { return Result.failure(it) }
 
         val firstSave = repository.saveDaily(date, firstLines, firstDoc.hash)
@@ -64,7 +76,7 @@ class ClockService(
         }
 
         val secondDoc = repository.loadDaily(date).getOrElse { return Result.failure(it) }
-        val secondLines = runCatching { parser.appendOpenClock(secondDoc.lines, headingPath, dateTime) }
+        val secondLines = runCatching { parser.appendOpenClock(secondDoc.lines, headingPath, dateTime, timeZone) }
             .getOrElse { return Result.failure(it) }
         return when (val secondSave = repository.saveDaily(date, secondLines, secondDoc.hash)) {
             SaveResult.Success -> Result.success(ClockSession(date, headingPath, dateTime))
@@ -72,10 +84,12 @@ class ClockService(
         }
     }
 
-    suspend fun listHeadings(fileId: String, now: ZonedDateTime = ZonedDateTime.now()): Result<List<HeadingViewItem>> {
-        val zone = now.zone
+    suspend fun listHeadings(
+        fileId: String,
+        timeZone: TimeZone = TimeZone.currentSystemDefault(),
+    ): Result<List<HeadingViewItem>> {
         return repository.loadFile(fileId).mapCatching { doc ->
-            parser.parseHeadingsWithOpenClock(doc.lines, zone).map { parsed ->
+            parser.parseHeadingsWithOpenClock(doc.lines, timeZone).map { parsed ->
                 HeadingViewItem(
                     node = parsed.node,
                     canStart = parsed.node.level == 2,
@@ -85,7 +99,12 @@ class ClockService(
         }
     }
 
-    suspend fun startClockInFile(fileId: String, headingLineIndex: Int, now: ZonedDateTime): Result<ClockMutationResult> {
+    suspend fun startClockInFile(
+        fileId: String,
+        headingLineIndex: Int,
+        now: Instant,
+        timeZone: TimeZone = TimeZone.currentSystemDefault(),
+    ): Result<ClockMutationResult> {
         val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
         if (parser.headingLevelAtLine(doc.lines, headingLineIndex) != 2) {
             return Result.failure(
@@ -95,7 +114,7 @@ class ClockService(
                 ),
             )
         }
-        if (parser.findOpenClockAtLine(doc.lines, headingLineIndex, now.zone) != null) {
+        if (parser.findOpenClockAtLine(doc.lines, headingLineIndex, timeZone) != null) {
             return Result.failure(
                 ClockOperationException(
                     code = ClockOperationCode.AlreadyRunning,
@@ -104,7 +123,7 @@ class ClockService(
             )
         }
 
-        val firstLines = runCatching { parser.appendOpenClockAtLine(doc.lines, headingLineIndex, now) }
+        val firstLines = runCatching { parser.appendOpenClockAtLine(doc.lines, headingLineIndex, now, timeZone) }
             .getOrElse { return Result.failure(it) }
         val firstSave = repository.saveFile(fileId, firstLines, doc.hash, FileWriteIntent.ClockMutation)
         if (firstSave is SaveResult.Success) {
@@ -115,7 +134,7 @@ class ClockService(
         }
 
         val latestDoc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        if (parser.findOpenClockAtLine(latestDoc.lines, headingLineIndex, now.zone) != null) {
+        if (parser.findOpenClockAtLine(latestDoc.lines, headingLineIndex, timeZone) != null) {
             return Result.failure(
                 ClockOperationException(
                     code = ClockOperationCode.AlreadyRunning,
@@ -123,7 +142,7 @@ class ClockService(
                 ),
             )
         }
-        val secondLines = runCatching { parser.appendOpenClockAtLine(latestDoc.lines, headingLineIndex, now) }
+        val secondLines = runCatching { parser.appendOpenClockAtLine(latestDoc.lines, headingLineIndex, now, timeZone) }
             .getOrElse { return Result.failure(it) }
         val secondSave = repository.saveFile(fileId, secondLines, latestDoc.hash, FileWriteIntent.ClockMutation)
         return if (secondSave is SaveResult.Success) {
@@ -133,7 +152,12 @@ class ClockService(
         }
     }
 
-    suspend fun stopClockInFile(fileId: String, headingLineIndex: Int, now: ZonedDateTime): Result<ClockMutationResult> {
+    suspend fun stopClockInFile(
+        fileId: String,
+        headingLineIndex: Int,
+        now: Instant,
+        timeZone: TimeZone = TimeZone.currentSystemDefault(),
+    ): Result<ClockMutationResult> {
         val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
         if (parser.headingLevelAtLine(doc.lines, headingLineIndex) != 2) {
             return Result.failure(
@@ -143,10 +167,10 @@ class ClockService(
                 ),
             )
         }
-        val closeResult = runCatching { parser.closeLatestOpenClockAtLine(doc.lines, headingLineIndex, now) }
+        val closeResult = runCatching { parser.closeLatestOpenClockAtLine(doc.lines, headingLineIndex, now, timeZone) }
             .getOrElse { return Result.failure(it) }
         val save = saveFileWithRetry(fileId, doc.hash, closeResult.lines, FileWriteIntent.ClockMutation) {
-            parser.closeLatestOpenClockAtLine(it, headingLineIndex, now).lines
+            parser.closeLatestOpenClockAtLine(it, headingLineIndex, now, timeZone).lines
         }
         return if (save is SaveResult.Success) {
             Result.success(ClockMutationResult(headingLineIndex = headingLineIndex))
@@ -180,23 +204,24 @@ class ClockService(
     suspend fun listClosedClocksInFile(
         fileId: String,
         headingLineIndex: Int,
-        now: ZonedDateTime = ZonedDateTime.now(),
+        timeZone: TimeZone = TimeZone.currentSystemDefault(),
     ): Result<List<ClosedClockEntry>> {
         val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
         if (parser.headingLevelAtLine(doc.lines, headingLineIndex) != 2) {
             return Result.failure(IllegalArgumentException("Clock operation is only allowed on level-2 headings"))
         }
-        return runCatching { parser.listClosedClocksAtLine(doc.lines, headingLineIndex, now.zone) }
+        return runCatching { parser.listClosedClocksAtLine(doc.lines, headingLineIndex, timeZone) }
     }
 
     suspend fun editClosedClockInFile(
         fileId: String,
         headingLineIndex: Int,
         clockLineIndex: Int,
-        newStart: ZonedDateTime,
-        newEnd: ZonedDateTime,
+        newStart: Instant,
+        newEnd: Instant,
+        timeZone: TimeZone = TimeZone.currentSystemDefault(),
     ): Result<Unit> {
-        if (newEnd.isBefore(newStart)) {
+        if (newEnd < newStart) {
             return Result.failure(IllegalArgumentException("End time must be after start time"))
         }
         val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
@@ -204,10 +229,10 @@ class ClockService(
             return Result.failure(IllegalArgumentException("Clock operation is only allowed on level-2 headings"))
         }
         val firstLines = runCatching {
-            parser.replaceClosedClockAtLine(doc.lines, headingLineIndex, clockLineIndex, newStart, newEnd)
+            parser.replaceClosedClockAtLine(doc.lines, headingLineIndex, clockLineIndex, newStart, newEnd, timeZone)
         }.getOrElse { return Result.failure(it) }
         val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
-            parser.replaceClosedClockAtLine(it, headingLineIndex, clockLineIndex, newStart, newEnd)
+            parser.replaceClosedClockAtLine(it, headingLineIndex, clockLineIndex, newStart, newEnd, timeZone)
         }
         return if (save is SaveResult.Success) {
             Result.success(Unit)
@@ -273,37 +298,44 @@ class ClockService(
         }
     }
 
-    suspend fun stopClock(dateTime: ZonedDateTime, headingPath: HeadingPath): ClockStopResult {
-        val zone = dateTime.zone
-        val today = dateTime.toLocalDate()
+    suspend fun stopClock(
+        dateTime: Instant,
+        headingPath: HeadingPath,
+        timeZone: TimeZone = TimeZone.currentSystemDefault(),
+    ): ClockStopResult {
+        val today = dateTime.toLocalDateTime(timeZone).date
         val todayDoc = repository.loadDaily(today).getOrElse {
             return ClockStopResult.Failed(it.message ?: "Failed to load today's file")
         }
 
-        val openToday = parser.findOpenClock(todayDoc.lines, headingPath, zone)
+        val openToday = parser.findOpenClock(todayDoc.lines, headingPath, timeZone)
         if (openToday != null) {
-            return stopInSingleDocument(todayDoc, headingPath, dateTime)
+            return stopInSingleDocument(todayDoc, headingPath, dateTime, timeZone)
         }
 
-        val yesterday = today.minusDays(1)
+        val yesterday = today.minus(1, DateTimeUnit.DAY)
         val yesterdayDoc = repository.loadDaily(yesterday).getOrElse {
             return ClockStopResult.Failed("No open clock found for $headingPath")
         }
-        val openYesterday = parser.findOpenClock(yesterdayDoc.lines, headingPath, zone)
+        val openYesterday = parser.findOpenClock(yesterdayDoc.lines, headingPath, timeZone)
             ?: return ClockStopResult.Failed("No open clock found for $headingPath")
 
-        return stopAcrossMidnight(yesterdayDoc, todayDoc, headingPath, openYesterday, dateTime)
+        return stopAcrossMidnight(yesterdayDoc, todayDoc, headingPath, openYesterday, dateTime, timeZone)
     }
 
-    suspend fun recoverOpenClocks(now: ZonedDateTime, candidates: List<HeadingPath>): Result<List<OpenClock>> {
-        val zone = now.zone
-        val dates = listOf(now.toLocalDate(), now.toLocalDate().minusDays(1))
-        val docs = dates.mapNotNull { date -> repository.loadDaily(date).getOrNull() }
+    suspend fun recoverOpenClocks(
+        now: Instant = Clock.System.now(),
+        candidates: List<HeadingPath>,
+        timeZone: TimeZone = TimeZone.currentSystemDefault(),
+    ): Result<List<OpenClock>> {
+        val today = now.toLocalDateTime(timeZone).date
+        val yesterday = today.minus(1, DateTimeUnit.DAY)
+        val docs = listOf(today, yesterday).mapNotNull { date -> repository.loadDaily(date).getOrNull() }
 
         val openClocks = buildList {
             for (doc in docs) {
                 for (path in candidates) {
-                    val open = parser.findOpenClock(doc.lines, path, zone) ?: continue
+                    val open = parser.findOpenClock(doc.lines, path, timeZone) ?: continue
                     add(OpenClock(doc.date, path, open))
                 }
             }
@@ -315,9 +347,10 @@ class ClockService(
     private suspend fun stopInSingleDocument(
         doc: OrgDocument,
         headingPath: HeadingPath,
-        end: ZonedDateTime,
+        end: Instant,
+        timeZone: TimeZone,
     ): ClockStopResult {
-        val closeResult = runCatching { parser.closeLatestOpenClock(doc.lines, headingPath, end) }
+        val closeResult = runCatching { parser.closeLatestOpenClock(doc.lines, headingPath, end, timeZone) }
             .getOrElse { return ClockStopResult.Failed(it.message ?: "Failed to close clock") }
 
         val firstSave = repository.saveDaily(doc.date, closeResult.lines, doc.hash)
@@ -331,8 +364,9 @@ class ClockService(
         val latestDoc = repository.loadDaily(doc.date).getOrElse {
             return ClockStopResult.Failed(it.message ?: "Failed to reload document after conflict")
         }
-        val retriedLines = runCatching { parser.closeLatestOpenClock(latestDoc.lines, headingPath, end).lines }
-            .getOrElse { return ClockStopResult.Failed(it.message ?: "Failed to reapply stop after conflict") }
+        val retriedLines = runCatching {
+            parser.closeLatestOpenClock(latestDoc.lines, headingPath, end, timeZone).lines
+        }.getOrElse { return ClockStopResult.Failed(it.message ?: "Failed to reapply stop after conflict") }
         val secondSave = repository.saveDaily(doc.date, retriedLines, latestDoc.hash)
         return if (secondSave is SaveResult.Success) {
             ClockStopResult.Success(setOf(doc.date))
@@ -345,37 +379,40 @@ class ClockService(
         previousDoc: OrgDocument,
         todayDoc: OrgDocument,
         headingPath: HeadingPath,
-        start: ZonedDateTime,
-        end: ZonedDateTime,
+        start: Instant,
+        end: Instant,
+        timeZone: TimeZone,
     ): ClockStopResult {
-        if (start.toLocalDate() == end.toLocalDate()) {
+        val startDate = start.toLocalDateTime(timeZone).date
+        val endDate = end.toLocalDateTime(timeZone).date
+        if (startDate == endDate) {
             return ClockStopResult.Failed("Unexpected same-day state")
         }
 
-        val endOfPrevious = start.toLocalDate().atTime(LocalTime.of(23, 59, 59)).atZone(end.zone)
-        val startOfToday = end.toLocalDate().atStartOfDay(end.zone)
+        val endOfPrevious = LocalDateTime(startDate, LocalTime(23, 59, 59)).toInstant(timeZone)
+        val startOfToday = endDate.atStartOfDayIn(timeZone)
 
         val closedPrevious = runCatching {
-            parser.closeLatestOpenClock(previousDoc.lines, headingPath, endOfPrevious).lines
+            parser.closeLatestOpenClock(previousDoc.lines, headingPath, endOfPrevious, timeZone).lines
         }.getOrElse {
             return ClockStopResult.Failed(it.message ?: "Failed to close previous-day clock")
         }
 
         val previousSave = saveWithConflictRetry(previousDoc.date, previousDoc.hash, closedPrevious) {
-            parser.closeLatestOpenClock(it, headingPath, endOfPrevious).lines
+            parser.closeLatestOpenClock(it, headingPath, endOfPrevious, timeZone).lines
         }
         if (previousSave !is SaveResult.Success) {
             return ClockStopResult.Failed("Failed saving previous-day file: ${previousSave.asMessage()}")
         }
 
         val closedToday = runCatching {
-            parser.appendClosedClock(todayDoc.lines, headingPath, startOfToday, end)
+            parser.appendClosedClock(todayDoc.lines, headingPath, startOfToday, end, timeZone)
         }.getOrElse {
             return ClockStopResult.Failed(it.message ?: "Failed to append today clock")
         }
 
         val todaySave = saveWithConflictRetry(todayDoc.date, todayDoc.hash, closedToday) {
-            parser.appendClosedClock(it, headingPath, startOfToday, end)
+            parser.appendClosedClock(it, headingPath, startOfToday, end, timeZone)
         }
         if (todaySave !is SaveResult.Success) {
             return ClockStopResult.Failed("Failed saving current-day file: ${todaySave.asMessage()}")

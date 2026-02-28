@@ -6,12 +6,14 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.example.orgclock.model.OrgDocument
+import com.example.orgclock.time.toKotlinInstantCompat
+import com.example.orgclock.time.toKotlinLocalDateCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
 import java.io.OutputStreamWriter
 import java.security.MessageDigest
-import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -103,10 +105,12 @@ class SafOrgRepository(
                     OrgFileEntry(
                         fileId = file.uri.toString(),
                         displayName = name,
-                        modifiedAt = file.lastModified().takeIf { it > 0 }?.let(Instant::ofEpochMilli),
+                        modifiedAt = file.lastModified().takeIf { it > 0 }?.let {
+                            java.time.Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toKotlinInstantCompat()
+                        },
                     )
                 }
-                .sortedByDescending { it.modifiedAt ?: Instant.EPOCH }
+                .sortedByDescending { it.modifiedAt?.toEpochMilliseconds() ?: Long.MIN_VALUE }
                 .toList()
         }
     }
@@ -266,10 +270,10 @@ class SafOrgRepository(
     }
 
     private fun parseDateFromFileName(name: String?): LocalDate {
-        if (name == null) return LocalDate.now(ZoneId.systemDefault())
+        if (name == null) return java.time.LocalDate.now(ZoneId.systemDefault()).toKotlinLocalDateCompat()
         val raw = name.removeSuffix(".org")
-        return runCatching { LocalDate.parse(raw) }
-            .getOrElse { LocalDate.now(ZoneId.systemDefault()) }
+        return runCatching { java.time.LocalDate.parse(raw).toKotlinLocalDateCompat() }
+            .getOrElse { java.time.LocalDate.now(ZoneId.systemDefault()).toKotlinLocalDateCompat() }
     }
 
     companion object

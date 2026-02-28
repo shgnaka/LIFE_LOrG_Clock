@@ -1,7 +1,7 @@
 package com.example.orgclock.model
 
-import java.time.LocalDate
-import java.time.ZonedDateTime
+import kotlinx.datetime.Instant
+import kotlinx.datetime.LocalDate
 
 data class HeadingPath(val segments: List<String>) {
     init {
@@ -20,14 +20,14 @@ data class HeadingPath(val segments: List<String>) {
 }
 
 data class ClockEntry(
-    val start: ZonedDateTime,
-    val end: ZonedDateTime?,
+    val start: Instant,
+    val end: Instant?,
 )
 
 data class OpenClock(
     val fileDate: LocalDate,
     val headingPath: HeadingPath,
-    val start: ZonedDateTime,
+    val start: Instant,
 )
 
 data class OrgDocument(
@@ -45,14 +45,14 @@ data class HeadingNode(
 )
 
 data class OpenClockState(
-    val startedAt: ZonedDateTime,
+    val startedAt: Instant,
 )
 
 data class ClosedClockEntry(
     val headingLineIndex: Int,
     val clockLineIndex: Int,
-    val start: ZonedDateTime,
-    val end: ZonedDateTime,
+    val start: Instant,
+    val end: Instant,
     val durationMinutes: Long,
 )
 

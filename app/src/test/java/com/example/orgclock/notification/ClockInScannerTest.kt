@@ -10,8 +10,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlinx.coroutines.test.runTest
-import java.time.Instant
-import java.time.LocalDate
+import kotlinx.datetime.Clock
+import kotlinx.datetime.LocalDate
 import java.time.ZoneId
 
 class ClockInScannerTest {
@@ -19,8 +19,8 @@ class ClockInScannerTest {
     fun scan_collectsOpenClocksFromAllFiles_sortedByLatestStart() = runTest {
         val repo = FakeOrgRepository(
             files = listOf(
-                OrgFileEntry("f1", "2026-02-22.org", Instant.now()),
-                OrgFileEntry("f2", "projects.org", Instant.now()),
+                OrgFileEntry("f1", "2026-02-22.org", Clock.System.now()),
+                OrgFileEntry("f2", "projects.org", Clock.System.now()),
             ),
             docs = mapOf(
                 "f1" to doc(
@@ -52,8 +52,8 @@ class ClockInScannerTest {
     fun scan_collectsFailuresAndContinuesWhenSomeFilesFail() = runTest {
         val repo = FakeOrgRepository(
             files = listOf(
-                OrgFileEntry("ok", "ok.org", Instant.now()),
-                OrgFileEntry("broken", "broken.org", Instant.now()),
+                OrgFileEntry("ok", "ok.org", Clock.System.now()),
+                OrgFileEntry("broken", "broken.org", Clock.System.now()),
             ),
             docs = mapOf(
                 "ok" to doc(
@@ -98,8 +98,8 @@ class ClockInScannerTest {
     fun scan_returnsOnlyFailedFiles_whenAllLoadsFail() = runTest {
         val repo = FakeOrgRepository(
             files = listOf(
-                OrgFileEntry("f1", "a.org", Instant.now()),
-                OrgFileEntry("f2", "b.org", Instant.now()),
+                OrgFileEntry("f1", "a.org", Clock.System.now()),
+                OrgFileEntry("f2", "b.org", Clock.System.now()),
             ),
             docs = emptyMap(),
             failures = mapOf(
@@ -121,7 +121,7 @@ class ClockInScannerTest {
 
     private fun doc(vararg lines: String): OrgDocument {
         return OrgDocument(
-            date = LocalDate.of(2026, 2, 22),
+            date = LocalDate(2026, 2, 22),
             lines = lines.toList(),
             hash = "dummy",
         )
