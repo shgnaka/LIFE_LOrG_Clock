@@ -20,6 +20,10 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/features/clock-in-notification-status.md`
 - 改善チケット運用（Kaizen）  
   `docs/kaizens/README.md`
+- iOS 対応ロードマップ（Milestone 定義）  
+  `docs/ios-support/roadmap.md`
+- iOS 対応進捗ログ（Progress Ledger）  
+  `docs/ios-support/progress.md`
 
 ## Quick Start
 
