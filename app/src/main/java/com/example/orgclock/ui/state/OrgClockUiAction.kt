@@ -14,6 +14,7 @@ sealed interface OrgClockUiAction {
     data object CollapseAll : OrgClockUiAction
     data object ExpandAll : OrgClockUiAction
     data object RefreshHeadings : OrgClockUiAction
+    data object RefreshFiles : OrgClockUiAction
     data class OpenHistory(val item: HeadingViewItem) : OrgClockUiAction
     data object DismissHistory : OrgClockUiAction
     data class StartClock(val item: HeadingViewItem) : OrgClockUiAction
