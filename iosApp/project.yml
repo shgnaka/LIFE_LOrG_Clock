@@ -18,6 +18,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.orgclock.ios
         SWIFT_VERSION: 5.0
+        'EXCLUDED_ARCHS[sdk=iphonesimulator*]': x86_64
         FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
         OTHER_LDFLAGS: "$(inherited) -framework OrgClockShared"
     preBuildScripts:
