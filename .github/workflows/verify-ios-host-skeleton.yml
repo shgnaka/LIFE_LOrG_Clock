@@ -64,7 +64,6 @@ jobs:
             -scheme OrgClockiOS \
             -configuration Debug \
             -destination 'generic/platform=iOS Simulator' \
-            -arch arm64 \
             CODE_SIGNING_ALLOWED=NO \
             EXCLUDED_ARCHS[sdk=iphonesimulator*]=x86_64 \
             build
