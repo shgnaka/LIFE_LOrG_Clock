@@ -359,8 +359,9 @@ class ClockInNotificationService : Service() {
         private const val TAG = "ClockInNotificationSvc"
         private const val FOREGROUND_CHANNEL_ID = "clock_in_foreground"
         private const val CLOCK_CHANNEL_ID = "clock_in_ongoing"
-        private const val NOTIFICATION_ID = 1001
-        private const val NOTIFICATION_ID_BASE = 1000
+        private const val FOREGROUND_NOTIFICATION_ID = 1
+        private const val CLOCK_NOTIFICATION_BASE = 2000
+        private const val CLOCK_NOTIFICATION_RANGE = 100
         private const val ACTION_SYNC = "com.example.orgclock.notification.SYNC"
         private const val ACTION_STOP = "com.example.orgclock.notification.STOP"
         private const val ACTION_STOP_CLOCK = "com.example.orgclock.notification.STOP_CLOCK"
