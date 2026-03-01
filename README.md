@@ -24,6 +24,11 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/ios-support/roadmap.md`
 - iOS 対応進捗ログ（Progress Ledger）  
   `docs/ios-support/progress.md`
+- sync-core 統合計画（M1 / docs-only）  
+  `docs/synccore-integration/overview.md`  
+  `docs/synccore-integration/contract.md`  
+  `docs/synccore-integration/execution-plan-m1.md`  
+  `docs/synccore-integration/test-acceptance.md`
 
 ## Quick Start
 
