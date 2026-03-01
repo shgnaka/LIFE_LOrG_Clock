@@ -6,9 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
-import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.model.OrgDocument
-import com.example.orgclock.time.toKotlinInstantCompat
+import com.example.orgclock.time.toKotlinInstant
 import com.example.orgclock.time.toKotlinLocalDateCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -108,7 +107,7 @@ class SafOrgRepository(
                         fileId = file.uri.toString(),
                         displayName = name,
                         modifiedAt = file.lastModified().takeIf { it > 0 }?.let {
-                            java.time.Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toKotlinInstantCompat()
+                            java.time.Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toKotlinInstant()
                         },
                     )
                 }
