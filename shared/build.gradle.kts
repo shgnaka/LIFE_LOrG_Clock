@@ -13,8 +13,16 @@ kotlin {
             jvmTarget.set(JvmTarget.JVM_17)
         }
     }
-    iosArm64()
-    iosSimulatorArm64()
+    val iosTargets = listOf(
+        iosArm64(),
+        iosSimulatorArm64(),
+    )
+    iosTargets.forEach { target ->
+        target.binaries.framework {
+            baseName = "OrgClockShared"
+            isStatic = true
+        }
+    }
 
     sourceSets {
         val commonMain by getting {

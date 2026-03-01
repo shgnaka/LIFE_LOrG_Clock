@@ -46,6 +46,26 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
 ./gradlew :app:assembleDebug
 ```
 
+## iOS Host Skeleton (M3)
+
+- `iosApp/project.yml` をソース・オブ・トゥルースとして、XcodeGen で iOS プロジェクトを生成します。
+- iOS 側は `OrgClockShared` framework を `:shared:embedAndSignAppleFrameworkForXcode` で連携します。
+
+macOS での確認例:
+
+```bash
+brew install xcodegen
+cd iosApp
+xcodegen generate
+xcodebuild \
+  -project OrgClockiOS.xcodeproj \
+  -scheme OrgClockiOS \
+  -configuration Debug \
+  -destination 'generic/platform=iOS Simulator' \
+  CODE_SIGNING_ALLOWED=NO \
+  build
+```
+
 ## CI Distribution (No ADB / No USB)
 
 `adb` や USB 転送を使わずに端末へ更新を反映する場合は、GitHub Actions から Firebase App Distribution へ配布します。

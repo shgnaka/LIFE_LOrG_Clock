@@ -1,0 +1,68 @@
+name: Verify iOS Host Skeleton
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/verify-ios-host-skeleton.yml"
+      - "iosApp/**"
+      - "shared/**"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "*.gradle.kts"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-ios-host-skeleton.yml"
+      - "iosApp/**"
+      - "shared/**"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "*.gradle.kts"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-ios-host:
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Install XcodeGen
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+
+      - name: Generate Xcode Project
+        run: |
+          set -euo pipefail
+          cd iosApp
+          xcodegen generate
+
+      - name: Build iOS Host Skeleton (Simulator)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project iosApp/OrgClockiOS.xcodeproj \
+            -scheme OrgClockiOS \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            build

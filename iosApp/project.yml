@@ -1,0 +1,37 @@
+name: OrgClockiOS
+options:
+  minimumXcodeGenVersion: 2.41.0
+  createIntermediateGroups: true
+
+targets:
+  OrgClockiOS:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: OrgClockiOS
+        excludes:
+          - Info.plist
+    info:
+      path: OrgClockiOS/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.example.orgclock.ios
+        SWIFT_VERSION: 5.0
+        FRAMEWORK_SEARCH_PATHS: "$(inherited) $(SRCROOT)/../shared/build/xcode-frameworks/$(CONFIGURATION)/$(SDK_NAME)"
+        OTHER_LDFLAGS: "$(inherited) -framework OrgClockShared"
+    preBuildScripts:
+      - name: Build shared framework
+        script: |
+          set -euo pipefail
+          cd "$SRCROOT/.."
+          chmod +x ./gradlew
+          ./gradlew :shared:embedAndSignAppleFrameworkForXcode
+
+schemes:
+  OrgClockiOS:
+    build:
+      targets:
+        OrgClockiOS: all
+    run:
+      config: Debug
