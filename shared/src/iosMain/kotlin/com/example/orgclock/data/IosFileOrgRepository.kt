@@ -1,15 +1,11 @@
 package com.example.orgclock.data
 
-import kotlinx.cinterop.addressOf
-import kotlinx.cinterop.usePinned
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
-import platform.CommonCrypto.CC_SHA256
-import platform.CommonCrypto.CC_SHA256_DIGEST_LENGTH
-import platform.Foundation.NSData
+import com.example.orgclock.model.OrgDocument
 import platform.Foundation.NSDocumentDirectory
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSFileModificationDate
@@ -17,6 +13,7 @@ import platform.Foundation.NSString
 import platform.Foundation.NSUserDomainMask
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
+import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.timeIntervalSince1970
 
 class IosFileOrgRepository : ClockRepository {
@@ -49,7 +46,7 @@ class IosFileOrgRepository : ClockRepository {
         OrgDocument(
             date = parseDateFromFileName(fileName(fileId)),
             lines = lines,
-            hash = sha256(canonicalText(lines)),
+            hash = contentHash(canonicalText(lines)),
         )
     }
 
@@ -66,7 +63,7 @@ class IosFileOrgRepository : ClockRepository {
 
         val existingRaw = readText(fileId) ?: return SaveResult.IoError("Cannot read file")
         val existingLines = parseLines(existingRaw)
-        val existingHash = sha256(canonicalText(existingLines))
+        val existingHash = contentHash(canonicalText(existingLines))
         if (existingHash != expectedHash) {
             return SaveResult.Conflict("File changed by another process.")
         }
@@ -86,7 +83,7 @@ class IosFileOrgRepository : ClockRepository {
         OrgDocument(
             date = date,
             lines = lines,
-            hash = sha256(canonicalText(lines)),
+            hash = contentHash(canonicalText(lines)),
         )
     }
 
@@ -94,7 +91,7 @@ class IosFileOrgRepository : ClockRepository {
         val path = dailyPath(date)
         val existingRaw = readText(path)
         val existingLines = existingRaw?.let(::parseLines).orEmpty()
-        val existingHash = sha256(canonicalText(existingLines))
+        val existingHash = contentHash(canonicalText(existingLines))
         if (existingHash != expectedHash) {
             return SaveResult.Conflict("File changed by another process.")
         }
@@ -125,18 +122,13 @@ class IosFileOrgRepository : ClockRepository {
     private fun fileName(path: String): String = path.substringAfterLast('/')
 
     private fun readText(path: String): String? {
-        val data = fileManager.contentsAtPath(path) ?: return null
-        return NSString.create(data = data, encoding = NSUTF8StringEncoding) as String?
+        if (!fileManager.fileExistsAtPath(path)) return null
+        return NSString.stringWithContentsOfFile(path, NSUTF8StringEncoding, null) as String?
     }
 
     private fun writeText(path: String, text: String): Boolean {
-        val bytes = text.encodeToByteArray()
-        if (bytes.isEmpty()) {
-            val empty = NSData.create(bytes = null, length = 0u) ?: return false
-            return empty.writeToFile(path, atomically = true)
-        }
-        val data = bytes.toNSData()
-        return data.writeToFile(path, atomically = true)
+        val nsText: NSString = text as NSString
+        return nsText.writeToFile(path, atomically = true, encoding = NSUTF8StringEncoding, error = null)
     }
 
     private fun parseLines(rawText: String): List<String> {
@@ -168,28 +160,18 @@ class IosFileOrgRepository : ClockRepository {
 
     private fun today(): LocalDate = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
 
-    private fun sha256(text: String): String {
+    private fun contentHash(text: String): String {
         val bytes = text.encodeToByteArray()
-        if (bytes.isEmpty()) return EMPTY_SHA256
-        val digest = UByteArray(CC_SHA256_DIGEST_LENGTH.toInt())
-        bytes.usePinned { src ->
-            digest.usePinned { dst ->
-                CC_SHA256(src.addressOf(0), bytes.size.toUInt(), dst.addressOf(0))
-            }
+        var hash = FNV_OFFSET_BASIS
+        bytes.forEach { byte ->
+            hash = hash xor byte.toUByte().toULong()
+            hash *= FNV_PRIME
         }
-        return digest.joinToString("") { byte ->
-            val value = byte.toInt() and 0xff
-            "${HEX[value ushr 4]}${HEX[value and 0x0f]}"
-        }
-    }
-
-    private fun ByteArray.toNSData(): NSData = usePinned { pinned ->
-        NSData.create(bytes = pinned.addressOf(0), length = size.toULong())
-            ?: error("Failed to create NSData")
+        return hash.toString(16).padStart(16, '0')
     }
 
     private companion object {
-        const val EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-        const val HEX = "0123456789abcdef"
+        const val FNV_OFFSET_BASIS: ULong = 0xcbf29ce484222325u
+        const val FNV_PRIME: ULong = 0x100000001b3u
     }
 }

@@ -20,15 +20,23 @@ class IosCoreFlowFacade(
     private val clockService = ClockService(repository)
 
     fun listFilesSummary(): String {
-        val files = runSuspend { repository.listOrgFiles() }
-            .getOrElse { return "listFiles=error:${it.message ?: "unknown"}" }
+        val filesResult = runSuspend { repository.listOrgFiles() }
+        if (filesResult.isFailure) {
+            val message = filesResult.exceptionOrNull()?.message ?: "unknown"
+            return "listFiles=error:$message"
+        }
+        val files = filesResult.getOrThrow()
         return "listFiles=count=${files.size}"
     }
 
     fun verifyDailyReadWriteRoundTrip(): String {
         val today = Clock.System.now().toLocalDateTime(timeZone).date
-        val before = runSuspend { repository.loadDaily(today) }
-            .getOrElse { return "daily=loadError:${it.message ?: "unknown"}" }
+        val beforeResult = runSuspend { repository.loadDaily(today) }
+        if (beforeResult.isFailure) {
+            val message = beforeResult.exceptionOrNull()?.message ?: "unknown"
+            return "daily=loadError:$message"
+        }
+        val before = beforeResult.getOrThrow()
 
         val nextLines = if (before.lines.isEmpty()) {
             listOf("* Inbox", "** iOS M4 Probe")
@@ -46,11 +54,19 @@ class IosCoreFlowFacade(
     }
 
     fun listHeadingsSummaryForFirstFile(): String {
-        val files = runSuspend { repository.listOrgFiles() }
-            .getOrElse { return "headings=error:${it.message ?: "unknown"}" }
+        val filesResult = runSuspend { repository.listOrgFiles() }
+        if (filesResult.isFailure) {
+            val message = filesResult.exceptionOrNull()?.message ?: "unknown"
+            return "headings=error:$message"
+        }
+        val files = filesResult.getOrThrow()
         val first = files.firstOrNull() ?: return "headings=no-files"
-        val headings = runSuspend { clockService.listHeadings(first.fileId, timeZone) }
-            .getOrElse { return "headings=error:${it.message ?: "unknown"}" }
+        val headingsResult = runSuspend { clockService.listHeadings(first.fileId, timeZone) }
+        if (headingsResult.isFailure) {
+            val message = headingsResult.exceptionOrNull()?.message ?: "unknown"
+            return "headings=error:$message"
+        }
+        val headings = headingsResult.getOrThrow()
         val level2Count = headings.count { it.node.level == 2 }
         return "headings=count=${headings.size}, level2=$level2Count"
     }
