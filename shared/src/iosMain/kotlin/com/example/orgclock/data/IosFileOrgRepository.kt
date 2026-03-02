@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package com.example.orgclock.data
 
 import kotlinx.datetime.Clock
@@ -127,8 +129,8 @@ class IosFileOrgRepository : ClockRepository {
     }
 
     private fun writeText(path: String, text: String): Boolean {
-        val nsText: NSString = text as NSString
-        return nsText.writeToFile(path, atomically = true, encoding = NSUTF8StringEncoding, error = null)
+        val nsText = NSString.stringWithString(text)
+        return nsText.writeToFile(path, atomically = true)
     }
 
     private fun parseLines(rawText: String): List<String> {
