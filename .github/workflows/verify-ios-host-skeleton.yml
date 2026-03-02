@@ -62,7 +62,7 @@ jobs:
           set -euo pipefail
           
           # Find latest available iOS runtime
-          IOS_RUNTIME=$(xcrun simctl list runtimes available | grep -oP 'iOS \K[0-9.]+' | sort -V | tail -1)
+          IOS_RUNTIME=$(xcrun simctl list runtimes available | sed -E 's/.*iOS ([0-9.]+).*/\1/' | grep -E '^[0-9]+\.[0-9]+$' | sort -V | tail -1)
           if [ -z "$IOS_RUNTIME" ]; then
             echo "::error::No available iOS runtime found"
             exit 1
