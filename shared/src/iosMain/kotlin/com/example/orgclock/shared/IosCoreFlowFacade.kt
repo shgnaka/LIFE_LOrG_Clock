@@ -13,13 +13,12 @@ import kotlin.coroutines.startCoroutine
 /**
  * Minimal M4 facade that proves iOS file adapter and shared core flow integration.
  */
-class IosCoreFlowFacade(
-    private val repository: IosFileOrgRepository = IosFileOrgRepository(),
-    private val timeZone: TimeZone = TimeZone.currentSystemDefault(),
-) {
+actual class IosCoreFlowFacade actual constructor() {
+    private val repository: IosFileOrgRepository = IosFileOrgRepository()
+    private val timeZone: TimeZone = TimeZone.currentSystemDefault()
     private val clockService = ClockService(repository)
 
-    fun listFilesSummary(): String {
+    actual fun listFilesSummary(): String {
         val filesResult = runSuspend { repository.listOrgFiles() }
         if (filesResult.isFailure) {
             val message = filesResult.exceptionOrNull()?.message ?: "unknown"
@@ -29,7 +28,7 @@ class IosCoreFlowFacade(
         return "listFiles=count=${files.size}"
     }
 
-    fun verifyDailyReadWriteRoundTrip(): String {
+    actual fun verifyDailyReadWriteRoundTrip(): String {
         val today = Clock.System.now().toLocalDateTime(timeZone).date
         val beforeResult = runSuspend { repository.loadDaily(today) }
         if (beforeResult.isFailure) {
@@ -53,7 +52,7 @@ class IosCoreFlowFacade(
         return "daily=ok, stale=$staleCode"
     }
 
-    fun listHeadingsSummaryForFirstFile(): String {
+    actual fun listHeadingsSummaryForFirstFile(): String {
         val filesResult = runSuspend { repository.listOrgFiles() }
         if (filesResult.isFailure) {
             val message = filesResult.exceptionOrNull()?.message ?: "unknown"
