@@ -125,7 +125,7 @@ class ClockInNotificationService : Service() {
         }
 
         val rootUri = loadRootUri() ?: run {
-            val notification = buildStatusNotification(
+            val notification = buildForegroundStatusNotification(
                 title = getString(R.string.notif_title_clock_in),
                 summary = getString(R.string.notif_status_root_not_set),
             )
@@ -136,7 +136,7 @@ class ClockInNotificationService : Service() {
         val opened = repository.openRoot(rootUri)
         if (opened.isFailure) {
             val reason = opened.exceptionOrNull()?.message ?: "unknown"
-            val notification = buildStatusNotification(
+            val notification = buildForegroundStatusNotification(
                 title = getString(R.string.notif_title_clock_in),
                 summary = getString(R.string.notif_status_root_open_failed, reason),
             )
@@ -147,7 +147,7 @@ class ClockInNotificationService : Service() {
         val result = scanner.scan(clockEnvironment.currentTimeZone())
         if (result.isFailure) {
             val reason = result.exceptionOrNull()?.message ?: "unknown"
-            val notification = buildStatusNotification(
+            val notification = buildForegroundStatusNotification(
                 title = getString(R.string.notif_title_clock_in),
                 summary = getString(R.string.notif_status_refresh_failed, reason),
             )
@@ -173,18 +173,34 @@ class ClockInNotificationService : Service() {
 
     private fun notifyIndividualClockNotifications(entries: List<ClockInEntry>) {
         val manager = getSystemService(NotificationManager::class.java)
-        
-        val currentIds = entries.map { it.fileId to it.headingLineIndex }
-        entries.forEachIndexed { index, entry ->
-            val notificationId = NOTIFICATION_ID_BASE + index
-            val notification = buildIndividualClockNotification(entry)
-            manager.notify(notificationId, notification)
+
+        val currentIds = mutableSetOf<Int>()
+
+        if (entries.isEmpty()) {
+            val notification = buildClockStatusNotification(
+                title = getString(R.string.notif_title_clock_in),
+                summary = getString(R.string.notif_summary_no_active),
+            )
+            manager.notify(CLOCK_NOTIFICATION_BASE, notification)
+            currentIds.add(CLOCK_NOTIFICATION_BASE)
+        } else {
+            entries.forEach { entry ->
+                val notificationId = getNotificationId(entry.fileId, entry.headingLineIndex)
+                val notification = buildIndividualClockNotification(entry)
+                manager.notify(notificationId, notification)
+                currentIds.add(notificationId)
+            }
         }
 
-        val maxId = entries.size
-        for (i in (maxId + 1)..100) {
-            manager.cancel(i)
+        for (i in CLOCK_NOTIFICATION_BASE until CLOCK_NOTIFICATION_BASE + CLOCK_NOTIFICATION_RANGE) {
+            if (i !in currentIds) {
+                manager.cancel(i)
+            }
         }
+    }
+
+    private fun getNotificationId(fileId: String, lineIndex: Int): Int {
+        return CLOCK_NOTIFICATION_BASE + Math.abs((fileId.hashCode() + lineIndex) % CLOCK_NOTIFICATION_RANGE)
     }
 
     private fun buildIndividualClockNotification(entry: ClockInEntry): Notification {
@@ -193,9 +209,10 @@ class ClockInNotificationService : Service() {
             putExtra(EXTRA_FILE_ID, entry.fileId)
             putExtra(EXTRA_LINE_INDEX, entry.headingLineIndex)
         }
+        val notificationId = getNotificationId(entry.fileId, entry.headingLineIndex)
         val stopPendingIntent = PendingIntent.getService(
             this,
-            entry.headingLineIndex,
+            notificationId,
             stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -205,7 +222,7 @@ class ClockInNotificationService : Service() {
         val started = entry.startedAt.format(TIME_FORMATTER)
         val summary = getString(R.string.notif_summary_first_entry, title, started, minutes)
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        return NotificationCompat.Builder(this, CLOCK_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle(entry.headingTitle)
             .setContentText(summary)
@@ -223,7 +240,7 @@ class ClockInNotificationService : Service() {
     }
 
     private fun ensureForegroundPlaceholder() {
-        val placeholder = buildStatusNotification(
+        val placeholder = buildForegroundStatusNotification(
             title = getString(R.string.notif_title_clock_in),
             summary = getString(R.string.notif_status_syncing),
         )
@@ -232,23 +249,37 @@ class ClockInNotificationService : Service() {
 
     private fun notifyForeground(notification: Notification) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, notification)
+        manager.notify(FOREGROUND_NOTIFICATION_ID, notification)
     }
 
     private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
-                NOTIFICATION_ID,
+                FOREGROUND_NOTIFICATION_ID,
                 notification,
                 ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
             )
         } else {
-            startForeground(NOTIFICATION_ID, notification)
+            startForeground(FOREGROUND_NOTIFICATION_ID, notification)
         }
     }
 
-    private fun buildStatusNotification(title: String, summary: String): Notification {
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+    private fun buildForegroundStatusNotification(title: String, summary: String): Notification {
+        return NotificationCompat.Builder(this, FOREGROUND_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_popup_reminder)
+            .setContentTitle(title)
+            .setContentText(summary)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(summary))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setOngoing(true)
+            .setContentIntent(createOpenAppPendingIntent())
+            .build()
+    }
+
+    private fun buildClockStatusNotification(title: String, summary: String): Notification {
+        return NotificationCompat.Builder(this, CLOCK_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
             .setContentTitle(title)
             .setContentText(summary)
@@ -295,8 +326,18 @@ class ClockInNotificationService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val channel = NotificationChannel(
-            CHANNEL_ID,
+        val foregroundChannel = NotificationChannel(
+            FOREGROUND_CHANNEL_ID,
+            getString(R.string.notif_foreground_channel_name),
+            NotificationManager.IMPORTANCE_LOW,
+        ).apply {
+            description = getString(R.string.notif_foreground_channel_description)
+            setShowBadge(false)
+            setSound(null, null)
+            enableVibration(false)
+        }
+        val clockChannel = NotificationChannel(
+            CLOCK_CHANNEL_ID,
             getString(R.string.notif_channel_name),
             NotificationManager.IMPORTANCE_MAX,
         ).apply {
@@ -304,7 +345,7 @@ class ClockInNotificationService : Service() {
             setShowBadge(false)
         }
         val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
+        manager.createNotificationChannels(listOf(foregroundChannel, clockChannel))
     }
 
     private fun stopServiceAndNotification() {
@@ -316,10 +357,11 @@ class ClockInNotificationService : Service() {
 
     companion object {
         private const val TAG = "ClockInNotificationSvc"
-        private const val CHANNEL_ID = "clock_in_ongoing"
-        private const val NOTIFICATION_ID = 1001
-        private const val NOTIFICATION_ID_BASE = 1000
-
+        private const val FOREGROUND_CHANNEL_ID = "clock_in_foreground"
+        private const val CLOCK_CHANNEL_ID = "clock_in_ongoing"
+        private const val FOREGROUND_NOTIFICATION_ID = 1
+        private const val CLOCK_NOTIFICATION_BASE = 2000
+        private const val CLOCK_NOTIFICATION_RANGE = 100
         private const val ACTION_SYNC = "com.example.orgclock.notification.SYNC"
         private const val ACTION_STOP = "com.example.orgclock.notification.STOP"
         private const val ACTION_STOP_CLOCK = "com.example.orgclock.notification.STOP_CLOCK"
