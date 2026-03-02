@@ -2,6 +2,8 @@
 
 package com.example.orgclock.data
 
+import kotlinx.cinterop.addressOf
+import kotlinx.cinterop.usePinned
 import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
@@ -17,6 +19,9 @@ import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSSearchPathForDirectoriesInDomains
 import platform.Foundation.stringWithContentsOfFile
 import platform.Foundation.timeIntervalSince1970
+import platform.posix.fclose
+import platform.posix.fopen
+import platform.posix.fwrite
 
 class IosFileOrgRepository : ClockRepository {
     private val fileManager = NSFileManager.defaultManager
@@ -129,8 +134,20 @@ class IosFileOrgRepository : ClockRepository {
     }
 
     private fun writeText(path: String, text: String): Boolean {
-        val nsText = NSString.stringWithString(text)
-        return nsText.writeToFile(path, atomically = true)
+        val bytes = text.encodeToByteArray()
+        val file = fopen(path, "wb") ?: return false
+        val wroteAll = try {
+            if (bytes.isEmpty()) {
+                true
+            } else {
+                bytes.usePinned { pinned ->
+                    fwrite(pinned.addressOf(0), 1u, bytes.size.toULong(), file) == bytes.size.toULong()
+                }
+            }
+        } finally {
+            fclose(file)
+        }
+        return wroteAll
     }
 
     private fun parseLines(rawText: String): List<String> {
