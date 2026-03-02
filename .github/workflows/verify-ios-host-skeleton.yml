@@ -56,13 +56,73 @@ jobs:
           cd iosApp
           xcodegen generate
 
+      - name: Create iOS Simulator
+        id: create-simulator
+        run: |
+          set -euo pipefail
+          
+          # Find latest available iOS runtime
+          IOS_RUNTIME=$(xcrun simctl list runtimes available | grep -oP 'iOS \K[0-9.]+' | sort -V | tail -1)
+          if [ -z "$IOS_RUNTIME" ]; then
+            echo "::error::No available iOS runtime found"
+            exit 1
+          fi
+          echo "Using iOS runtime: $IOS_RUNTIME"
+          
+          # Convert 18.6 to iOS-18-6 format
+          RUNTIME_ID="com.apple.CoreSimulator.SimRuntime.iOS-${IOS_RUNTIME//./-}"
+          
+          # Verify the runtime exists
+          if ! xcrun simctl list runtimes available | grep -q "$RUNTIME_ID"; then
+            echo "::error::Runtime $RUNTIME_ID not found"
+            exit 1
+          fi
+          
+          # Try to create iPhone 16 simulator first
+          if xcrun simctl list devices available | grep -q "iPhone"; then
+            echo "iPhone simulator already exists"
+          else
+            DEVICE_ID=$(xcrun simctl create "iPhone 16" \
+              com.apple.CoreSimulator.SimDeviceType.iPhone-16 \
+              "$RUNTIME_ID" 2>&1)
+            
+            if [ $? -ne 0 ] || [ -z "$DEVICE_ID" ]; then
+              echo "Failed to create iPhone 16, trying iPad..."
+            else
+              echo "Created iPhone 16 simulator (ID: $DEVICE_ID) with iOS $IOS_RUNTIME"
+              echo "SIMULATOR_NAME=iPhone 16" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          
+          # Fallback: Create iPad simulator if iPhone failed or doesn't exist
+          if xcrun simctl list devices available | grep -q "iPad"; then
+            echo "iPad simulator already exists"
+          else
+            DEVICE_ID=$(xcrun simctl create "iPad (10th generation)" \
+              com.apple.CoreSimulator.SimDeviceType.iPad-10th-generation \
+              "$RUNTIME_ID" 2>&1)
+            
+            if [ $? -ne 0 ] || [ -z "$DEVICE_ID" ]; then
+              echo "::error::Failed to create iPad simulator"
+              echo "$DEVICE_ID"
+              exit 1
+            fi
+            
+            echo "Created iPad simulator (ID: $DEVICE_ID) with iOS $IOS_RUNTIME"
+          fi
+          
+          echo "SIMULATOR_NAME=iPad (10th generation)" >> "$GITHUB_OUTPUT"
+
       - name: Build iOS Host Skeleton (Simulator)
         run: |
           set -euo pipefail
+          SIMULATOR_NAME="${{ steps.create-simulator.outputs.SIMULATOR_NAME }}"
+          
           xcodebuild \
             -project iosApp/OrgClockiOS.xcodeproj \
             -scheme OrgClockiOS \
             -configuration Debug \
-            -destination 'platform=iOS Simulator,arch=arm64' \
+            -destination "platform=iOS Simulator,name=${SIMULATOR_NAME}" \
             CODE_SIGNING_ALLOWED=NO \
             build
