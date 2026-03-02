@@ -16,6 +16,17 @@ struct ContentView: View {
             Text(facade.sampleParseSummary())
                 .font(.footnote)
                 .foregroundStyle(.secondary)
+
+            Divider()
+
+            Text("M4 Core Flow Probe")
+                .font(.headline)
+            Text(iosCoreFlowListFilesSummary())
+                .font(.footnote)
+            Text(iosCoreFlowVerifyDailyReadWriteRoundTrip())
+                .font(.footnote)
+            Text(iosCoreFlowListHeadingsSummaryForFirstFile())
+                .font(.footnote)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)

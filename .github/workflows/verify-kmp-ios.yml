@@ -40,3 +40,9 @@ jobs:
           set -euo pipefail
           chmod +x ./gradlew
           ./gradlew --stacktrace :shared:compileKotlinIosSimulatorArm64
+
+      - name: Run iosSimulatorArm64 tests
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --stacktrace :shared:iosSimulatorArm64Test
