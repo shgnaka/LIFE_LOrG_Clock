@@ -28,7 +28,7 @@ iOS 対応の目的は、既存 Android アプリのコアロジックを Kotlin
 - [x] M0: KMP bootstrap complete
 - [x] M1: shared core migration (model/parser/domain/time)
 - [x] M2: platform-neutral repository boundary
-- [ ] M3: iOS app host skeleton
+- [x] M3: iOS app host skeleton
 - [ ] M4: iOS file access adapter + core flow
 - [ ] M5: distribution/testing flow (Firebase/TestFlight decision notes)
 
@@ -90,7 +90,8 @@ iOS 対応の目的は、既存 Android アプリのコアロジックを Kotlin
 - M0: Completed (`feat/ios/kmp-bootstrap`)
 - M1: Completed (`feat/ios/shared-core-migration-1` + 後続の datetime 移行を `feat/ios_support` へ反映済み)
 - M2: Completed（`feat/ios/repository-boundary-m2-1` / `feat/ios/repository-boundary-m2-2` で repository 境界を最終固定）
-- M3: In progress（`feat/ios/repository-boundary-m3` で iOS host skeleton を構築中）
+- M3: Completed（`feat/ios/repository-boundary-m3` で iOS host skeleton + CI 安定化を完了）
+- M4: In progress（`feat/ios/repository-boundary-m4` で iOS file access adapter + core flow 接続を実装中）
 
 ## 8. Update Workflow (for future Codex sessions)
 
