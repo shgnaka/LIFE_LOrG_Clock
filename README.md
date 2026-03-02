@@ -24,6 +24,8 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/ios-support/roadmap.md`
 - iOS 対応進捗ログ（Progress Ledger）  
   `docs/ios-support/progress.md`
+- iOS 配布/検証フロー（M5 Runbook）  
+  `docs/ios-support/distribution-testing-flow.md`
 
 ## Quick Start
 
@@ -67,6 +69,12 @@ xcodebuild \
   EXCLUDED_ARCHS[sdk=iphonesimulator*]=x86_64 \
   build
 ```
+
+## iOS Distribution (M5)
+
+- iOS の内部テスター配布は `.github/workflows/distribute-ios-firebase.yml` を使用します。
+- 実行は `workflow_dispatch`（手動）で、`main` の最新コミットのみを対象にします。
+- 手順/失敗時対応/受け入れ観点は `docs/ios-support/distribution-testing-flow.md` を参照してください。
 
 ## CI Distribution (No ADB / No USB)
 

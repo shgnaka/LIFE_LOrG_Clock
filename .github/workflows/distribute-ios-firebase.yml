@@ -1,0 +1,363 @@
+name: Distribute iOS (Firebase)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tester_group:
+        description: "Firebase tester group alias"
+        required: false
+        default: "ios-internal-testers"
+      release_notes:
+        description: "Release notes shown to testers"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  distribute:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      UPLOAD_POLL_MAX_ATTEMPTS: 60
+      UPLOAD_POLL_SLEEP_SEC: 2
+
+    steps:
+      - name: Guard branch (main only)
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::This workflow can run only from main."
+            echo "::error::Use 'Use workflow from: main' and run again."
+            exit 1
+          fi
+
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Guard commit (latest main only)
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          MAIN_HEAD="$(git rev-parse origin/main)"
+          if [ "${GITHUB_SHA}" != "${MAIN_HEAD}" ]; then
+            echo "::error::This workflow must run on latest main commit."
+            echo "::error::Triggered SHA: ${GITHUB_SHA}"
+            echo "::error::Latest main SHA: ${MAIN_HEAD}"
+            exit 1
+          fi
+
+      - name: Print workflow fingerprint
+        run: |
+          set -euo pipefail
+          echo "WORKFLOW_IMPL=ios-rest-v1"
+          echo "GITHUB_SHA=${GITHUB_SHA}"
+          echo "WORKFLOW_REF=${{ github.workflow_ref }}"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Validate required secrets
+        env:
+          GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          GCP_SERVICE_ACCOUNT_EMAIL: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          FIREBASE_APP_ID_IOS: ${{ secrets.FIREBASE_APP_ID_IOS }}
+          IOS_SIGNING_CERT_BASE64: ${{ secrets.IOS_SIGNING_CERT_BASE64 }}
+          IOS_SIGNING_CERT_PASSWORD: ${{ secrets.IOS_SIGNING_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          required=(
+            GCP_WORKLOAD_IDENTITY_PROVIDER
+            GCP_SERVICE_ACCOUNT_EMAIL
+            FIREBASE_APP_ID_IOS
+            IOS_SIGNING_CERT_BASE64
+            IOS_SIGNING_CERT_PASSWORD
+            IOS_PROVISIONING_PROFILE_BASE64
+            IOS_TEAM_ID
+          )
+          missing=0
+          for key in "${required[@]}"; do
+            if [ -z "${!key:-}" ]; then
+              echo "::error::Missing required secret: $key"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+      - name: Install tooling
+        run: |
+          set -euo pipefail
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          if ! command -v jq >/dev/null 2>&1; then
+            brew install jq
+          fi
+
+      - name: Generate Xcode project
+        run: |
+          set -euo pipefail
+          cd iosApp
+          xcodegen generate
+
+      - name: Prepare signing assets
+        env:
+          IOS_SIGNING_CERT_BASE64: ${{ secrets.IOS_SIGNING_CERT_BASE64 }}
+          IOS_SIGNING_CERT_PASSWORD: ${{ secrets.IOS_SIGNING_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          decode_base64() {
+            if echo "$1" | base64 --decode >/dev/null 2>&1; then
+              echo "$1" | base64 --decode
+            elif echo "$1" | base64 -d >/dev/null 2>&1; then
+              echo "$1" | base64 -d
+            else
+              echo "$1" | base64 -D
+            fi
+          }
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
+          CERT_PATH="$RUNNER_TEMP/signing.p12"
+          PROFILE_PATH="$RUNNER_TEMP/profile.mobileprovision"
+
+          decode_base64 "$IOS_SIGNING_CERT_BASE64" > "$CERT_PATH"
+          decode_base64 "$IOS_PROVISIONING_PROFILE_BASE64" > "$PROFILE_PATH"
+
+          security create-keychain -p "" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+          security import "$CERT_PATH" -P "$IOS_SIGNING_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "" "$KEYCHAIN_PATH"
+
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print:UUID' /dev/stdin <<< "$(security cms -D -i "$PROFILE_PATH")")
+          cp "$PROFILE_PATH" "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+
+      - name: Archive iOS app
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project iosApp/OrgClockiOS.xcodeproj \
+            -scheme OrgClockiOS \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/OrgClockiOS.xcarchive" \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            clean archive
+
+      - name: Export IPA
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          EXPORT_OPTIONS="$RUNNER_TEMP/ExportOptions.plist"
+          cat > "$EXPORT_OPTIONS" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>ad-hoc</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+            <key>teamID</key>
+            <string>${IOS_TEAM_ID}</string>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/OrgClockiOS.xcarchive" \
+            -exportPath "$RUNNER_TEMP/exported" \
+            -exportOptionsPlist "$EXPORT_OPTIONS"
+
+      - name: Locate IPA
+        id: ipa
+        run: |
+          set -euo pipefail
+          IPA_PATH=$(find "$RUNNER_TEMP/exported" -maxdepth 1 -type f -name "*.ipa" | head -n 1)
+          if [ -z "$IPA_PATH" ]; then
+            echo "::error::No IPA found after export"
+            exit 1
+          fi
+          echo "path=$IPA_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found IPA: $IPA_PATH"
+
+      - name: Authenticate to Google Cloud (OIDC)
+        id: gcp-auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+
+      - name: Upload IPA to App Distribution (REST)
+        id: upload
+        env:
+          FIREBASE_APP_ID_IOS: ${{ secrets.FIREBASE_APP_ID_IOS }}
+          IPA_PATH: ${{ steps.ipa.outputs.path }}
+          GCP_ACCESS_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          PROJECT_NUMBER=$(echo "$FIREBASE_APP_ID_IOS" | cut -d: -f2)
+          if [ -z "$PROJECT_NUMBER" ]; then
+            echo "::error::Unable to parse project number from FIREBASE_APP_ID_IOS"
+            exit 1
+          fi
+          APP_RESOURCE="projects/${PROJECT_NUMBER}/apps/${FIREBASE_APP_ID_IOS}"
+
+          UPLOAD_RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+            -H "X-Goog-Upload-Protocol: raw" \
+            -H "X-Goog-Upload-File-Name: $(basename "$IPA_PATH")" \
+            -H "Content-Type: application/octet-stream" \
+            --data-binary "@$IPA_PATH" \
+            "https://firebaseappdistribution.googleapis.com/upload/v1/${APP_RESOURCE}/releases:upload")
+
+          OPERATION_NAME=$(echo "$UPLOAD_RESPONSE" | jq -r '.name // empty')
+          if [ -z "$OPERATION_NAME" ]; then
+            echo "::error::Upload response did not include operation name"
+            echo "$UPLOAD_RESPONSE"
+            exit 1
+          fi
+
+          echo "operation=$OPERATION_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for upload operation (REST)
+        id: operation
+        env:
+          OPERATION_NAME: ${{ steps.upload.outputs.operation }}
+          GCP_ACCESS_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          EFFECTIVE_TIMEOUT_SEC=$((UPLOAD_POLL_MAX_ATTEMPTS * UPLOAD_POLL_SLEEP_SEC))
+          echo "Upload poll config: attempts=${UPLOAD_POLL_MAX_ATTEMPTS}, sleep_sec=${UPLOAD_POLL_SLEEP_SEC}, timeout_sec=${EFFECTIVE_TIMEOUT_SEC}"
+
+          for i in $(seq 1 "$UPLOAD_POLL_MAX_ATTEMPTS"); do
+            OPERATION_RESPONSE=$(curl -sS \
+              -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+              "https://firebaseappdistribution.googleapis.com/v1/${OPERATION_NAME}")
+
+            DONE=$(echo "$OPERATION_RESPONSE" | jq -r '.done // false')
+            if [ "$DONE" = "true" ]; then
+              ERROR_MESSAGE=$(echo "$OPERATION_RESPONSE" | jq -r '.error.message // empty')
+              if [ -n "$ERROR_MESSAGE" ]; then
+                echo "::error::Upload operation failed: $ERROR_MESSAGE"
+                echo "$OPERATION_RESPONSE"
+                exit 1
+              fi
+
+              RELEASE_NAME=$(echo "$OPERATION_RESPONSE" | jq -r '.response.release.name // .metadata.release.name // empty')
+              if [ -z "$RELEASE_NAME" ]; then
+                echo "::error::Release name not found in operation response"
+                echo "$OPERATION_RESPONSE"
+                exit 1
+              fi
+
+              echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            sleep "$UPLOAD_POLL_SLEEP_SEC"
+          done
+
+          echo "::error::Timed out waiting for upload operation to complete"
+          exit 1
+
+      - name: Update release notes (REST)
+        if: ${{ inputs.release_notes != '' }}
+        env:
+          RELEASE_NAME: ${{ steps.operation.outputs.release_name }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          GCP_ACCESS_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          PAYLOAD=$(jq -n --arg notes "$RELEASE_NOTES" '{releaseNotes: {text: $notes}}')
+
+          PATCH_RESPONSE=$(curl -sS -X PATCH \
+            -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "https://firebaseappdistribution.googleapis.com/v1/${RELEASE_NAME}?updateMask=releaseNotes.text")
+
+          PATCH_ERROR=$(echo "$PATCH_RESPONSE" | jq -r '.error.message // empty')
+          if [ -n "$PATCH_ERROR" ]; then
+            echo "::error::Failed to update release notes: $PATCH_ERROR"
+            echo "$PATCH_RESPONSE"
+            exit 1
+          fi
+
+      - name: Distribute to Firebase App Distribution
+        env:
+          RELEASE_NAME: ${{ steps.operation.outputs.release_name }}
+          TESTER_GROUP: ${{ inputs.tester_group }}
+          GCP_ACCESS_TOKEN: ${{ steps.gcp-auth.outputs.access_token }}
+        run: |
+          set -euo pipefail
+          PAYLOAD=$(jq -n --arg group "$TESTER_GROUP" '{groupAliases: [$group]}')
+
+          DISTRIBUTE_RESPONSE=$(curl -sS -X POST \
+            -H "Authorization: Bearer $GCP_ACCESS_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" \
+            "https://firebaseappdistribution.googleapis.com/v1/${RELEASE_NAME}:distribute")
+
+          DISTRIBUTE_ERROR=$(echo "$DISTRIBUTE_RESPONSE" | jq -r '.error.message // empty')
+          if [ -n "$DISTRIBUTE_ERROR" ]; then
+            echo "::error::Failed to distribute release: $DISTRIBUTE_ERROR"
+            echo "$DISTRIBUTE_RESPONSE"
+            exit 1
+          fi
+
+          echo "Release distributed to group: $TESTER_GROUP"
+
+      - name: Print distribution summary
+        if: success()
+        env:
+          IPA_PATH: ${{ steps.ipa.outputs.path }}
+          RELEASE_NAME: ${{ steps.operation.outputs.release_name }}
+        run: |
+          set -euo pipefail
+          echo "Distribution completed."
+          echo "Workflow impl: ios-rest-v1"
+          echo "Head SHA: ${GITHUB_SHA}"
+          echo "Workflow ref: ${{ github.workflow_ref }}"
+          echo "IPA: $IPA_PATH"
+          echo "Release: $RELEASE_NAME"
+          echo "Tester group: ${{ inputs.tester_group }}"
+
+      - name: Print failure guidance
+        if: failure()
+        run: |
+          set -euo pipefail
+          echo "::error::Distribution failed. Follow the runbook and retry once."
+          echo "::error::Runbook: docs/ios-support/distribution-testing-flow.md"
+          echo "::error::If retry fails, open an incident and record run URL + Head SHA."
