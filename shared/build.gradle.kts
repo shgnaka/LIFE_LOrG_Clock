@@ -13,8 +13,16 @@ kotlin {
             jvmTarget.set(JvmTarget.JVM_17)
         }
     }
-    iosArm64()
-    iosSimulatorArm64()
+    val iosTargets = listOf(
+        iosArm64(),
+        iosSimulatorArm64(),
+    )
+    iosTargets.forEach { target ->
+        target.binaries.framework {
+            baseName = "OrgClockShared"
+            isStatic = true
+        }
+    }
 
     sourceSets {
         val commonMain by getting {
@@ -27,8 +35,18 @@ kotlin {
                 implementation(kotlin("test"))
             }
         }
-        val androidMain by getting
-        val androidUnitTest by getting
+        val androidMain by getting {
+            dependencies {
+                implementation("androidx.documentfile:documentfile:1.0.1")
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+            }
+        }
+        val androidUnitTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
+                implementation("junit:junit:4.13.2")
+            }
+        }
         val iosArm64Main by getting
         val iosSimulatorArm64Main by getting
         val iosMain by creating {
