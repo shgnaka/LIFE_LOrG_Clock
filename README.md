@@ -20,6 +20,10 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/features/clock-in-notification-status.md`
 - 改善チケット運用（Kaizen）  
   `docs/kaizens/README.md`
+- iOS 対応ロードマップ（Milestone 定義）  
+  `docs/ios-support/roadmap.md`
+- iOS 対応進捗ログ（Progress Ledger）  
+  `docs/ios-support/progress.md`
 
 ## Quick Start
 
@@ -28,6 +32,41 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
 ```
 
 `installDebug` の詳細は `docs/install-debug-guide.md` を参照してください。
+
+## Kotlin Multiplatform Bootstrap
+
+- 共有モジュール `:shared` を追加しています（`commonMain` / `androidMain` / `iosMain`）。
+- Linux 環境では iOS アプリの実行・署名はできません。iOS ターゲットのコンパイル検証は macOS CI (`.github/workflows/verify-kmp-ios.yml`) で実行します。
+
+ローカルでの確認例:
+
+```bash
+./gradlew :shared:tasks
+./gradlew :shared:compileDebugKotlinAndroid
+./gradlew :app:assembleDebug
+```
+
+## iOS Host Skeleton (M3)
+
+- `iosApp/project.yml` をソース・オブ・トゥルースとして、XcodeGen で iOS プロジェクトを生成します。
+- iOS 側は `OrgClockShared` framework を `:shared:embedAndSignAppleFrameworkForXcode` で連携します。
+
+macOS での確認例:
+
+```bash
+brew install xcodegen
+cd iosApp
+xcodegen generate
+xcodebuild \
+  -project OrgClockiOS.xcodeproj \
+  -scheme OrgClockiOS \
+  -configuration Debug \
+  -destination 'generic/platform=iOS Simulator' \
+  -arch arm64 \
+  CODE_SIGNING_ALLOWED=NO \
+  EXCLUDED_ARCHS[sdk=iphonesimulator*]=x86_64 \
+  build
+```
 
 ## CI Distribution (No ADB / No USB)
 

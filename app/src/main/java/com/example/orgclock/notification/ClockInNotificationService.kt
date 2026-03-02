@@ -20,6 +20,7 @@ import com.example.orgclock.domain.ClockService
 import com.example.orgclock.parser.OrgParser
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
+import com.example.orgclock.time.toZonedDateTime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,6 +32,7 @@ import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+import kotlinx.datetime.toJavaZoneId
 
 class ClockInNotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -63,7 +65,7 @@ class ClockInNotificationService : Service() {
                 val lineIndex = intent.getIntExtra(EXTRA_LINE_INDEX, -1)
                 if (lineIndex < 0) return START_STICKY
                 scope.launch {
-                    clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now())
+                    clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now(), clockEnvironment.currentTimeZone())
                     refreshOnce()
                 }
                 return START_STICKY
@@ -142,7 +144,7 @@ class ClockInNotificationService : Service() {
             return true
         }
 
-        val result = scanner.scan(clockEnvironment.zoneId())
+        val result = scanner.scan(clockEnvironment.currentTimeZone())
         if (result.isFailure) {
             val reason = result.exceptionOrNull()?.message ?: "unknown"
             val notification = buildStatusNotification(
@@ -172,33 +174,17 @@ class ClockInNotificationService : Service() {
     private fun notifyIndividualClockNotifications(entries: List<ClockInEntry>) {
         val manager = getSystemService(NotificationManager::class.java)
         
-        val currentIds = mutableSetOf<Int>()
-        
-        if (entries.isEmpty()) {
-            val notification = buildStatusNotification(
-                title = getString(R.string.notif_title_clock_in),
-                summary = getString(R.string.notif_summary_no_active),
-            )
-            manager.notify(NOTIFICATION_ID_BASE, notification)
-            currentIds.add(NOTIFICATION_ID_BASE)
-        } else {
-            entries.forEach { entry ->
-                val notificationId = getNotificationId(entry.fileId, entry.headingLineIndex)
-                val notification = buildIndividualClockNotification(entry)
-                manager.notify(notificationId, notification)
-                currentIds.add(notificationId)
-            }
+        val currentIds = entries.map { it.fileId to it.headingLineIndex }
+        entries.forEachIndexed { index, entry ->
+            val notificationId = NOTIFICATION_ID_BASE + index
+            val notification = buildIndividualClockNotification(entry)
+            manager.notify(notificationId, notification)
         }
-        
-        for (i in NOTIFICATION_ID_BASE until NOTIFICATION_ID_BASE + 100) {
-            if (i !in currentIds) {
-                manager.cancel(i)
-            }
-        }
-    }
 
-    private fun getNotificationId(fileId: String, lineIndex: Int): Int {
-        return NOTIFICATION_ID_BASE + Math.abs((fileId.hashCode() + lineIndex) % 100)
+        val maxId = entries.size
+        for (i in (maxId + 1)..100) {
+            manager.cancel(i)
+        }
     }
 
     private fun buildIndividualClockNotification(entry: ClockInEntry): Notification {
@@ -207,10 +193,9 @@ class ClockInNotificationService : Service() {
             putExtra(EXTRA_FILE_ID, entry.fileId)
             putExtra(EXTRA_LINE_INDEX, entry.headingLineIndex)
         }
-        val notificationId = getNotificationId(entry.fileId, entry.headingLineIndex)
         val stopPendingIntent = PendingIntent.getService(
             this,
-            notificationId,
+            entry.headingLineIndex,
             stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -288,7 +273,10 @@ class ClockInNotificationService : Service() {
     }
 
     private fun elapsedMinutes(startedAt: ZonedDateTime): Long {
-        return maxOf(0L, Duration.between(startedAt, clockEnvironment.now()).toMinutes())
+        val now = clockEnvironment
+            .now()
+            .toZonedDateTime(clockEnvironment.currentTimeZone().toJavaZoneId())
+        return maxOf(0L, Duration.between(startedAt, now).toMinutes())
     }
 
     private fun headingLabel(entry: ClockInEntry): String {

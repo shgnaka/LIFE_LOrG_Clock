@@ -6,7 +6,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
-import com.example.orgclock.data.RootAccess
 import com.example.orgclock.domain.ClockOperationCode
 import com.example.orgclock.domain.ClockOperationException
 import com.example.orgclock.domain.ClockMutationResult
@@ -14,6 +13,8 @@ import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.time.toJavaZonedDateTime
+import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
@@ -30,12 +31,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.ZonedDateTime
 
 class OrgClockViewModel(
     private val loadSavedUri: () -> Uri?,
     private val saveUri: (Uri) -> Unit,
-    private val openRoot: suspend (Uri) -> Result<RootAccess>,
+    private val openRoot: suspend (Uri) -> Result<Unit>,
     private val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     private val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     private val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
@@ -203,10 +205,10 @@ class OrgClockViewModel(
                     it.copy(
                         editingEntry = action.entry,
                         editingDraft = ClockEditDraft(
-                            startHour = action.entry.start.hour,
-                            startMinute = normalizeMinuteToStep(action.entry.start.minute),
-                            endHour = action.entry.end.hour,
-                            endMinute = normalizeMinuteToStep(action.entry.end.minute),
+                            startHour = action.entry.start.toJavaZonedDateTime(ZoneId.systemDefault()).hour,
+                            startMinute = normalizeMinuteToStep(action.entry.start.toJavaZonedDateTime(ZoneId.systemDefault()).minute),
+                            endHour = action.entry.end.toJavaZonedDateTime(ZoneId.systemDefault()).hour,
+                            endMinute = normalizeMinuteToStep(action.entry.end.toJavaZonedDateTime(ZoneId.systemDefault()).minute),
                         ),
                     )
                 }
@@ -561,7 +563,7 @@ class OrgClockViewModel(
         val lineIndex = item.node.lineIndex
         val optimisticStartedAt = nowProvider()
         updatePendingClock(lineIndex, true)
-        updateHeadingOpenClock(lineIndex, OpenClockState(optimisticStartedAt))
+        updateHeadingOpenClock(lineIndex, OpenClockState(optimisticStartedAt.toKotlinInstantCompat()))
 
         val result = startClock(file.fileId, lineIndex)
         val status = if (result.isSuccess) {
@@ -576,7 +578,7 @@ class OrgClockViewModel(
             status(R.string.status_start_failed, tone, msg)
         }
         if (result.isSuccess) {
-            val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt
+            val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt.toKotlinInstantCompat()
             updateHeadingOpenClock(lineIndex, OpenClockState(startedAt))
             updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
@@ -642,12 +644,12 @@ class OrgClockViewModel(
         val entry = state.editingEntry ?: return
         val draft = state.editingDraft ?: return
 
-        val updatedStart = entry.start
+        val updatedStart = entry.start.toJavaZonedDateTime(ZoneId.systemDefault())
             .withHour(draft.startHour)
             .withMinute(draft.startMinute)
             .withSecond(0)
             .withNano(0)
-        val updatedEnd = entry.end
+        val updatedEnd = entry.end.toJavaZonedDateTime(ZoneId.systemDefault())
             .withHour(draft.endHour)
             .withMinute(draft.endMinute)
             .withSecond(0)

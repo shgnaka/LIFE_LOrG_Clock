@@ -18,6 +18,8 @@ import androidx.compose.ui.unit.dp
 import com.example.orgclock.R
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
+import com.example.orgclock.time.formatWithZone
+import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 private val ClockDateTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
@@ -64,7 +66,8 @@ internal fun ClockHistoryDialog(
                                     verticalArrangement = Arrangement.spacedBy(2.dp),
                                 ) {
                                     Text(
-                                        "${entry.start.format(ClockDateTimeFormatter)} - ${entry.end.format(ClockDateTimeFormatter)}",
+                                        "${entry.start.formatWithZone(ClockDateTimeFormatter, ZoneId.systemDefault())} - " +
+                                            entry.end.formatWithZone(ClockDateTimeFormatter, ZoneId.systemDefault()),
                                         style = MaterialTheme.typography.bodyMedium,
                                     )
                                 }
