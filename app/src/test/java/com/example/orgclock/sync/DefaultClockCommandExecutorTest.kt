@@ -249,6 +249,11 @@ class DefaultClockCommandExecutorTest {
             },
             syncCoreClient = RecordingSyncCoreClient(),
             commandExecutor = executor,
+            deviceIdProvider = object : DeviceIdProvider {
+                override fun getOrCreate(): String = "test-device"
+            },
+            runtimePrefs = FakeSyncRuntimePrefs(),
+            peerTrustStore = AlwaysTrustedPeerStore(),
         )
 
         val result = service.executeManualCommand(validCommand())
@@ -272,8 +277,8 @@ class DefaultClockCommandExecutorTest {
         )
         val executor = newExecutor(repo)
         val client = RecordingSyncCoreClient().apply {
-            incomingCommands += validCommand(commandId = "cmd-1", kind = "clock.start")
-            incomingCommands += validCommand(commandId = "cmd-2", kind = "clock.stop")
+            incomingCommands += verified(validCommand(commandId = "cmd-1", kind = "clock.start"), "cmd-1")
+            incomingCommands += verified(validCommand(commandId = "cmd-2", kind = "clock.stop"), "cmd-2")
         }
         val service = newEnabledService(executor, client)
 
@@ -330,7 +335,7 @@ class DefaultClockCommandExecutorTest {
         )
         val executor = newExecutor(repo)
         val client = RecordingSyncCoreClient().apply {
-            incomingCommands += validCommand(commandId = "cmd-1", kind = "clock.start")
+            incomingCommands += verified(validCommand(commandId = "cmd-1", kind = "clock.start"), "cmd-1")
         }
         val service = newEnabledService(executor, client)
 
@@ -373,6 +378,9 @@ class DefaultClockCommandExecutorTest {
             repository = repository,
             clockService = ClockService(repository),
             commandIdStore = commandIdStore,
+            deviceIdProvider = object : DeviceIdProvider {
+                override fun getOrCreate(): String = "test-device"
+            },
             clockEnvironment = FixedClockEnvironment,
         )
     }
@@ -387,6 +395,11 @@ class DefaultClockCommandExecutorTest {
             },
             syncCoreClient = client,
             commandExecutor = executor,
+            deviceIdProvider = object : DeviceIdProvider {
+                override fun getOrCreate(): String = "test-device"
+            },
+            runtimePrefs = FakeSyncRuntimePrefs(),
+            peerTrustStore = AlwaysTrustedPeerStore(),
         )
     }
 
@@ -420,6 +433,18 @@ class DefaultClockCommandExecutorTest {
         ":LOGBOOK:",
         ":END:",
     )
+
+    private fun verified(payload: String, commandId: String): VerifiedIncomingCommand {
+        return VerifiedIncomingCommand(
+            payloadJson = payload,
+            commandId = commandId,
+            senderDeviceId = "device-a",
+            peerId = "peer-a",
+            verificationState = IncomingVerificationState.Verified,
+            verificationReason = null,
+            receivedAtEpochMs = 1L,
+        )
+    }
 }
 
 private object FixedClockEnvironment : ClockEnvironment {
@@ -429,7 +454,7 @@ private object FixedClockEnvironment : ClockEnvironment {
 
 private class RecordingSyncCoreClient : OrgSyncCoreClient {
     val reported = mutableListOf<ClockResultPayload>()
-    val incomingCommands = mutableListOf<String>()
+    val incomingCommands = mutableListOf<VerifiedIncomingCommand>()
     var deliveryStates: List<SyncDeliveryState> = emptyList()
     var metrics: SyncMetricsSnapshot = SyncMetricsSnapshot()
     var reportErrorMessage: String? = null
@@ -448,7 +473,9 @@ private class RecordingSyncCoreClient : OrgSyncCoreClient {
         flushCount += 1
     }
 
-    override suspend fun observeIncomingCommands(): List<String> = incomingCommands.toList()
+    override suspend fun submitOutgoing(command: OutgoingClockCommand): SubmitResult = SubmitResult.Submitted
+
+    override suspend fun observeIncomingCommands(): List<VerifiedIncomingCommand> = incomingCommands.toList()
 
     override suspend fun reportResult(result: ClockResultPayload) {
         reportErrorMessage?.let { throw IllegalStateException(it) }
@@ -458,6 +485,32 @@ private class RecordingSyncCoreClient : OrgSyncCoreClient {
     override suspend fun observeDeliveryState(): List<SyncDeliveryState> = deliveryStates
 
     override suspend fun metricsSnapshot(): SyncMetricsSnapshot = metrics
+}
+
+private class FakeSyncRuntimePrefs : SyncRuntimePrefs {
+    private var enabled = true
+    private var mode = SyncRuntimeMode.Standard
+    private var defaultPeerId: String? = "peer-a"
+    override fun isEnabled(): Boolean = enabled
+    override fun setEnabled(enabled: Boolean) {
+        this.enabled = enabled
+    }
+
+    override fun selectedMode(): SyncRuntimeMode = mode
+    override fun setSelectedMode(mode: SyncRuntimeMode) {
+        this.mode = mode
+    }
+
+    override fun defaultPeerId(): String? = defaultPeerId
+    override fun setDefaultPeerId(peerId: String?) {
+        defaultPeerId = peerId
+    }
+}
+
+private class AlwaysTrustedPeerStore : PeerTrustStore {
+    override fun isTrusted(peerId: String): Boolean = true
+    override fun trust(peerId: String) {}
+    override fun revoke(peerId: String) {}
 }
 
 private class SharedBackingCommandIdStore(

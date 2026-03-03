@@ -8,30 +8,42 @@ class IncomingCommandBufferTest {
     @Test
     fun drainAll_returnsAddedPayloadsAndClearsBuffer() {
         val buffer = IncomingCommandBuffer(maxSize = 10)
-        buffer.add("""{"command_id":"cmd-1"}""")
-        buffer.add("""{"command_id":"cmd-2"}""")
+        buffer.add(command("cmd-1"))
+        buffer.add(command("cmd-2"))
 
         val drained = buffer.drainAll()
         val drainedAgain = buffer.drainAll()
 
         assertEquals(2, drained.size)
-        assertTrue(drained[0].contains("cmd-1"))
-        assertTrue(drained[1].contains("cmd-2"))
+        assertEquals("cmd-1", drained[0].commandId)
+        assertEquals("cmd-2", drained[1].commandId)
         assertTrue(drainedAgain.isEmpty())
     }
 
     @Test
     fun add_overCapacityDropsOldest() {
         val buffer = IncomingCommandBuffer(maxSize = 2)
-        buffer.add("""{"command_id":"cmd-1"}""")
-        buffer.add("""{"command_id":"cmd-2"}""")
+        buffer.add(command("cmd-1"))
+        buffer.add(command("cmd-2"))
 
-        val overflowed = buffer.add("""{"command_id":"cmd-3"}""")
+        val overflowed = buffer.add(command("cmd-3"))
         val drained = buffer.drainAll()
 
         assertTrue(overflowed)
         assertEquals(2, drained.size)
-        assertTrue(drained[0].contains("cmd-2"))
-        assertTrue(drained[1].contains("cmd-3"))
+        assertEquals("cmd-2", drained[0].commandId)
+        assertEquals("cmd-3", drained[1].commandId)
+    }
+
+    private fun command(commandId: String): VerifiedIncomingCommand {
+        return VerifiedIncomingCommand(
+            payloadJson = """{"schema":"$CLOCK_COMMAND_SCHEMA_V1","command_id":"$commandId","from_device_id":"dev-a"}""",
+            commandId = commandId,
+            senderDeviceId = "dev-a",
+            peerId = null,
+            verificationState = IncomingVerificationState.Verified,
+            verificationReason = null,
+            receivedAtEpochMs = 1L,
+        )
     }
 }
