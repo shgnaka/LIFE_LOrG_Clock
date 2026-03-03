@@ -16,6 +16,11 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.notification.NotificationPermissionChecker
 import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.notification.NotificationServiceConfig
+import com.example.orgclock.sync.BuildConfigSyncIntegrationFeatureFlag
+import com.example.orgclock.sync.DefaultClockCommandExecutor
+import com.example.orgclock.sync.NoOpSyncCoreClient
+import com.example.orgclock.sync.SharedPreferencesCommandIdStore
+import com.example.orgclock.sync.SyncIntegrationService
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
 import com.example.orgclock.time.toJavaLocalDateCompat
@@ -30,6 +35,8 @@ interface AppGraph {
         activity: ComponentActivity,
         notificationPermissionChecker: NotificationPermissionChecker,
     ): OrgClockRouteDependencies
+
+    fun syncIntegrationService(activity: ComponentActivity): SyncIntegrationService
 }
 
 class DefaultAppGraph(
@@ -42,6 +49,21 @@ class DefaultAppGraph(
     private val clockService by lazy { ClockService(repository) }
     private val clockInScanner by lazy { ClockInScanner(repository) }
     private val notificationServiceConfig: NotificationServiceConfig = NotificationServiceConfig()
+    private val syncIntegrationService: SyncIntegrationService by lazy {
+        val prefs = appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
+        val commandIdStore = SharedPreferencesCommandIdStore(prefs)
+        val commandExecutor = DefaultClockCommandExecutor(
+            repository = repository,
+            clockService = clockService,
+            commandIdStore = commandIdStore,
+            clockEnvironment = clockEnvironment,
+        )
+        SyncIntegrationService(
+            featureFlag = BuildConfigSyncIntegrationFeatureFlag(),
+            syncCoreClient = NoOpSyncCoreClient(),
+            commandExecutor = commandExecutor,
+        )
+    }
 
     override fun routeDependencies(
         activity: ComponentActivity,
@@ -129,5 +151,9 @@ class DefaultAppGraph(
             zoneIdProvider = { clockEnvironment.currentTimeZone().toJavaZoneId() },
             showPerfOverlay = (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
         )
+    }
+
+    override fun syncIntegrationService(activity: ComponentActivity): SyncIntegrationService {
+        return syncIntegrationService
     }
 }

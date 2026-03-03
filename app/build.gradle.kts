@@ -14,6 +14,10 @@ val syncCoreEnabled = (
     )
     ?.trim()
     ?.isNotEmpty() == true
+val syncIntegrationEnabled = providers.gradleProperty("synccore.integration.enabled")
+    .orNull
+    ?.toBooleanStrictOrNull()
+    ?: false
 
 android {
     namespace = "com.example.orgclock"
@@ -25,6 +29,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("boolean", "SYNC_INTEGRATION_ENABLED", syncIntegrationEnabled.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -64,6 +69,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     testOptions {
         execution = "ANDROIDX_TEST_ORCHESTRATOR"
@@ -95,6 +101,7 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     if (syncCoreEnabled) {
         implementation("io.github.shgnaka.synccore:sync-core-engine:0.1.0-SNAPSHOT")
     }

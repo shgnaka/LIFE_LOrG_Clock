@@ -63,6 +63,19 @@ export SYNC_CORE_DIR=/absolute/path/to/lanonly-p2p-cmdsync-core
 
 別リポジトリ側で `:sync-core-engine` モジュールを定義し、`io.github.shgnaka.synccore:sync-core-engine` 座標と対応づけてください。
 
+`sync` 実行パス自体はデフォルト無効です。手動検証時のみ `-Psynccore.integration.enabled=true` を付けてビルドしてください。
+
+```bash
+./gradlew :app:assembleDebug -Psynccore.integration.enabled=true
+```
+
+デバッグ用の単発コマンド実行（manual slice）は `sync_command_payload` extra 付きで Activity を起動すると実行できます。
+
+```bash
+adb shell am start -n com.example.orgclock/.MainActivity \
+  --es sync_command_payload '{"schema":"clock.command.v1","command_id":"cmd-1","kind":"clock.start","target":{"file_name":"2026-03-01.org","heading_path":"Work/Project A"},"requested_at":"2026-03-01T12:34:56Z","from_device_id":"device-a"}'
+```
+
 ## CI Distribution (No ADB / No USB)
 
 `adb` や USB 転送を使わずに端末へ更新を反映する場合は、GitHub Actions から Firebase App Distribution へ配布します。
