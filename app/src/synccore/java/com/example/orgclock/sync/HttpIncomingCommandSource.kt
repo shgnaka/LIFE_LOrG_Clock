@@ -1,6 +1,7 @@
 package com.example.orgclock.sync
 
 import fi.iki.elonen.NanoHTTPD
+import io.github.shgnaka.synccore.api.Envelope
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -10,9 +11,11 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
+import java.security.KeyFactory
+import java.security.Signature
+import java.security.spec.X509EncodedKeySpec
 import java.util.ArrayDeque
+import java.util.Base64
 import java.util.logging.Logger
 
 class HttpIncomingCommandSource(
@@ -21,6 +24,8 @@ class HttpIncomingCommandSource(
     private val maxBodyBytes: Int = DEFAULT_MAX_BODY_BYTES,
     private val maxRequestsPerMinute: Int = DEFAULT_MAX_REQUESTS_PER_MINUTE,
     private val allowedSkewSeconds: Long = DEFAULT_ALLOWED_SKEW_SECONDS,
+    private val incomingEnvelopeVerifier: IncomingEnvelopeVerifierPort = RejectingIncomingEnvelopeVerifier(),
+    private val replayRegistry: ReplayRegistryPort = InMemoryReplayRegistry(),
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) : IncomingCommandSource {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -35,7 +40,12 @@ class HttpIncomingCommandSource(
                 port = port,
                 maxBodyBytes = maxBodyBytes,
                 maxRequestsPerMinute = maxRequestsPerMinute,
-                allowedSkewSeconds = allowedSkewSeconds,
+                validationEngine = IncomingCommandValidationEngine(
+                    allowedSkewSeconds = allowedSkewSeconds,
+                    replayRegistry = replayRegistry,
+                    json = json,
+                ),
+                incomingEnvelopeVerifier = incomingEnvelopeVerifier,
                 json = json,
             ) { command ->
                 scope.launch {
@@ -76,12 +86,12 @@ private class IncomingCommandHttpServer(
     port: Int,
     private val maxBodyBytes: Int,
     maxRequestsPerMinute: Int,
-    private val allowedSkewSeconds: Long,
+    private val validationEngine: IncomingCommandValidationEngine,
+    private val incomingEnvelopeVerifier: IncomingEnvelopeVerifierPort,
     private val json: Json,
     private val onCommand: (VerifiedIncomingCommand) -> Unit,
 ) : NanoHTTPD(host, port) {
     private val rateLimiter = SlidingWindowRateLimiter(maxRequestsPerMinute)
-    private val replayGuard = ReplayGuard()
 
     override fun serve(session: IHTTPSession): Response {
         if (session.method == Method.GET && session.uri == "/v1/health") {
@@ -110,15 +120,16 @@ private class IncomingCommandHttpServer(
             return plain(Response.Status.BAD_REQUEST, "invalid request body")
         }
 
-        val command = extractClockCommandPayload(
-            uri = session.uri,
-            body = body,
-            allowedSkewSeconds = allowedSkewSeconds,
-            replayGuard = replayGuard,
-            json = json,
-        ).getOrElse { error ->
+        val command = kotlinx.coroutines.runBlocking {
+            validationEngine.extractClockCommandPayload(
+                uri = session.uri,
+                body = body,
+                incomingEnvelopeVerifier = incomingEnvelopeVerifier,
+            )
+        }.getOrElse { error ->
             return plain(Response.Status.BAD_REQUEST, error.message ?: "invalid payload")
         }
+
         onCommand(command)
         return plain(Response.Status.ACCEPTED, "accepted")
     }
@@ -128,98 +139,112 @@ private class IncomingCommandHttpServer(
     }
 }
 
-internal fun extractClockCommandPayload(
-    uri: String,
-    body: String,
-    allowedSkewSeconds: Long = HttpIncomingCommandSource.DEFAULT_ALLOWED_SKEW_SECONDS,
-    replayGuard: ReplayGuard = ReplayGuard(),
-    json: Json = Json { ignoreUnknownKeys = true },
-): Result<VerifiedIncomingCommand> {
-    val commandPayload = when (uri) {
-        "/v1/incoming-command" -> body
-        "/v1/messages" -> extractFromMessageEnvelope(body, json)
-            .getOrElse { return Result.failure(it) }
-        else -> return Result.failure(IllegalArgumentException("Unsupported endpoint: $uri"))
+internal class RejectingIncomingEnvelopeVerifier : IncomingEnvelopeVerifierPort {
+    override fun verifyCommandEnvelope(rawEnvelopeJson: String): Result<IncomingCommandPayloadContext> {
+        return Result.failure(IllegalArgumentException("incoming envelope verifier is not configured"))
     }
-    return validateClockCommandPayload(
-        payload = commandPayload,
-        allowedSkewSeconds = allowedSkewSeconds,
-        replayGuard = replayGuard,
-        json = json,
-    )
 }
 
-private fun extractFromMessageEnvelope(body: String, json: Json): Result<String> {
-    val outer = runCatching { json.parseToJsonElement(body).jsonObject }
-        .getOrElse { return Result.failure(IllegalArgumentException("Envelope must be valid JSON object")) }
+internal class Ed25519IncomingEnvelopeVerifier(
+    private val peerTrustStore: PeerTrustStore,
+    private val json: Json = Json { ignoreUnknownKeys = true },
+) : IncomingEnvelopeVerifierPort {
+    override fun verifyCommandEnvelope(rawEnvelopeJson: String): Result<IncomingCommandPayloadContext> = runCatching {
+        val envelope = parseEnvelope(rawEnvelopeJson)
+        if (!envelope.messageType.name.equals("COMMAND", ignoreCase = true)) {
+            throw IllegalArgumentException("envelope messageType must be COMMAND")
+        }
+        val senderDeviceId = envelope.senderDeviceId.trim()
+        if (senderDeviceId.isBlank()) {
+            throw IllegalArgumentException("envelope senderDeviceId is empty")
+        }
+        val trustedPublicKeyBase64 = peerTrustStore.getTrustedPublicKey(senderDeviceId)
+            ?: throw IllegalArgumentException("sender device is not trusted: $senderDeviceId")
 
-    val outerPayloadJson = outer.optionalString("payloadJson")
-        ?: return Result.success(body)
+        val signatureRaw = envelope.signatureBase64.trim()
+        if (signatureRaw.isBlank()) {
+            throw IllegalArgumentException("envelope signature is empty")
+        }
 
-    val inner = runCatching { json.parseToJsonElement(outerPayloadJson).jsonObject }.getOrNull()
-    val nestedPayload = inner?.optionalString("payloadJson")
-    return Result.success(nestedPayload ?: outerPayloadJson)
+        val unsigned = envelope.copy(signatureBase64 = "")
+        val verified = verifySignature(
+            canonicalPayload = canonicalizeEnvelope(unsigned),
+            signatureBase64 = signatureRaw,
+            trustedPublicKeyBase64 = trustedPublicKeyBase64,
+        )
+        if (!verified) {
+            throw IllegalArgumentException("envelope signature verification failed")
+        }
+
+        val payloadObject = runCatching { json.parseToJsonElement(envelope.payloadJson).jsonObject }
+            .getOrElse { throw IllegalArgumentException("envelope payloadJson is not valid JSON object") }
+        IncomingCommandPayloadContext(
+            payloadJson = envelope.payloadJson,
+            verifiedPeerId = payloadObject.optionalString("peer_id") ?: senderDeviceId,
+            signatureKeyId = payloadObject.optionalString("signature_key_id"),
+            expectedSenderDeviceId = senderDeviceId,
+            verificationMethod = "envelope-signature+schema+sender+timestamp+replay",
+        )
+    }
+
+    private fun parseEnvelope(rawEnvelopeJson: String): Envelope {
+        val candidates = mutableListOf(rawEnvelopeJson)
+        runCatching { json.parseToJsonElement(rawEnvelopeJson).jsonObject }
+            .getOrNull()
+            ?.let { root ->
+                root.optionalString("payloadJson")?.let { candidates.add(it) }
+                val nested = root.optionalString("payloadJson")
+                    ?.let { runCatching { json.parseToJsonElement(it).jsonObject }.getOrNull() }
+                nested?.optionalString("payloadJson")?.let { candidates.add(it) }
+            }
+
+        for (candidate in candidates) {
+            val envelope = runCatching { json.decodeFromString(Envelope.serializer(), candidate) }.getOrNull()
+            if (envelope != null) return envelope
+        }
+        throw IllegalArgumentException("command envelope is not valid")
+    }
+
+    private fun verifySignature(
+        canonicalPayload: String,
+        signatureBase64: String,
+        trustedPublicKeyBase64: String,
+    ): Boolean {
+        return runCatching {
+            val keyFactory = KeyFactory.getInstance(ED25519_ALGORITHM)
+            val publicKeyBytes = Base64.getDecoder().decode(trustedPublicKeyBase64)
+            val publicKey = keyFactory.generatePublic(X509EncodedKeySpec(publicKeyBytes))
+            val signature = Signature.getInstance(ED25519_ALGORITHM)
+            signature.initVerify(publicKey)
+            signature.update(canonicalPayload.toByteArray(Charsets.UTF_8))
+            signature.verify(Base64.getDecoder().decode(signatureBase64))
+        }.getOrDefault(false)
+    }
+
+    private fun canonicalizeEnvelope(envelope: Envelope): String {
+        return listOf(
+            envelope.schemaVersion.toString(),
+            envelope.messageType.name,
+            envelope.messageId,
+            envelope.senderDeviceId,
+            envelope.sentAtEpochMs.toString(),
+            envelope.nonce,
+            envelope.payloadJson,
+        ).joinToString("\n")
+    }
+
+    private companion object {
+        const val ED25519_ALGORITHM = "Ed25519"
+    }
 }
 
-private fun validateClockCommandPayload(
-    payload: String,
-    allowedSkewSeconds: Long,
-    replayGuard: ReplayGuard,
-    json: Json,
-): Result<VerifiedIncomingCommand> {
-    val root = runCatching { json.parseToJsonElement(payload).jsonObject }
-        .getOrElse { return Result.failure(IllegalArgumentException("Clock command payload must be valid JSON object")) }
-
-    val schema = root.optionalString("schema")
-        ?: return Result.failure(IllegalArgumentException("Missing schema"))
-    if (schema != CLOCK_COMMAND_SCHEMA_V1) {
-        return Result.failure(IllegalArgumentException("Unsupported schema: $schema"))
-    }
-    val commandId = root.optionalString("command_id")
-        ?: return Result.failure(IllegalArgumentException("Missing command_id"))
-    val senderDeviceId = root.optionalString("from_device_id")
-        ?: return Result.failure(IllegalArgumentException("Missing from_device_id"))
-    val requestedAtRaw = root.optionalString("requested_at")
-        ?: return Result.failure(IllegalArgumentException("Missing requested_at"))
-    val requestedAt = runCatching { Instant.parse(requestedAtRaw) }
-        .getOrElse { return Result.failure(IllegalArgumentException("Invalid requested_at")) }
-    val now = Clock.System.now()
-    val skew = kotlin.math.abs(now.epochSeconds - requestedAt.epochSeconds)
-    if (skew > allowedSkewSeconds) {
-        return Result.failure(IllegalArgumentException("requested_at outside allowed skew"))
-    }
-    val replayPassed = replayGuard.register(senderDeviceId, commandId)
-    if (!replayPassed) {
-        return Result.failure(IllegalArgumentException("duplicate command_id replay"))
-    }
-    val peerId = root.optionalString("peer_id")
-    return Result.success(
-        VerifiedIncomingCommand(
-            payloadJson = payload,
-            commandId = commandId,
-            senderDeviceId = senderDeviceId,
-            peerId = peerId ?: senderDeviceId,
-            verifiedPeerId = peerId ?: senderDeviceId,
-            verificationState = IncomingVerificationState.Verified,
-            verificationMethod = "schema+sender+timestamp+replay",
-            signatureKeyId = root.optionalString("signature_key_id"),
-            replayCheckPassed = replayPassed,
-            receivedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
-        ),
-    )
-}
-
-private fun JsonObject.optionalString(name: String): String? {
-    return (this[name] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
-}
-
-internal class ReplayGuard(
+internal class InMemoryReplayRegistry(
     private val maxSize: Int = 2_048,
-) {
+) : ReplayRegistryPort {
     private val lock = Any()
     private val seen = linkedMapOf<String, Long>()
 
-    fun register(senderDeviceId: String, commandId: String): Boolean {
+    override suspend fun register(senderDeviceId: String, commandId: String): Boolean {
         val key = "$senderDeviceId::$commandId"
         synchronized(lock) {
             if (seen.containsKey(key)) return false
@@ -233,6 +258,10 @@ internal class ReplayGuard(
             return true
         }
     }
+}
+
+private fun JsonObject.optionalString(name: String): String? {
+    return (this[name] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
 }
 
 private class SlidingWindowRateLimiter(

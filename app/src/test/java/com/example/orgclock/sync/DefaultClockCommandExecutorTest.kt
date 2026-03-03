@@ -511,7 +511,9 @@ private class AlwaysTrustedPeerStore : PeerTrustStore {
     override fun isTrusted(peerId: String): Boolean = true
     override fun listTrusted(): List<String> = listOf("peer-a")
     override fun trust(peerId: String) {}
+    override fun trust(peerId: String, publicKeyBase64: String) {}
     override fun revoke(peerId: String) {}
+    override fun getTrustedPublicKey(peerId: String): String? = null
 }
 
 private class SharedBackingCommandIdStore(

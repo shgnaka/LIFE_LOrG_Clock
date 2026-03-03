@@ -4,12 +4,15 @@ import android.content.Context
 import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.Insert
+import androidx.room.migration.Migration
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import io.github.shgnaka.synccore.api.CommandState
 import io.github.shgnaka.synccore.api.DeliveryErrorCode
 import io.github.shgnaka.synccore.api.DeliveryEvent
@@ -22,6 +25,7 @@ import io.github.shgnaka.synccore.engine.RetentionPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
+import java.util.concurrent.TimeUnit
 
 internal class RoomEngineStore(
     private val dao: SyncQueueDao,
@@ -188,6 +192,17 @@ internal data class DeliveryEventRow(
     val detail: String?,
 )
 
+@Entity(
+    tableName = "sync_incoming_replay",
+    primaryKeys = ["senderDeviceId", "commandId"],
+    indices = [Index(value = ["registeredAtEpochMs"])],
+)
+internal data class IncomingReplayRow(
+    val senderDeviceId: String,
+    val commandId: String,
+    val registeredAtEpochMs: Long,
+)
+
 @Dao
 internal interface SyncQueueDao {
     @Query("SELECT 1")
@@ -242,23 +257,93 @@ internal interface SyncQueueDao {
 
     @Query("SELECT COUNT(*) FROM sync_outgoing_queue WHERE state IN ('PENDING', 'SENT', 'ACKED')")
     suspend fun countQueueDepth(): Int
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIncomingReplay(row: IncomingReplayRow): Long
+
+    @Query("SELECT COUNT(*) FROM sync_incoming_replay WHERE senderDeviceId = :senderDeviceId AND commandId = :commandId")
+    suspend fun countIncomingReplay(senderDeviceId: String, commandId: String): Int
+
+    @Query("DELETE FROM sync_incoming_replay WHERE registeredAtEpochMs < :cutoffEpochMs")
+    suspend fun deleteIncomingReplayOlderThan(cutoffEpochMs: Long): Int
+
+    @Query("SELECT COUNT(*) FROM sync_incoming_replay")
+    suspend fun countIncomingReplayRows(): Int
+
+    @Query(
+        "DELETE FROM sync_incoming_replay " +
+            "WHERE rowid IN (" +
+            "SELECT rowid FROM sync_incoming_replay " +
+            "ORDER BY registeredAtEpochMs ASC LIMIT :limit" +
+            ")",
+    )
+    suspend fun deleteOldestIncomingReplay(limit: Int): Int
 }
 
 @Database(
-    entities = [OutgoingCommandRow::class, ProcessedResultRow::class, DeliveryEventRow::class],
-    version = 1,
+    entities = [OutgoingCommandRow::class, ProcessedResultRow::class, DeliveryEventRow::class, IncomingReplayRow::class],
+    version = 2,
     exportSchema = false,
 )
 internal abstract class SyncQueueDatabase : RoomDatabase() {
     abstract fun syncQueueDao(): SyncQueueDao
 }
 
+internal class PersistentReplayRegistry(
+    private val dao: SyncQueueDao,
+    private val retentionMs: Long = TimeUnit.DAYS.toMillis(7),
+    private val maxRows: Int = 100_000,
+) : ReplayRegistryPort {
+    override suspend fun register(senderDeviceId: String, commandId: String): Boolean {
+        val nowEpochMs = System.currentTimeMillis()
+        val normalizedSender = senderDeviceId.trim()
+        val normalizedCommand = commandId.trim()
+        if (normalizedSender.isBlank() || normalizedCommand.isBlank()) return false
+        if (dao.countIncomingReplay(normalizedSender, normalizedCommand) > 0) return false
+        val inserted = dao.insertIncomingReplay(
+            IncomingReplayRow(
+                senderDeviceId = normalizedSender,
+                commandId = normalizedCommand,
+                registeredAtEpochMs = nowEpochMs,
+            ),
+        )
+        if (inserted < 0L) return false
+        pruneInternal(nowEpochMs)
+        return true
+    }
+
+    private suspend fun pruneInternal(nowEpochMs: Long): Int {
+        var deleted = dao.deleteIncomingReplayOlderThan(nowEpochMs - retentionMs)
+        val overflow = dao.countIncomingReplayRows() - maxRows
+        if (overflow > 0) {
+            deleted += dao.deleteOldestIncomingReplay(overflow)
+        }
+        return deleted
+    }
+}
+
 internal object SyncQueueDatabaseFactory {
+    private val MIGRATION_1_2 = object : Migration(1, 2) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS sync_incoming_replay (" +
+                    "senderDeviceId TEXT NOT NULL, " +
+                    "commandId TEXT NOT NULL, " +
+                    "registeredAtEpochMs INTEGER NOT NULL, " +
+                    "PRIMARY KEY(senderDeviceId, commandId))",
+            )
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS index_sync_incoming_replay_registeredAtEpochMs " +
+                    "ON sync_incoming_replay(registeredAtEpochMs)",
+            )
+        }
+    }
+
     fun create(appContext: Context): SyncQueueDatabase {
         return Room.databaseBuilder(
             appContext,
             SyncQueueDatabase::class.java,
             "orgclock_sync_queue.db",
-        ).build()
+        ).addMigrations(MIGRATION_1_2).build()
     }
 }

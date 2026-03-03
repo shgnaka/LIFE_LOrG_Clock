@@ -28,14 +28,16 @@ class SynccoreEngineClientFactory : SyncCoreClientFactory {
         clockService: ClockService,
         clockEnvironment: ClockEnvironment,
     ): OrgSyncCoreClient {
+        val sharedPrefs = appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
         val database = SyncQueueDatabaseFactory.create(appContext)
         val store: EngineStore = RoomEngineStore(database.syncQueueDao())
         val runtimePrefs = SharedPreferencesSyncRuntimePrefs(
-            appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
+            sharedPrefs,
         )
         val deviceIdProvider = SharedPreferencesDeviceIdProvider(
-            appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
+            sharedPrefs,
         )
+        val peerTrustStore = SharedPreferencesPeerTrustStore(sharedPrefs)
         val engine = SyncCoreEngine(
             store = store,
             dispatcher = GatewayDispatcher(
@@ -54,6 +56,8 @@ class SynccoreEngineClientFactory : SyncCoreClientFactory {
             incomingCommandSource = HttpIncomingCommandSource(
                 allowedSkewSeconds = runtimePrefs.inboundClockSkewSeconds(),
                 maxRequestsPerMinute = runtimePrefs.inboundMaxRequestsPerMinute(),
+                incomingEnvelopeVerifier = Ed25519IncomingEnvelopeVerifier(peerTrustStore),
+                replayRegistry = PersistentReplayRegistry(database.syncQueueDao()),
             ),
         )
     }
