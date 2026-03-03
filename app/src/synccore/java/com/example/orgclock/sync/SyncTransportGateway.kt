@@ -1,14 +1,22 @@
 package com.example.orgclock.sync
 
 import io.github.shgnaka.synccore.api.DeliveryErrorCode
+import io.github.shgnaka.synccore.api.Envelope
+import io.github.shgnaka.synccore.api.MessageType
+import io.github.shgnaka.synccore.api.ResultStatus
 import io.github.shgnaka.synccore.api.SyncCommand
 import io.github.shgnaka.synccore.api.SyncResult
+import kotlinx.datetime.Instant
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URI
+import java.util.UUID
 import java.util.logging.Logger
 
 interface SyncTransportGateway {
@@ -41,6 +49,8 @@ class HttpSyncTransportGateway(
     private val endpointResolver: SyncEndpointResolver = DefaultSyncEndpointResolver(),
     private val connectTimeoutMs: Int = 5_000,
     private val readTimeoutMs: Int = 5_000,
+    private val localDeviceIdProvider: (() -> String)? = null,
+    private val resultEnvelopeSigner: ResultEnvelopeSigner? = null,
     private val json: Json = Json,
 ) : SyncTransportGateway {
     override suspend fun dispatch(command: SyncCommand): TransportDispatchResult {
@@ -51,16 +61,17 @@ class HttpSyncTransportGateway(
             )
         }
 
-        return runCatching {
-            val connection = (URI.create(endpoint).toURL().openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                connectTimeout = connectTimeoutMs
-                readTimeout = readTimeoutMs
-                setRequestProperty("Content-Type", "application/json")
+        val payload = if (command.topic == CLOCK_RESULT_SCHEMA_V1) {
+            buildSignedResultEnvelopePayload(command).getOrElse { error ->
+                logger.fine("sync.transport.result.envelope_failed commandId=${command.commandId} reason=${error.message ?: "unknown"}")
+                return TransportDispatchResult.Rejected(
+                    errorCode = DeliveryErrorCode.INVALID_PAYLOAD,
+                    errorMessage = error.message ?: "result envelope signing failed",
+                )
             }
-            val payload = json.encodeToString(
-                kotlinx.serialization.json.JsonObject.serializer(),
+        } else {
+            json.encodeToString(
+                JsonObject.serializer(),
                 buildJsonObject {
                     put("topic", command.topic)
                     put("commandId", command.commandId)
@@ -69,6 +80,24 @@ class HttpSyncTransportGateway(
                     put("targetPeerId", command.targetPeerId)
                 },
             )
+        }
+
+        return postPayload(endpoint, payload, command.commandId)
+    }
+
+    private fun postPayload(
+        endpoint: String,
+        payload: String,
+        commandId: String,
+    ): TransportDispatchResult {
+        return runCatching {
+            val connection = (URI.create(endpoint).toURL().openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                connectTimeout = connectTimeoutMs
+                readTimeout = readTimeoutMs
+                setRequestProperty("Content-Type", "application/json")
+            }
             connection.outputStream.use { output ->
                 OutputStreamWriter(output, Charsets.UTF_8).use { writer ->
                     writer.write(payload)
@@ -94,12 +123,76 @@ class HttpSyncTransportGateway(
                 )
             }
         }.getOrElse { error ->
-            logger.fine("sync.transport.http.failed commandId=${command.commandId} reason=${error.message ?: "unknown"}")
+            logger.fine("sync.transport.http.failed commandId=$commandId reason=${error.message ?: "unknown"}")
             TransportDispatchResult.RetryableFailure(
                 errorCode = DeliveryErrorCode.NETWORK_UNREACHABLE,
                 errorMessage = error.message ?: "network request failed",
             )
         }
+    }
+
+    private fun buildSignedResultEnvelopePayload(command: SyncCommand): Result<String> = runCatching {
+        val senderDeviceId = requireNotNull(localDeviceIdProvider?.invoke()?.takeIf { it.isNotBlank() }) {
+            "localDeviceId is required for result envelope dispatch"
+        }
+        val signer = requireNotNull(resultEnvelopeSigner) {
+            "result envelope signer is required"
+        }
+        val result = parseResultPayload(command)
+        val unsigned = Envelope(
+            schemaVersion = 1,
+            messageType = MessageType.RESULT,
+            messageId = UUID.randomUUID().toString(),
+            senderDeviceId = senderDeviceId,
+            sentAtEpochMs = System.currentTimeMillis(),
+            nonce = UUID.randomUUID().toString(),
+            payloadJson = json.encodeToString(SyncResult.serializer(), result),
+            signatureBase64 = "",
+        )
+        val signature = signer.signCanonical(canonicalizeEnvelope(unsigned)).getOrElse { throw it }
+        json.encodeToString(Envelope.serializer(), unsigned.copy(signatureBase64 = signature))
+    }
+
+    private fun parseResultPayload(command: SyncCommand): SyncResult {
+        runCatching { json.decodeFromString(SyncResult.serializer(), command.payloadJson) }
+            .getOrNull()
+            ?.let { parsed ->
+                return parsed.copy(commandId = command.commandId)
+            }
+        val root = runCatching { json.parseToJsonElement(command.payloadJson) }
+            .getOrNull()
+            ?.let { it as? JsonObject }
+            ?: throw IllegalArgumentException("result payload is not valid JSON object")
+        val status = when (root["status"]?.jsonPrimitive?.contentOrNull?.trim()?.lowercase()) {
+            "applied" -> ResultStatus.APPLIED
+            "failed" -> ResultStatus.FAILED
+            "duplicate" -> ResultStatus.DUPLICATE
+            "rejected" -> ResultStatus.REJECTED
+            else -> throw IllegalArgumentException("unsupported result status")
+        }
+        val appliedAtEpochMs = root["applied_at"]?.jsonPrimitive?.contentOrNull
+            ?.let { raw ->
+                runCatching { Instant.parse(raw).toEpochMilliseconds() }.getOrNull()
+            }
+        return SyncResult(
+            commandId = root["command_id"]?.jsonPrimitive?.contentOrNull ?: command.commandId,
+            status = status,
+            errorCode = root["error_code"]?.jsonPrimitive?.contentOrNull,
+            errorMessage = root["error_message"]?.jsonPrimitive?.contentOrNull,
+            appliedAtEpochMs = appliedAtEpochMs,
+        )
+    }
+
+    private fun canonicalizeEnvelope(envelope: Envelope): String {
+        return listOf(
+            envelope.schemaVersion.toString(),
+            envelope.messageType.name,
+            envelope.messageId,
+            envelope.senderDeviceId,
+            envelope.sentAtEpochMs.toString(),
+            envelope.nonce,
+            envelope.payloadJson,
+        ).joinToString("\n")
     }
 
     private companion object {

@@ -33,9 +33,19 @@ class SynccoreEngineClientFactory : SyncCoreClientFactory {
         val runtimePrefs = SharedPreferencesSyncRuntimePrefs(
             appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
         )
+        val deviceIdProvider = SharedPreferencesDeviceIdProvider(
+            appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
+        )
         val engine = SyncCoreEngine(
             store = store,
-            dispatcher = GatewayDispatcher(HttpSyncTransportGateway()),
+            dispatcher = GatewayDispatcher(
+                HttpSyncTransportGateway(
+                    localDeviceIdProvider = { deviceIdProvider.getOrCreate() },
+                    resultEnvelopeSigner = AndroidKeystoreResultEnvelopeSigner(
+                        keyAliasProvider = { runtimePrefs.resultSigningKeyAlias() },
+                    ),
+                ),
+            ),
             ioDispatcher = Dispatchers.Default,
             flushIntervalMs = 1_000L,
         )

@@ -17,6 +17,8 @@ import io.github.shgnaka.synccore.api.SyncCommand
 import io.github.shgnaka.synccore.api.SyncResult
 import io.github.shgnaka.synccore.engine.EngineStore
 import io.github.shgnaka.synccore.engine.OutgoingCommandRecord
+import io.github.shgnaka.synccore.engine.RetentionCleanupResult
+import io.github.shgnaka.synccore.engine.RetentionPolicy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
@@ -130,6 +132,20 @@ internal class RoomEngineStore(
     override suspend fun getQueueDepth(): Long {
         return dao.countQueueDepth().toLong()
     }
+
+    override suspend fun cleanupRetention(
+        nowEpochMs: Long,
+        policy: RetentionPolicy,
+    ): Result<RetentionCleanupResult> = runCatching {
+        val deliveryEventCutoff = nowEpochMs - policy.deliveryEventsTtlMs
+        val deletedDeliveryEvents = dao.countDeliveryEventsOlderThan(deliveryEventCutoff).toLong()
+        dao.deleteDeliveryEventsOlderThan(deliveryEventCutoff)
+        RetentionCleanupResult(
+            deletedIncomingMessages = 0L,
+            deletedNonces = 0L,
+            deletedDeliveryEvents = deletedDeliveryEvents,
+        )
+    }
 }
 
 @Entity(tableName = "sync_outgoing_queue")
@@ -214,6 +230,12 @@ internal interface SyncQueueDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertDeliveryEvent(row: DeliveryEventRow)
+
+    @Query("SELECT COUNT(*) FROM sync_delivery_events WHERE occurredAtEpochMs < :cutoffEpochMs")
+    suspend fun countDeliveryEventsOlderThan(cutoffEpochMs: Long): Int
+
+    @Query("DELETE FROM sync_delivery_events WHERE occurredAtEpochMs < :cutoffEpochMs")
+    suspend fun deleteDeliveryEventsOlderThan(cutoffEpochMs: Long)
 
     @Query("SELECT COUNT(*) FROM sync_outgoing_queue WHERE state IN ('PENDING', 'SENT', 'ACKED')")
     suspend fun countQueueDepth(): Int
