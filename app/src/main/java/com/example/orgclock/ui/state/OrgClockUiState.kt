@@ -47,6 +47,14 @@ data class ClockEditDraft(
 )
 
 @Immutable
+data class PeerUiItem(
+    val peerId: String,
+    val reachable: Boolean? = null,
+    val lastCheckedAtEpochMs: Long? = null,
+    val lastSyncedAtEpochMs: Long? = null,
+)
+
+@Immutable
 data class CreateHeadingDialogState(
     val mode: CreateHeadingMode,
     val parentL1LineIndex: Int? = null,
@@ -83,9 +91,14 @@ data class OrgClockUiState(
     val pendingEnableNotificationAfterPermission: Boolean = false,
     val openAppNotificationSettingsPending: Boolean = false,
     val showPerfOverlay: Boolean = false,
+    val syncFeatureVisible: Boolean = false,
     val syncDebugVisible: Boolean = false,
     val syncRuntimeEnabled: Boolean = false,
     val syncDefaultPeerId: String = "",
+    val syncPeers: List<PeerUiItem> = emptyList(),
+    val syncPeerInput: String = "",
+    val syncPeerInputError: String? = null,
+    val syncPeerBusy: Boolean = false,
     val syncRuntimeMode: SyncRuntimeMode = SyncRuntimeMode.Off,
     val syncLastResultSummary: String? = null,
     val syncLastError: String? = null,

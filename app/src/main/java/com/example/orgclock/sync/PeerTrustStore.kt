@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 
 interface PeerTrustStore {
     fun isTrusted(peerId: String): Boolean
+    fun listTrusted(): List<String>
     fun trust(peerId: String)
     fun revoke(peerId: String)
 }
@@ -14,6 +15,14 @@ class SharedPreferencesPeerTrustStore(
     override fun isTrusted(peerId: String): Boolean {
         val trusted = prefs.getStringSet(KEY_TRUSTED_PEER_IDS, emptySet()) ?: emptySet()
         return trusted.contains(peerId)
+    }
+
+    override fun listTrusted(): List<String> {
+        return (prefs.getStringSet(KEY_TRUSTED_PEER_IDS, emptySet()) ?: emptySet())
+            .asSequence()
+            .filter { it.isNotBlank() }
+            .sorted()
+            .toList()
     }
 
     override fun trust(peerId: String) {

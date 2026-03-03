@@ -10,6 +10,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.logging.Logger
 
+data class SyncPeerState(
+    val peerId: String,
+    val reachable: Boolean? = null,
+    val lastCheckedAtEpochMs: Long? = null,
+    val lastSyncedAtEpochMs: Long? = null,
+)
+
 data class SyncIntegrationSnapshot(
     val lastResult: ClockResultPayload? = null,
     val lastError: String? = null,
@@ -18,6 +25,8 @@ data class SyncIntegrationSnapshot(
     val runtimeMode: SyncRuntimeMode = SyncRuntimeMode.Off,
     val runtimeEnabled: Boolean = false,
     val defaultPeerId: String? = null,
+    val trustedPeers: List<String> = emptyList(),
+    val peerStates: List<SyncPeerState> = emptyList(),
 )
 
 class SyncIntegrationService(
@@ -27,13 +36,16 @@ class SyncIntegrationService(
     private val deviceIdProvider: DeviceIdProvider,
     private val runtimePrefs: SyncRuntimePrefs,
     private val peerTrustStore: PeerTrustStore,
+    private val peerHealthChecker: PeerHealthChecker = HttpPeerHealthChecker(),
     private val runtimeManager: SyncRuntimeManager? = null,
 ) {
+    private val peerStates = linkedMapOf<String, SyncPeerState>()
     private val _snapshot = MutableStateFlow(
         SyncIntegrationSnapshot(
             runtimeEnabled = runtimePrefs.isEnabled(),
             runtimeMode = runtimePrefs.selectedMode(),
             defaultPeerId = runtimePrefs.defaultPeerId(),
+            trustedPeers = peerTrustStore.listTrusted(),
         ),
     )
     val snapshot: StateFlow<SyncIntegrationSnapshot> = _snapshot.asStateFlow()
@@ -178,10 +190,20 @@ class SyncIntegrationService(
     private suspend fun refreshStateSnapshot() {
         val metrics = runCatching { syncCoreClient.metricsSnapshot() }.getOrDefault(SyncMetricsSnapshot())
         val states = runCatching { syncCoreClient.observeDeliveryState() }.getOrDefault(emptyList())
+        val trusted = peerTrustStore.listTrusted()
+        val peerStatesSnapshot = synchronized(peerStates) {
+            trusted.forEach { peerId ->
+                peerStates.putIfAbsent(peerId, SyncPeerState(peerId = peerId))
+            }
+            peerStates.keys.retainAll(trusted.toSet())
+            trusted.mapNotNull { peerStates[it] }.takeLast(MAX_PEER_STATES)
+        }
         _snapshot.update {
             it.copy(
                 metrics = metrics,
                 lastDeliveryStates = states.takeLast(MAX_DELIVERY_STATES),
+                trustedPeers = trusted,
+                peerStates = peerStatesSnapshot,
             )
         }
     }
@@ -193,7 +215,17 @@ class SyncIntegrationService(
         if (!peerTrustStore.isTrusted(command.targetPeerId)) {
             return SubmitResult.Rejected("peer is not trusted: ${command.targetPeerId}")
         }
-        return syncCoreClient.submitOutgoing(command)
+        val result = syncCoreClient.submitOutgoing(command)
+        if (result is SubmitResult.Submitted) {
+            updatePeerState(
+                peerId = command.targetPeerId,
+                reachable = true,
+                lastCheckedAtEpochMs = null,
+                lastSyncedAtEpochMs = System.currentTimeMillis(),
+            )
+            refreshStateSnapshot()
+        }
+        return result
     }
 
     fun markSyncError(message: String) {
@@ -215,16 +247,99 @@ class SyncIntegrationService(
     }
 
     fun setDefaultPeerId(peerId: String?) {
-        runtimePrefs.setDefaultPeerId(peerId)
-        if (!peerId.isNullOrBlank()) {
-            peerTrustStore.trust(peerId)
+        val normalized = peerId?.trim().orEmpty()
+        if (normalized.isBlank()) {
+            runtimePrefs.setDefaultPeerId(null)
+            _snapshot.update { it.copy(defaultPeerId = null) }
+            return
         }
-        _snapshot.update { it.copy(defaultPeerId = peerId) }
+        if (!peerTrustStore.isTrusted(normalized)) {
+            markSyncError("peer is not trusted: $normalized")
+            return
+        }
+        runtimePrefs.setDefaultPeerId(normalized)
+        _snapshot.update { it.copy(defaultPeerId = normalized) }
+    }
+
+    fun listTrustedPeers(): List<String> = peerTrustStore.listTrusted()
+
+    suspend fun addTrustedPeer(peerId: String): PeerProbeResult {
+        val normalized = peerId.trim()
+        if (normalized.isBlank()) {
+            return PeerProbeResult(
+                peerId = normalized,
+                reachable = false,
+                checkedAtEpochMs = System.currentTimeMillis(),
+                reason = "peer id is empty",
+            )
+        }
+        val probe = peerHealthChecker.probe(normalized)
+        updatePeerState(
+            peerId = normalized,
+            reachable = probe.reachable,
+            lastCheckedAtEpochMs = probe.checkedAtEpochMs,
+        )
+        if (probe.reachable) {
+            peerTrustStore.trust(normalized)
+        }
+        refreshStateSnapshot()
+        return probe
+    }
+
+    suspend fun probePeer(peerId: String): PeerProbeResult {
+        val normalized = peerId.trim()
+        if (normalized.isBlank()) {
+            return PeerProbeResult(
+                peerId = normalized,
+                reachable = false,
+                checkedAtEpochMs = System.currentTimeMillis(),
+                reason = "peer id is empty",
+            )
+        }
+        val probe = peerHealthChecker.probe(normalized)
+        updatePeerState(
+            peerId = normalized,
+            reachable = probe.reachable,
+            lastCheckedAtEpochMs = probe.checkedAtEpochMs,
+        )
+        refreshStateSnapshot()
+        return probe
+    }
+
+    suspend fun revokePeer(peerId: String) {
+        val normalized = peerId.trim()
+        if (normalized.isBlank()) return
+        peerTrustStore.revoke(normalized)
+        if (runtimePrefs.defaultPeerId() == normalized) {
+            runtimePrefs.setDefaultPeerId(null)
+            _snapshot.update { it.copy(defaultPeerId = null) }
+        }
+        synchronized(peerStates) {
+            peerStates.remove(normalized)
+        }
+        refreshStateSnapshot()
+    }
+
+    private fun updatePeerState(
+        peerId: String,
+        reachable: Boolean? = null,
+        lastCheckedAtEpochMs: Long? = null,
+        lastSyncedAtEpochMs: Long? = null,
+    ) {
+        synchronized(peerStates) {
+            val current = peerStates[peerId] ?: SyncPeerState(peerId = peerId)
+            peerStates[peerId] = current.copy(
+                reachable = reachable ?: current.reachable,
+                lastCheckedAtEpochMs = lastCheckedAtEpochMs ?: current.lastCheckedAtEpochMs,
+                lastSyncedAtEpochMs = lastSyncedAtEpochMs ?: current.lastSyncedAtEpochMs,
+            )
+        }
     }
 
     companion object {
         private val logger: Logger = Logger.getLogger(SyncIntegrationService::class.java.name)
         private const val MAX_DELIVERY_STATES = 20
+        private const val MAX_PEER_STATES = 50
         private const val MANUAL_COMMAND_ID = "manual"
     }
 }

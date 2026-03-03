@@ -61,6 +61,7 @@ import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
+import com.example.orgclock.ui.state.PeerUiItem
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
@@ -187,9 +188,14 @@ fun OrgClockScreen(
                 notificationEnabled = state.notificationEnabled,
                 notificationDisplayMode = state.notificationDisplayMode,
                 notificationPermissionGranted = state.notificationPermissionGranted,
+                syncFeatureVisible = state.syncFeatureVisible,
                 syncDebugVisible = state.syncDebugVisible,
                 syncRuntimeEnabled = state.syncRuntimeEnabled,
                 syncDefaultPeerId = state.syncDefaultPeerId,
+                syncPeers = state.syncPeers,
+                syncPeerInput = state.syncPeerInput,
+                syncPeerInputError = state.syncPeerInputError,
+                syncPeerBusy = state.syncPeerBusy,
                 syncRuntimeMode = state.syncRuntimeMode,
                 syncLastResultSummary = state.syncLastResultSummary,
                 syncLastError = state.syncLastError,
@@ -211,6 +217,10 @@ fun OrgClockScreen(
                 onSyncStopRuntime = { onAction(OrgClockUiAction.SyncStopRuntime) },
                 onSyncSetEnabled = { onAction(OrgClockUiAction.SyncSetEnabled(it)) },
                 onSyncSetDefaultPeerId = { onAction(OrgClockUiAction.SyncSetDefaultPeerId(it)) },
+                onSyncUpdatePeerInput = { onAction(OrgClockUiAction.SyncUpdatePeerInput(it)) },
+                onSyncAddPeer = { onAction(OrgClockUiAction.SyncAddPeer) },
+                onSyncRevokePeer = { onAction(OrgClockUiAction.SyncRevokePeer(it)) },
+                onSyncProbePeer = { onAction(OrgClockUiAction.SyncProbePeer(it)) },
                 onBack = { onAction(OrgClockUiAction.BackFromSettings) },
             )
         }
@@ -688,9 +698,14 @@ private fun SettingsScreen(
     notificationEnabled: Boolean,
     notificationDisplayMode: NotificationDisplayMode,
     notificationPermissionGranted: Boolean,
+    syncFeatureVisible: Boolean,
     syncDebugVisible: Boolean,
     syncRuntimeEnabled: Boolean,
     syncDefaultPeerId: String,
+    syncPeers: List<PeerUiItem>,
+    syncPeerInput: String,
+    syncPeerInputError: String?,
+    syncPeerBusy: Boolean,
     syncRuntimeMode: SyncRuntimeMode,
     syncLastResultSummary: String?,
     syncLastError: String?,
@@ -706,6 +721,10 @@ private fun SettingsScreen(
     onSyncStopRuntime: () -> Unit,
     onSyncSetEnabled: (Boolean) -> Unit,
     onSyncSetDefaultPeerId: (String) -> Unit,
+    onSyncUpdatePeerInput: (String) -> Unit,
+    onSyncAddPeer: () -> Unit,
+    onSyncRevokePeer: (String) -> Unit,
+    onSyncProbePeer: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     Column(
@@ -775,10 +794,10 @@ private fun SettingsScreen(
                 }
             }
         }
-        if (syncDebugVisible) {
+        if (syncFeatureVisible) {
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(stringResource(R.string.sync_debug_title), style = MaterialTheme.typography.titleMedium)
+                    Text(stringResource(R.string.sync_settings_title), style = MaterialTheme.typography.titleMedium)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -790,17 +809,85 @@ private fun SettingsScreen(
                             onCheckedChange = onSyncSetEnabled,
                         )
                     }
-                    var peerInput by remember(syncDefaultPeerId) { mutableStateOf(syncDefaultPeerId) }
+                    Text(
+                        text = stringResource(
+                            R.string.sync_hub_peer_label,
+                            if (syncDefaultPeerId.isBlank()) stringResource(R.string.none) else syncDefaultPeerId,
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     OutlinedTextField(
-                        value = peerInput,
-                        onValueChange = { value ->
-                            peerInput = value
-                            onSyncSetDefaultPeerId(value)
+                        value = syncPeerInput,
+                        onValueChange = onSyncUpdatePeerInput,
+                        isError = !syncPeerInputError.isNullOrBlank(),
+                        label = { Text(stringResource(R.string.sync_add_peer_label)) },
+                        supportingText = {
+                            if (!syncPeerInputError.isNullOrBlank()) {
+                                Text(syncPeerInputError)
+                            }
                         },
-                        label = { Text(stringResource(R.string.sync_default_peer_id_label)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    Button(
+                        onClick = onSyncAddPeer,
+                        enabled = !syncPeerBusy,
+                    ) {
+                        Text(stringResource(R.string.sync_add_peer_button))
+                    }
+                    if (syncPeers.isEmpty()) {
+                        Text(
+                            stringResource(R.string.sync_peer_empty),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        syncPeers.forEach { peer ->
+                            HorizontalDivider()
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text(peer.peerId, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = stringResource(
+                                        R.string.sync_peer_status_row,
+                                        when (peer.reachable) {
+                                            true -> stringResource(R.string.sync_peer_status_ok)
+                                            false -> stringResource(R.string.sync_peer_status_ng)
+                                            null -> stringResource(R.string.sync_peer_status_unknown)
+                                        },
+                                        formatEpochMillis(peer.lastSyncedAtEpochMs),
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Button(
+                                        onClick = { onSyncSetDefaultPeerId(peer.peerId) },
+                                        enabled = !syncPeerBusy,
+                                    ) {
+                                        Text(stringResource(R.string.sync_set_hub_button))
+                                    }
+                                    Button(
+                                        onClick = { onSyncProbePeer(peer.peerId) },
+                                        enabled = !syncPeerBusy,
+                                    ) {
+                                        Text(stringResource(R.string.sync_probe_peer_button))
+                                    }
+                                }
+                                Button(
+                                    onClick = { onSyncRevokePeer(peer.peerId) },
+                                    enabled = !syncPeerBusy,
+                                ) {
+                                    Text(stringResource(R.string.sync_remove_peer_button))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (syncDebugVisible) {
+            SectionCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.sync_debug_title), style = MaterialTheme.typography.titleMedium)
                     Text(
                         text = stringResource(R.string.sync_debug_runtime_mode, syncRuntimeMode.name),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -845,6 +932,16 @@ private fun SettingsScreen(
             }
         }
     }
+}
+
+private fun formatEpochMillis(epochMs: Long?): String {
+    if (epochMs == null) return "-"
+    return runCatching {
+        val instant = java.time.Instant.ofEpochMilli(epochMs)
+        DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT)
+            .withLocale(Locale.getDefault())
+            .format(instant.atZone(ZoneId.systemDefault()))
+    }.getOrDefault("-")
 }
 
 @Composable

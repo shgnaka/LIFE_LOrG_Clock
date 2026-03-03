@@ -234,7 +234,20 @@ class DefaultAppGraph(
             syncSetDefaultPeerId = { peerId ->
                 syncIntegrationService.setDefaultPeerId(peerId)
             },
-            syncDebugEnabled = BuildConfig.SYNC_CORE_INCLUDED,
+            syncListTrustedPeers = {
+                syncIntegrationService.listTrustedPeers()
+            },
+            syncAddTrustedPeer = { peerId ->
+                syncIntegrationService.addTrustedPeer(peerId)
+            },
+            syncRevokePeer = { peerId ->
+                syncIntegrationService.revokePeer(peerId)
+            },
+            syncProbePeer = { peerId ->
+                syncIntegrationService.probePeer(peerId)
+            },
+            syncFeatureEnabled = BuildConfig.SYNC_CORE_INCLUDED,
+            syncDebugEnabled = BuildConfig.DEBUG && BuildConfig.SYNC_CORE_INCLUDED,
             nowProvider = { clockEnvironment.now().toJavaZonedDateTime(clockEnvironment.currentTimeZone().toJavaZoneId()) },
             todayProvider = { clockEnvironment.today().toJavaLocalDateCompat() },
             zoneIdProvider = { clockEnvironment.currentTimeZone().toJavaZoneId() },

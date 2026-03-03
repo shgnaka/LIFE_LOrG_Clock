@@ -22,6 +22,7 @@ import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
@@ -65,6 +66,25 @@ data class OrgClockRouteDependencies(
     val syncFlushNow: suspend () -> Unit = {},
     val syncSetEnabled: suspend (Boolean) -> Unit = {},
     val syncSetDefaultPeerId: suspend (String) -> Unit = {},
+    val syncListTrustedPeers: () -> List<String> = { emptyList() },
+    val syncAddTrustedPeer: suspend (String) -> PeerProbeResult = { peerId ->
+        PeerProbeResult(
+            peerId = peerId,
+            reachable = false,
+            checkedAtEpochMs = 0L,
+            reason = "sync integration unavailable",
+        )
+    },
+    val syncRevokePeer: suspend (String) -> Unit = {},
+    val syncProbePeer: suspend (String) -> PeerProbeResult = { peerId ->
+        PeerProbeResult(
+            peerId = peerId,
+            reachable = false,
+            checkedAtEpochMs = 0L,
+            reason = "sync integration unavailable",
+        )
+    },
+    val syncFeatureEnabled: Boolean = false,
     val syncDebugEnabled: Boolean = false,
     val nowProvider: () -> ZonedDateTime,
     val todayProvider: () -> LocalDate,
@@ -197,6 +217,11 @@ private fun orgClockViewModelFactory(
                 syncFlushNow = dependencies.syncFlushNow,
                 syncSetEnabled = dependencies.syncSetEnabled,
                 syncSetDefaultPeerId = dependencies.syncSetDefaultPeerId,
+                syncListTrustedPeers = dependencies.syncListTrustedPeers,
+                syncAddTrustedPeer = dependencies.syncAddTrustedPeer,
+                syncRevokePeer = dependencies.syncRevokePeer,
+                syncProbePeer = dependencies.syncProbePeer,
+                syncFeatureEnabled = dependencies.syncFeatureEnabled,
                 syncDebugEnabled = dependencies.syncDebugEnabled,
                 nowProvider = dependencies.nowProvider,
                 todayProvider = dependencies.todayProvider,

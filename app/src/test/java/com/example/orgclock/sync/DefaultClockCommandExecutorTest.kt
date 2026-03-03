@@ -509,6 +509,7 @@ private class FakeSyncRuntimePrefs : SyncRuntimePrefs {
 
 private class AlwaysTrustedPeerStore : PeerTrustStore {
     override fun isTrusted(peerId: String): Boolean = true
+    override fun listTrusted(): List<String> = listOf("peer-a")
     override fun trust(peerId: String) {}
     override fun revoke(peerId: String) {}
 }
