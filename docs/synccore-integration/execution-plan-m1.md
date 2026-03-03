@@ -1,72 +1,54 @@
-# Execution Plan for `feat/synccore-integration-m1`
+# Execution Plan for `feat/synccore-integration-m1` (M2 Hardening)
 
 ## Objective
-Prepare `org-clock` for sync-core integration without implementing runtime sync behavior yet.
+Stabilize and harden the existing sync runtime baseline without expanding feature scope.
 
 ## Branch Intent
 - Branch: `feat/synccore-integration-m1`
-- Intent: documentation and contract hardening only
-- Explicitly excluded: transport/runtime code changes
+- Intent: contract/test hardening and runtime safety improvements
+- Excluded: transport feature expansion, pairing UX, default-on rollout
 
-## Development Policy for M1
-1. No production code paths are changed for sync behavior.
-2. Any placeholder references must be documentation-only.
-3. Existing app behavior must remain byte-for-byte equivalent in runtime logic.
+## Current Baseline
+Already implemented in this branch:
+- Sync command executor (`ClockCommandExecutor`)
+- Manual execution path and polling path (`SyncIntegrationService`)
+- Runtime mode controls (`Off/Standard/Active`)
+- Optional sync-core engine binding via `app/src/synccore`
 
-## Prerequisite Gates (Before Any Future Coding)
-All gates must pass before switching from docs-only to code implementation:
-1. sync-core API signatures are published and stable.
-2. payload schema and result schema are frozen for v1.
-3. error code vocabulary is agreed.
-4. artifact consumption strategy is fixed (Maven/submodule/local package).
+## PR Sequence
 
-## Future PR Sequence (Once Unblocked)
+### PR-1: Documentation alignment
+- Remove legacy "docs-only hold" language.
+- Align overview/acceptance with actual code paths.
+- Keep boundaries and non-goals explicit.
 
-### PR-1: Adapter boundary skeleton (no-op wiring)
-- Add integration interfaces/ports in app layer.
-- Bind no-op implementation in DI.
-- Ensure behavior unchanged.
+### PR-2: Contract and behavior test completion
+- Add missing unit tests:
+  - `clock.stop` success
+  - `clock.cancel` success
+  - invalid heading level mapping
+  - malformed `requested_at` validation
+  - polling and runtime mode transition behavior
+- Keep schema and error vocabulary unchanged.
 
-### PR-2: Manual command execution slice
-- Add debug/manual trigger path.
-- Receive one command payload and execute through `ClockService`.
-- Report one result payload.
-
-### PR-3: Error taxonomy and mapping hardening
-- Centralize exception-to-error-code mapping.
-- Add unit tests for all mapped failures.
-
-### PR-4: Delivery/processing observability (minimal)
-- Add internal state surface for last result / last error.
-- Keep UI scope debug-level only initially.
-
-### PR-5: Background model decision
-- Evaluate startup-trigger vs WorkManager.
-- Adopt one model with explicit battery constraints.
+### PR-3: Runtime safety and observability hardening
+- Ensure snapshot updates are deterministic in success/failure branches.
+- Add bounded in-memory retention constants where state accumulates.
+- Add debug logging points for reject/failure/reporting issues.
 
 ## Implementation Boundaries to Enforce
-- Keep org mutation and conflict retry in existing domain/repository path.
-- Do not introduce remote line-index coupling.
-- Do not duplicate retry logic that belongs to sync-core.
-- Keep transport logic out of this repository.
+- No schema-breaking changes to `clock.command.v1` / `clock.result.v1`.
+- Do not bypass `ClockService` for org mutations.
+- Do not move transport concerns into this repository.
+- Keep sync path feature-flag-safe by default.
 
 ## Rollback Strategy
-If early integration coding regresses behavior:
-1. Disable sync integration via feature flag/no-op binding.
-2. Retain contract docs and tests.
-3. Re-enable only after failing scenario is fixed and covered.
+If hardening introduces regression:
+1. Keep feature flag disabled in runtime environments.
+2. Revert only hardening delta while preserving contract docs.
+3. Re-enable after regression test is added and green.
 
-## Traceability Matrix
-
-| Concern | Owner | Source doc |
-|---|---|---|
-| Responsibility split | org-clock + sync-core | `overview.md` |
-| Payload/result contract | org-clock + sync-core | `contract.md` |
-| Test acceptance | org-clock | `test-acceptance.md` |
-
-## Done Criteria for This Branch
-- `overview.md` exists and is internally consistent.
-- `contract.md` defines all required fields and mapping rules.
-- `test-acceptance.md` covers happy-path and failure-path checks.
-- README points to integration docs.
-- No runtime code changes for sync behavior.
+## Done Criteria
+- Docs and code behavior are consistent.
+- Sync unit tests pass for command execution and runtime service.
+- No regressions in existing non-sync local flows.

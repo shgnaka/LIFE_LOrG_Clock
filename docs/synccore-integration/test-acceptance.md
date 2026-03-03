@@ -1,13 +1,13 @@
-# Sync-core Integration Test and Acceptance Criteria (M1 Definition)
+# Sync-core Integration Test and Acceptance Criteria (M2)
 
 ## Purpose
-Define objective test scenarios for future sync-core integration while implementation is on hold.
+Define objective acceptance criteria for the current runtime baseline and hardening work.
 
 ## Test Layers
 1. Contract validation tests
 2. Adapter/domain unit tests
-3. Repository interaction tests
-4. End-to-end manual scenarios (post-integration)
+3. Runtime service unit tests
+4. Regression guards (sync disabled)
 
 ## Contract Validation Scenarios
 
@@ -20,19 +20,25 @@ Define objective test scenarios for future sync-core integration while implement
 ### CV-02 Unknown schema
 - Input: `schema = clock.command.v0` or unknown
 - Expectation:
-  - result status: `rejected`
+  - status: `rejected`
   - code: `VALIDATION_FAILED`
 
 ### CV-03 Missing required fields
 - Input: missing `command_id` or `target.heading_path`
 - Expectation:
-  - status `rejected`
+  - status: `rejected`
   - no domain call executed
 
 ### CV-04 Unknown kind
 - Input: `kind = clock.pause`
 - Expectation:
-  - status `rejected`
+  - status: `rejected`
+  - code: `VALIDATION_FAILED`
+
+### CV-05 Malformed timestamp
+- Input: invalid `requested_at`
+- Expectation:
+  - status: `rejected`
   - code: `VALIDATION_FAILED`
 
 ## Adapter and Domain Scenarios
@@ -40,108 +46,83 @@ Define objective test scenarios for future sync-core integration while implement
 ### AD-01 Start success
 - Given: target heading exists and not running
 - When: `clock.start`
-- Then:
-  - domain start called once
-  - result status `applied`
+- Then: status `applied`
 
-### AD-02 Start already running
-- Given: open clock exists
-- When: `clock.start`
-- Then:
-  - result status `failed`
-  - code `ALREADY_RUNNING`
-
-### AD-03 Stop success
+### AD-02 Stop success
 - Given: open clock exists
 - When: `clock.stop`
 - Then: status `applied`
 
-### AD-04 Stop with no open clock
+### AD-03 Cancel success
+- Given: open clock exists
+- When: `clock.cancel`
+- Then: status `applied`
+
+### AD-04 Start already running
+- Given: open clock exists
+- When: `clock.start`
+- Then:
+  - status `failed`
+  - code `ALREADY_RUNNING`
+
+### AD-05 Stop with no open clock
 - Given: no open clock
 - When: `clock.stop`
 - Then:
   - status `failed`
   - code `NO_OPEN_CLOCK`
 
-### AD-05 Cancel success
-- Given: open clock exists
-- When: `clock.cancel`
-- Then: status `applied`
-
-### AD-06 File target not found
-- Given: `target.file_name` not present
+### AD-06 Invalid heading level
+- Given: heading resolves but is not level-2
 - When: any command
-- Then:
-  - status `failed`
-  - code `TARGET_FILE_NOT_FOUND`
-
-### AD-07 Heading target not found
-- Given: file exists, heading path not found
-- When: any command
-- Then:
-  - status `failed`
-  - code `TARGET_HEADING_NOT_FOUND`
-
-### AD-08 Invalid heading level
-- Given: heading resolves to non-L2
-- When: start/stop/cancel
 - Then:
   - status `failed`
   - code `INVALID_HEADING_LEVEL`
 
-### AD-09 Repository I/O failure
-- Given: repository read/write failure
-- When: command execution
+### AD-07 File or heading not found
+- Given: unknown file or unknown heading path
+- When: any command
 - Then:
   - status `failed`
-  - code `IO_FAILURE`
+  - code mapped to target failure
 
-### AD-10 Conflict exhaustion
-- Given: repeated conflict path not recoverable
+### AD-08 Conflict / I/O failure mapping
+- Given: conflict retries exhausted or repository I/O failure
 - When: command execution
 - Then:
   - status `failed`
-  - code `CONFLICT_RETRY_EXHAUSTED`
+  - code mapped deterministically
+
+## Runtime Service Scenarios
+
+### RS-01 Feature flag disabled
+- `executeManualCommand` returns `rejected` and snapshot keeps last error.
+
+### RS-02 Poll incoming commands once
+- Given: N incoming payloads
+- `pollIncomingCommandsOnce()` returns N and each result is reported.
+
+### RS-03 Runtime mode transitions
+- `enableStandardMode()` sets snapshot mode `Standard`.
+- `enableActiveMode()` sets snapshot mode `Active`.
+- `stopRuntime()` sets snapshot mode `Off`.
+
+### RS-04 Snapshot determinism on report failure
+- If result reporting fails, snapshot still records `lastResult` and `lastError`.
 
 ## Idempotency Scenarios
 
 ### ID-01 Duplicate command id
-- Given: same `command_id` delivered twice
-- When: second delivery processed
-- Then:
-  - no additional side effects
-  - status `duplicate`
+- second delivery returns `duplicate` with no second mutation.
 
-### ID-02 Duplicate after app restart
-- Given: processed id persisted
-- When: app restarts and receives same command
-- Then:
-  - still `duplicate`
-  - no extra mutation
+### ID-02 Duplicate after restart
+- persisted command id still yields `duplicate`.
 
-## Regression Guard Scenarios
+## Regression Guards
 
-### RG-01 Local manual clock operations unchanged
-- start/stop/cancel from UI still behave exactly as before
+### RG-01 Local UI operations unchanged when sync disabled
 
-### RG-02 Notification service behavior unchanged
-- existing clock-in notification scanning and display unaffected when sync integration is disabled
+### RG-02 Notification behavior unchanged when sync disabled
 
-### RG-03 No sync code path in release runtime for M1 hold
-- branch build contains docs-only changes
-
-## Manual End-to-End (Post-unblock)
-These are not executable in current hold state; they define acceptance for future merge:
-
-1. Device A sends `clock.start` to Device B target heading.
-2. Device B applies and returns `applied`.
-3. Device A receives result and marks delivered.
-4. Repeat with invalid target; observe deterministic failure code.
-5. Repeat duplicate command id; observe `duplicate` without side effects.
-
-## Exit Acceptance for Future Implementation
-All must pass before enabling integration by default:
-1. All contract validation tests pass.
-2. All adapter/domain mapping tests pass.
-3. Duplicate handling is deterministic.
-4. No regression in existing clock and notification flows.
+## Exit Acceptance
+All scenarios above pass in unit/regression suites before any default-on decision.

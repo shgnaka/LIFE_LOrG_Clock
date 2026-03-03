@@ -1,8 +1,8 @@
-# Sync-core Integration Contract (M1)
+# Sync-core Integration Contract (M2 Baseline)
 
 ## Status
-- Contract status: Draft-ready for implementation
-- Runtime implementation status in this repo: Not implemented (by design)
+- Contract status: Active and used by runtime baseline
+- Runtime implementation status in this repo: Implemented behind feature-flag/runtime mode control
 
 ## Versioning
 - Contract namespace: `clock.command.v1`
