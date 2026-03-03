@@ -75,14 +75,8 @@
     <string name="status_notification_display_mode_updated">通知の表示設定を更新しました</string>
     <string name="status_notification_permission_granted">通知権限を許可しました</string>
     <string name="status_notification_permission_denied">通知権限が拒否されました。Settingsから許可してください。</string>
-    <string name="notif_title_clock_in_count">記録中 %1$d件</string>
     <string name="notif_summary_no_active">稼働中の見出しはありません</string>
     <string name="notif_summary_first_entry">%1$s / %2$s 開始 / %3$d分経過</string>
-    <string name="notif_summary_first_entry_degraded">%1$s / %2$s 開始 / %3$d分経過（%4$d件の読込失敗）</string>
-    <string name="notif_summary_scan_degraded">読込失敗が %1$d 件あります</string>
-    <string name="notif_inbox_line_entry">%1$s / %2$s / %3$d分</string>
-    <string name="notif_inbox_line_more">他 %1$d 件</string>
-    <string name="notif_inbox_line_scan_degraded">読込失敗 %1$d 件</string>
     <string name="stop_clock">停止</string>
     <string name="notif_status_root_not_set">org ルートが未設定です</string>
     <string name="notif_status_root_open_failed">org ルートを開けません: %1$s</string>
@@ -104,7 +98,6 @@
     <string name="sync_debug_active_mode">Active mode</string>
     <string name="sync_debug_stop_mode">Stop sync</string>
     <string name="sync_enabled_label">Sync enabled</string>
-    <string name="sync_default_peer_id_label">Default peer id</string>
     <string name="sync_settings_title">同期設定</string>
     <string name="sync_hub_peer_label">同期ハブ: %1$s</string>
     <string name="sync_add_peer_label">追加する peer (host[:port])</string>
