@@ -26,7 +26,10 @@ import kotlinx.datetime.Clock
 internal class RoomEngineStore(
     private val dao: SyncQueueDao,
 ) : EngineStore {
-    override suspend fun healthCheck(): Result<Unit> = runCatching { dao.healthCheck() }
+    override suspend fun healthCheck(): Result<Unit> = runCatching {
+        dao.healthCheck()
+        Unit
+    }
 
     override suspend fun insertOutgoing(command: SyncCommand): Result<Unit> = runCatching {
         dao.insertOutgoing(
@@ -188,7 +191,7 @@ internal data class DeliveryEventRow(
 @Dao
 internal interface SyncQueueDao {
     @Query("SELECT 1")
-    suspend fun healthCheck()
+    suspend fun healthCheck(): Int
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertOutgoing(row: OutgoingCommandRow)

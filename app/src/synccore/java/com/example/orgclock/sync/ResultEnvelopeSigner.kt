@@ -28,7 +28,7 @@ class AndroidKeystoreResultEnvelopeSigner(
         val existing = keyStore.getEntry(alias, null) as? KeyStore.PrivateKeyEntry
         if (existing != null) return existing.privateKey
 
-        val generator = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_ED25519, ANDROID_KEYSTORE)
+        val generator = KeyPairGenerator.getInstance(ED25519_KEY_ALGORITHM, ANDROID_KEYSTORE)
         val spec = KeyGenParameterSpec.Builder(
             alias,
             KeyProperties.PURPOSE_SIGN or KeyProperties.PURPOSE_VERIFY,
@@ -47,6 +47,7 @@ class AndroidKeystoreResultEnvelopeSigner(
 
     private companion object {
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
+        const val ED25519_KEY_ALGORITHM = "Ed25519"
         const val ED25519_SIGNATURE_ALGORITHM = "Ed25519"
     }
 }

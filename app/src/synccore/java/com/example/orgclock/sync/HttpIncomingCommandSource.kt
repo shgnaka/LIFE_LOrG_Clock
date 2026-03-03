@@ -60,7 +60,7 @@ class HttpIncomingCommandSource(
         }
     }
 
-    private companion object {
+    companion object {
         private val logger: Logger = Logger.getLogger(HttpIncomingCommandSource::class.java.name)
         const val DEFAULT_BIND_HOST = "0.0.0.0"
         const val DEFAULT_BIND_PORT = 39091
@@ -85,21 +85,21 @@ private class IncomingCommandHttpServer(
 
     override fun serve(session: IHTTPSession): Response {
         if (session.method == Method.GET && session.uri == "/v1/health") {
-            return plain(Status.OK, "ok")
+            return plain(Response.Status.OK, "ok")
         }
         if (session.method != Method.POST) {
-            return plain(Status.METHOD_NOT_ALLOWED, "method not allowed")
+            return plain(Response.Status.METHOD_NOT_ALLOWED, "method not allowed")
         }
         if (session.uri != "/v1/messages" && session.uri != "/v1/incoming-command") {
-            return plain(Status.NOT_FOUND, "not found")
+            return plain(Response.Status.NOT_FOUND, "not found")
         }
         if (!rateLimiter.allow(session.remoteIpAddress)) {
-            return plain(Status.TOO_MANY_REQUESTS, "rate limit exceeded")
+            return plain(Response.Status.TOO_MANY_REQUESTS, "rate limit exceeded")
         }
 
         val contentLength = session.headers["content-length"]?.toIntOrNull()
         if (contentLength != null && contentLength > maxBodyBytes) {
-            return plain(Status.REQUEST_ENTITY_TOO_LARGE, "payload too large")
+            return plain(Response.Status.PAYLOAD_TOO_LARGE, "payload too large")
         }
 
         val body = runCatching {
@@ -107,7 +107,7 @@ private class IncomingCommandHttpServer(
             session.parseBody(files)
             files["postData"].orEmpty()
         }.getOrElse {
-            return plain(Status.BAD_REQUEST, "invalid request body")
+            return plain(Response.Status.BAD_REQUEST, "invalid request body")
         }
 
         val command = extractClockCommandPayload(
@@ -117,13 +117,13 @@ private class IncomingCommandHttpServer(
             replayGuard = replayGuard,
             json = json,
         ).getOrElse { error ->
-            return plain(Status.BAD_REQUEST, error.message ?: "invalid payload")
+            return plain(Response.Status.BAD_REQUEST, error.message ?: "invalid payload")
         }
         onCommand(command)
-        return plain(Status.ACCEPTED, "accepted")
+        return plain(Response.Status.ACCEPTED, "accepted")
     }
 
-    private fun plain(status: Status, body: String): Response {
+    private fun plain(status: Response.IStatus, body: String): Response {
         return newFixedLengthResponse(status, MIME_PLAINTEXT, body)
     }
 }
@@ -154,7 +154,7 @@ private fun extractFromMessageEnvelope(body: String, json: Json): Result<String>
         .getOrElse { return Result.failure(IllegalArgumentException("Envelope must be valid JSON object")) }
 
     val outerPayloadJson = outer.optionalString("payloadJson")
-        ?: return validateClockCommandPayload(body, json)
+        ?: return Result.success(body)
 
     val inner = runCatching { json.parseToJsonElement(outerPayloadJson).jsonObject }.getOrNull()
     val nestedPayload = inner?.optionalString("payloadJson")

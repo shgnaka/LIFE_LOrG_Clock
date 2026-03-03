@@ -56,7 +56,7 @@ class HttpSyncTransportGateway(
     override suspend fun dispatch(command: SyncCommand): TransportDispatchResult {
         val endpoint = endpointResolver.resolve(command.targetPeerId).getOrElse { error ->
             return TransportDispatchResult.Rejected(
-                errorCode = DeliveryErrorCode.PEER_UNAVAILABLE,
+                errorCode = DeliveryErrorCode.PEER_NOT_PAIRED,
                 errorMessage = error.message ?: "invalid target endpoint",
             )
         }
@@ -65,7 +65,7 @@ class HttpSyncTransportGateway(
             buildSignedResultEnvelopePayload(command).getOrElse { error ->
                 logger.fine("sync.transport.result.envelope_failed commandId=${command.commandId} reason=${error.message ?: "unknown"}")
                 return TransportDispatchResult.Rejected(
-                    errorCode = DeliveryErrorCode.INVALID_PAYLOAD,
+                    errorCode = DeliveryErrorCode.PROTOCOL_ERROR,
                     errorMessage = error.message ?: "result envelope signing failed",
                 )
             }
@@ -108,7 +108,7 @@ class HttpSyncTransportGateway(
                 in 200..299 -> TransportDispatchResult.Accepted()
 
                 400, 401, 403, 404, 422 -> TransportDispatchResult.Rejected(
-                    errorCode = DeliveryErrorCode.INVALID_PAYLOAD,
+                    errorCode = DeliveryErrorCode.PROTOCOL_ERROR,
                     errorMessage = "http_status=$status",
                 )
 
