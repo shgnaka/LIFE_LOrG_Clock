@@ -20,6 +20,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.datetime.Clock
+import java.util.logging.Logger
 
 class SynccoreEngineClientFactory : SyncCoreClientFactory {
     override fun create(
@@ -45,7 +46,10 @@ class SynccoreEngineClientFactory : SyncCoreClientFactory {
             ioDispatcher = Dispatchers.Default,
             flushIntervalMs = 1_000L,
         )
-        return EngineBackedOrgSyncCoreClient(engine = engine)
+        return EngineBackedOrgSyncCoreClient(
+            engine = engine,
+            incomingCommandSource = NoOpIncomingCommandSource(),
+        )
     }
 }
 
@@ -87,10 +91,12 @@ private class LocalLoopbackDispatcher(
 
 private class EngineBackedOrgSyncCoreClient(
     private val engine: SyncCoreEngine,
+    private val incomingCommandSource: IncomingCommandSource,
 ) : OrgSyncCoreClient {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val lock = Any()
     private val deliveryStates = ArrayDeque<SyncDeliveryState>()
+    private val incomingCommands = IncomingCommandBuffer(MAX_INCOMING_COMMAND_HISTORY)
     private var started = false
     private var collectorJob: Job? = null
 
@@ -100,6 +106,11 @@ private class EngineBackedOrgSyncCoreClient(
             started = true
         }
         engine.start()
+        incomingCommandSource.start { payload ->
+            if (incomingCommands.add(payload)) {
+                logger.fine("sync.incoming.queue_overflow dropped_oldest=true")
+            }
+        }
         collectorJob?.cancel()
         collectorJob = scope.launch {
             engine.observeDeliveryState().collectLatest { event ->
@@ -123,6 +134,7 @@ private class EngineBackedOrgSyncCoreClient(
         }
         collectorJob?.cancel()
         collectorJob = null
+        incomingCommandSource.stop()
         engine.stop()
     }
 
@@ -130,7 +142,7 @@ private class EngineBackedOrgSyncCoreClient(
         engine.flushNow()
     }
 
-    override suspend fun observeIncomingCommands(): List<String> = emptyList()
+    override suspend fun observeIncomingCommands(): List<String> = incomingCommands.drainAll()
 
     override suspend fun reportResult(result: ClockResultPayload) {
         // The local loopback dispatcher already reports result via SyncCoreEngine.
@@ -151,7 +163,9 @@ private class EngineBackedOrgSyncCoreClient(
     }
 
     private companion object {
+        private val logger: Logger = Logger.getLogger(EngineBackedOrgSyncCoreClient::class.java.name)
         const val MAX_DELIVERY_STATE_HISTORY = 100
+        const val MAX_INCOMING_COMMAND_HISTORY = 500
     }
 }
 

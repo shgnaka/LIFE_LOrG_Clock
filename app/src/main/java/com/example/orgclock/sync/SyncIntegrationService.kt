@@ -117,6 +117,10 @@ class SyncIntegrationService(
     suspend fun flushNow() {
         if (!featureFlag.isEnabled()) return
         runtimeManager?.flushNow() ?: syncCoreClient.flushNow()
+        val incomingCount = pollIncomingCommandsOnce()
+        if (incomingCount > 0) {
+            runtimeManager?.flushNow() ?: syncCoreClient.flushNow()
+        }
         refreshStateSnapshot()
     }
 

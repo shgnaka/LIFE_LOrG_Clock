@@ -317,6 +317,43 @@ class DefaultClockCommandExecutorTest {
     }
 
     @Test
+    fun syncIntegrationService_flushNow_processesIncomingCommands() = runBlocking {
+        val repo = FakeClockRepository(
+            mutableMapOf(
+                "2026-03-01.org" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    ":END:",
+                ),
+            ),
+        )
+        val executor = newExecutor(repo)
+        val client = RecordingSyncCoreClient().apply {
+            incomingCommands += validCommand(commandId = "cmd-1", kind = "clock.start")
+        }
+        val service = newEnabledService(executor, client)
+
+        service.flushNow()
+
+        assertEquals(1, client.reported.size)
+        assertEquals(2, client.flushCount)
+    }
+
+    @Test
+    fun syncIntegrationService_flushNow_withoutIncomingCommands_flushesOnce() = runBlocking {
+        val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to baseFile()))
+        val executor = newExecutor(repo)
+        val client = RecordingSyncCoreClient()
+        val service = newEnabledService(executor, client)
+
+        service.flushNow()
+
+        assertEquals(1, client.flushCount)
+        assertEquals(0, client.reported.size)
+    }
+
+    @Test
     fun inMemoryCommandIdStore_evictsOldIdsWhenCapacityExceeded() {
         val store = InMemoryCommandIdStore()
 
