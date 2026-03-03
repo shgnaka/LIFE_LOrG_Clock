@@ -33,6 +33,17 @@ class InMemoryCommandIdStore : CommandIdStore {
     override fun contains(commandId: String): Boolean = processed.contains(commandId)
 
     override fun markProcessed(commandId: String) {
+        if (processed.contains(commandId)) return
+        if (processed.size >= MAX_IN_MEMORY_IDS) {
+            val oldest = processed.firstOrNull()
+            if (oldest != null) {
+                processed.remove(oldest)
+            }
+        }
         processed.add(commandId)
+    }
+
+    private companion object {
+        const val MAX_IN_MEMORY_IDS = 2_048
     }
 }

@@ -104,7 +104,7 @@ private class EngineBackedOrgSyncCoreClient(
         collectorJob = scope.launch {
             engine.observeDeliveryState().collectLatest { event ->
                 synchronized(lock) {
-                    if (deliveryStates.size >= 100) deliveryStates.removeFirst()
+                    if (deliveryStates.size >= MAX_DELIVERY_STATE_HISTORY) deliveryStates.removeFirst()
                     deliveryStates.addLast(
                         SyncDeliveryState(
                             commandId = event.commandId,
@@ -148,6 +148,10 @@ private class EngineBackedOrgSyncCoreClient(
             retryAttemptsTotal = snapshot.retryAttemptsTotal,
             queueDepth = snapshot.queueDepth,
         )
+    }
+
+    private companion object {
+        const val MAX_DELIVERY_STATE_HISTORY = 100
     }
 }
 

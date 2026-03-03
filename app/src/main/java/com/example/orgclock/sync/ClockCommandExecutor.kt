@@ -13,6 +13,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
+import java.util.logging.Logger
 
 interface ClockCommandExecutor {
     suspend fun execute(rawPayload: String): ClockResultPayload
@@ -27,6 +28,7 @@ class DefaultClockCommandExecutor(
 ) : ClockCommandExecutor {
     override suspend fun execute(rawPayload: String): ClockResultPayload {
         val parsed = parseCommand(rawPayload).getOrElse { parseError ->
+            logger.fine("sync.command.rejected reason=${parseError.message ?: "Invalid command payload"}")
             return rejectedResult(
                 commandId = UNKNOWN_COMMAND_ID,
                 message = parseError.message ?: "Invalid command payload",
@@ -34,6 +36,7 @@ class DefaultClockCommandExecutor(
         }
 
         if (commandIdStore.contains(parsed.commandId)) {
+            logger.fine("sync.command.duplicate commandId=${parsed.commandId}")
             return duplicateResult(parsed.commandId)
         }
 
@@ -125,6 +128,10 @@ class DefaultClockCommandExecutor(
             },
             onFailure = { error ->
                 val mapped = mapExecutionError(error)
+                logger.fine(
+                    "sync.command.failed commandId=${command.commandId} " +
+                        "code=${mapped.first.name} reason=${mapped.second}",
+                )
                 failedResult(
                     command.commandId,
                     mapped.first,
@@ -255,6 +262,7 @@ class DefaultClockCommandExecutor(
         (this as? JsonPrimitive)?.contentOrNull
 
     private companion object {
+        private val logger: Logger = Logger.getLogger(DefaultClockCommandExecutor::class.java.name)
         const val UNKNOWN_COMMAND_ID = "unknown"
         const val LOCAL_DEVICE_ID = "local-device"
     }
