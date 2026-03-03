@@ -51,6 +51,18 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
 ./gradlew :app:assembleDebug
 ```
 
+## Local sync-core Integration (Composite Build)
+
+`lanonly-p2p-cmdsync-core` をローカルソースのまま依存解決するには、`SYNC_CORE_DIR`（または `-Psynccore.dir`）を指定してビルドします。
+
+```bash
+export SYNC_CORE_DIR=/absolute/path/to/lanonly-p2p-cmdsync-core
+./gradlew :app:dependencies --configuration debugRuntimeClasspath
+./gradlew :app:assembleDebug
+```
+
+別リポジトリ側で `:sync-core-engine` モジュールを定義し、`io.github.shgnaka.synccore:sync-core-engine` 座標と対応づけてください。
+
 ## CI Distribution (No ADB / No USB)
 
 `adb` や USB 転送を使わずに端末へ更新を反映する場合は、GitHub Actions から Firebase App Distribution へ配布します。

@@ -8,6 +8,12 @@ val ciKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
 val ciKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
 val ciKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
 val ciKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+val syncCoreEnabled = (
+    providers.gradleProperty("synccore.dir").orNull
+        ?: System.getenv("SYNC_CORE_DIR")
+    )
+    ?.trim()
+    ?.isNotEmpty() == true
 
 android {
     namespace = "com.example.orgclock"
@@ -89,6 +95,9 @@ dependencies {
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
+    if (syncCoreEnabled) {
+        implementation("io.github.shgnaka.synccore:sync-core-engine:0.1.0-SNAPSHOT")
+    }
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
