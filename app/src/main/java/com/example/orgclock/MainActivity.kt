@@ -7,7 +7,6 @@ import androidx.activity.compose.setContent
 import androidx.compose.runtime.remember
 import androidx.lifecycle.lifecycleScope
 import com.example.orgclock.di.AppGraph
-import com.example.orgclock.di.DefaultAppGraph
 import com.example.orgclock.notification.DefaultNotificationPermissionChecker
 import com.example.orgclock.notification.NotificationPermissionChecker
 import com.example.orgclock.ui.app.OrgClockRoute
@@ -19,9 +18,7 @@ open class MainActivity : ComponentActivity() {
     private val notificationPermissionChecker: NotificationPermissionChecker =
         DefaultNotificationPermissionChecker()
 
-    private val appGraph: AppGraph by lazy {
-        appGraphFactory(this)
-    }
+    private val appGraph: AppGraph by lazy { (application as OrgClockApplication).appGraph }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -41,12 +38,10 @@ open class MainActivity : ComponentActivity() {
             }
         }
 
-        appGraph.syncIntegrationService(this).onAppStarted()
-
         val debugPayload = intent.getStringExtra(EXTRA_SYNC_COMMAND_PAYLOAD)
         if (!debugPayload.isNullOrBlank()) {
             lifecycleScope.launch {
-                val result = appGraph.syncIntegrationService(this@MainActivity)
+                val result = appGraph.syncIntegrationService()
                     .executeManualCommand(debugPayload)
                 Log.d(TAG, "Executed debug sync command status=${result.status} error=${result.errorCode}")
             }
@@ -56,10 +51,5 @@ open class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val EXTRA_SYNC_COMMAND_PAYLOAD = "sync_command_payload"
-
-        @Volatile
-        internal var appGraphFactory: (ComponentActivity) -> AppGraph = { activity ->
-            DefaultAppGraph(activity.applicationContext)
-        }
     }
 }

@@ -99,6 +99,10 @@ class SyncIntegrationService(
                 logger.fine("sync.incoming.rejected commandId=${command.commandId} reason=${command.verificationReason}")
                 continue
             }
+            if (!command.replayCheckPassed) {
+                logger.fine("sync.incoming.rejected commandId=${command.commandId} reason=replay_check_failed")
+                continue
+            }
             executeManualCommand(command.payloadJson)
         }
         refreshStateSnapshot()

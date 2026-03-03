@@ -18,10 +18,14 @@ class SyncRuntimePrefsTest {
         runtimePrefs.setEnabled(true)
         runtimePrefs.setSelectedMode(SyncRuntimeMode.Active)
         runtimePrefs.setDefaultPeerId("peer-a")
+        runtimePrefs.setInboundClockSkewSeconds(90)
+        runtimePrefs.setInboundMaxRequestsPerMinute(40)
 
         assertTrue(runtimePrefs.isEnabled())
         assertEquals(SyncRuntimeMode.Active, runtimePrefs.selectedMode())
         assertEquals("peer-a", runtimePrefs.defaultPeerId())
+        assertEquals(90L, runtimePrefs.inboundClockSkewSeconds())
+        assertEquals(40, runtimePrefs.inboundMaxRequestsPerMinute())
     }
 }
 

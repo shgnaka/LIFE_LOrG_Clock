@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 interface CommandIdStore {
     fun contains(commandId: String): Boolean
     fun markProcessed(commandId: String)
+    fun pruneOlderThan(epochMs: Long): Int = 0
+    fun size(): Long = 0L
 }
 
 class SharedPreferencesCommandIdStore(
@@ -20,6 +22,10 @@ class SharedPreferencesCommandIdStore(
         if (existing.contains(commandId)) return
         val updated = existing.toMutableSet().apply { add(commandId) }
         sharedPreferences.edit().putStringSet(KEY_PROCESSED_COMMAND_IDS, updated).apply()
+    }
+
+    override fun size(): Long {
+        return (sharedPreferences.getStringSet(KEY_PROCESSED_COMMAND_IDS, emptySet()) ?: emptySet()).size.toLong()
     }
 
     private companion object {
@@ -42,6 +48,8 @@ class InMemoryCommandIdStore : CommandIdStore {
         }
         processed.add(commandId)
     }
+
+    override fun size(): Long = processed.size.toLong()
 
     private companion object {
         const val MAX_IN_MEMORY_IDS = 2_048

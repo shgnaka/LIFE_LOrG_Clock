@@ -25,7 +25,7 @@ import com.example.orgclock.sync.LocalClockOperationPublisher
 import com.example.orgclock.sync.SharedPreferencesPeerTrustStore
 import com.example.orgclock.sync.RuntimeSyncIntegrationFeatureFlag
 import com.example.orgclock.sync.SharedPreferencesDeviceIdProvider
-import com.example.orgclock.sync.SharedPreferencesCommandIdStore
+import com.example.orgclock.sync.RoomCommandIdStore
 import com.example.orgclock.sync.SyncCoreClientFactory
 import com.example.orgclock.sync.SyncIntegrationService
 import com.example.orgclock.sync.SyncRuntimeEntryPoint
@@ -46,7 +46,7 @@ interface AppGraph {
         notificationPermissionChecker: NotificationPermissionChecker,
     ): OrgClockRouteDependencies
 
-    fun syncIntegrationService(activity: ComponentActivity): SyncIntegrationService
+    fun syncIntegrationService(): SyncIntegrationService
 }
 
 class DefaultAppGraph(
@@ -74,7 +74,7 @@ class DefaultAppGraph(
     }
     private val syncIntegrationService: SyncIntegrationService by lazy {
         val prefs = appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
-        val commandIdStore = SharedPreferencesCommandIdStore(prefs)
+        val commandIdStore = RoomCommandIdStore.create(appContext)
         val orgSyncCoreClient = syncCoreClientFactory.create(
             appContext = appContext,
             repository = repository,
@@ -242,7 +242,7 @@ class DefaultAppGraph(
         )
     }
 
-    override fun syncIntegrationService(activity: ComponentActivity): SyncIntegrationService {
+    override fun syncIntegrationService(): SyncIntegrationService {
         SyncRuntimeEntryPoint.syncIntegrationService = syncIntegrationService
         return syncIntegrationService
     }

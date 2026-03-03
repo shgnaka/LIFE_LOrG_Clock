@@ -29,8 +29,12 @@ data class VerifiedIncomingCommand(
     val commandId: String,
     val senderDeviceId: String,
     val peerId: String?,
+    val verifiedPeerId: String? = null,
     val verificationState: IncomingVerificationState,
     val verificationReason: String? = null,
+    val verificationMethod: String? = null,
+    val signatureKeyId: String? = null,
+    val replayCheckPassed: Boolean = true,
     val receivedAtEpochMs: Long,
 )
 

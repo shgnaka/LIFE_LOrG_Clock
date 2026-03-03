@@ -9,6 +9,15 @@ interface SyncRuntimePrefs {
     fun setSelectedMode(mode: SyncRuntimeMode)
     fun defaultPeerId(): String?
     fun setDefaultPeerId(peerId: String?)
+    fun inboundClockSkewSeconds(): Long = DEFAULT_INBOUND_CLOCK_SKEW_SECONDS
+    fun setInboundClockSkewSeconds(seconds: Long) {}
+    fun inboundMaxRequestsPerMinute(): Int = DEFAULT_INBOUND_MAX_REQUESTS_PER_MINUTE
+    fun setInboundMaxRequestsPerMinute(requests: Int) {}
+
+    companion object {
+        const val DEFAULT_INBOUND_CLOCK_SKEW_SECONDS = 300L
+        const val DEFAULT_INBOUND_MAX_REQUESTS_PER_MINUTE = 120
+    }
 }
 
 class SharedPreferencesSyncRuntimePrefs(
@@ -37,9 +46,37 @@ class SharedPreferencesSyncRuntimePrefs(
         prefs.edit().putString(KEY_SYNC_DEFAULT_PEER_ID, peerId).apply()
     }
 
+    override fun inboundClockSkewSeconds(): Long {
+        return prefs.getLong(
+            KEY_SYNC_INBOUND_CLOCK_SKEW_SECONDS,
+            SyncRuntimePrefs.DEFAULT_INBOUND_CLOCK_SKEW_SECONDS,
+        ).coerceAtLeast(30L)
+    }
+
+    override fun setInboundClockSkewSeconds(seconds: Long) {
+        prefs.edit()
+            .putLong(KEY_SYNC_INBOUND_CLOCK_SKEW_SECONDS, seconds.coerceAtLeast(30L))
+            .apply()
+    }
+
+    override fun inboundMaxRequestsPerMinute(): Int {
+        return prefs.getInt(
+            KEY_SYNC_INBOUND_MAX_REQUESTS_PER_MINUTE,
+            SyncRuntimePrefs.DEFAULT_INBOUND_MAX_REQUESTS_PER_MINUTE,
+        ).coerceAtLeast(10)
+    }
+
+    override fun setInboundMaxRequestsPerMinute(requests: Int) {
+        prefs.edit()
+            .putInt(KEY_SYNC_INBOUND_MAX_REQUESTS_PER_MINUTE, requests.coerceAtLeast(10))
+            .apply()
+    }
+
     companion object {
         const val KEY_SYNC_RUNTIME_ENABLED = "sync_runtime_enabled"
         const val KEY_SYNC_RUNTIME_MODE = "sync_runtime_mode"
         const val KEY_SYNC_DEFAULT_PEER_ID = "sync_default_peer_id"
+        const val KEY_SYNC_INBOUND_CLOCK_SKEW_SECONDS = "sync_inbound_clock_skew_seconds"
+        const val KEY_SYNC_INBOUND_MAX_REQUESTS_PER_MINUTE = "sync_inbound_max_requests_per_minute"
     }
 }
