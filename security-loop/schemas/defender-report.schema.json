@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Defender Report",
+  "type": "object",
+  "required": [
+    "generated_at",
+    "module",
+    "finding_id",
+    "severity",
+    "category",
+    "fix_strategy",
+    "patch_plan",
+    "tests_to_add_or_update",
+    "expected_risk_reduction",
+    "residual_risk",
+    "source_finding"
+  ],
+  "properties": {
+    "generated_at": { "type": "string" },
+    "module": { "type": "string" },
+    "finding_id": { "type": "string" },
+    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "category": { "type": "string" },
+    "fix_strategy": { "type": "string" },
+    "recommended_fix_from_attacker": { "type": "string" },
+    "patch_plan": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "tests_to_add_or_update": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+    "expected_risk_reduction": { "type": "string" },
+    "residual_risk": { "type": "string" },
+    "source_finding": { "type": "object" }
+  },
+  "additionalProperties": true
+}

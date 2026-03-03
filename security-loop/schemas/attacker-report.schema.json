@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Attacker Report",
+  "type": "object",
+  "required": [
+    "generated_at",
+    "scanner",
+    "module",
+    "finding_id",
+    "severity",
+    "title",
+    "category",
+    "evidence",
+    "repro_steps",
+    "affected_files",
+    "confidence",
+    "recommended_fix",
+    "findings"
+  ],
+  "properties": {
+    "generated_at": { "type": "string" },
+    "scanner": { "type": "string" },
+    "module": { "type": "string" },
+    "finding_id": { "type": "string" },
+    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+    "title": { "type": "string" },
+    "category": { "type": "string" },
+    "evidence": { "type": "string" },
+    "repro_steps": { "type": "string" },
+    "affected_files": { "type": "array", "items": { "type": "string" } },
+    "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+    "recommended_fix": { "type": "string" },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "finding_id",
+          "module",
+          "title",
+          "severity",
+          "category",
+          "evidence",
+          "repro_steps",
+          "affected_files",
+          "confidence",
+          "recommended_fix"
+        ],
+        "properties": {
+          "finding_id": { "type": "string" },
+          "module": { "type": "string" },
+          "title": { "type": "string" },
+          "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "category": { "type": "string" },
+          "evidence": { "type": "string" },
+          "repro_steps": { "type": "string" },
+          "affected_files": { "type": "array", "items": { "type": "string" } },
+          "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+          "recommended_fix": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

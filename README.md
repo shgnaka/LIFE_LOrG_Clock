@@ -123,3 +123,23 @@ Repository Secrets に以下を登録してください。
 実行時に release APK をビルドして Firebase App Distribution へ配布します。
 
 詳細なセットアップとトラブルシュートは `docs/firebase-app-distribution-guide.md` を参照してください。
+
+## Multi-Agent Security Loop (Sync)
+
+sync 境界向けの攻撃者/防御者ループは `security-loop/` 配下で実行できます。
+
+```bash
+security-loop/run.sh --module sync-core-transport-lan --iterations 3
+```
+
+主なオプション:
+
+- `--out <dir>`: 成果物ディレクトリ指定
+- `--skip-gates`: Gradleゲート (`testDebugUnitTest`, `lintDebug`) をスキップ
+- `--no-fail-on-high`: High/Critical 残存時でも終了コードを失敗にしない
+
+成果物:
+
+- `iteration-N-attacker.json`
+- `iteration-N-defender.json` (High/Critical がある場合)
+- `summary.json`
