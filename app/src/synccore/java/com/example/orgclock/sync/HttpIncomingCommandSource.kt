@@ -22,7 +22,7 @@ class HttpIncomingCommandSource(
     private val lock = Any()
     private var server: IncomingCommandHttpServer? = null
 
-    override suspend fun start(onCommand: suspend (String) -> Unit) {
+    override suspend fun start(onCommand: suspend (VerifiedIncomingCommand) -> Unit) {
         synchronized(lock) {
             if (server != null) return
             val created = IncomingCommandHttpServer(
@@ -30,9 +30,9 @@ class HttpIncomingCommandSource(
                 port = port,
                 maxBodyBytes = maxBodyBytes,
                 json = json,
-            ) { payload ->
+            ) { command ->
                 scope.launch {
-                    runCatching { onCommand(payload) }
+                    runCatching { onCommand(command) }
                         .onFailure { error ->
                             logger.fine("sync.incoming.http.dispatch_failed reason=${error.message ?: "unknown"}")
                         }
@@ -67,7 +67,7 @@ private class IncomingCommandHttpServer(
     port: Int,
     private val maxBodyBytes: Int,
     private val json: Json,
-    private val onCommand: (String) -> Unit,
+    private val onCommand: (VerifiedIncomingCommand) -> Unit,
 ) : NanoHTTPD(host, port) {
     override fun serve(session: IHTTPSession): Response {
         if (session.method == Method.GET && session.uri == "/v1/health") {
@@ -93,14 +93,14 @@ private class IncomingCommandHttpServer(
             return plain(Status.BAD_REQUEST, "invalid request body")
         }
 
-        val payload = extractClockCommandPayload(
+        val command = extractClockCommandPayload(
             uri = session.uri,
             body = body,
             json = json,
         ).getOrElse { error ->
             return plain(Status.BAD_REQUEST, error.message ?: "invalid payload")
         }
-        onCommand(payload)
+        onCommand(command)
         return plain(Status.ACCEPTED, "accepted")
     }
 
@@ -113,7 +113,7 @@ internal fun extractClockCommandPayload(
     uri: String,
     body: String,
     json: Json = Json { ignoreUnknownKeys = true },
-): Result<String> {
+): Result<VerifiedIncomingCommand> {
     val commandPayload = when (uri) {
         "/v1/incoming-command" -> body
         "/v1/messages" -> extractFromMessageEnvelope(body, json)
@@ -135,7 +135,7 @@ private fun extractFromMessageEnvelope(body: String, json: Json): Result<String>
     return Result.success(nestedPayload ?: outerPayloadJson)
 }
 
-private fun validateClockCommandPayload(payload: String, json: Json): Result<String> {
+private fun validateClockCommandPayload(payload: String, json: Json): Result<VerifiedIncomingCommand> {
     val root = runCatching { json.parseToJsonElement(payload).jsonObject }
         .getOrElse { return Result.failure(IllegalArgumentException("Clock command payload must be valid JSON object")) }
 
@@ -144,7 +144,20 @@ private fun validateClockCommandPayload(payload: String, json: Json): Result<Str
     if (schema != CLOCK_COMMAND_SCHEMA_V1) {
         return Result.failure(IllegalArgumentException("Unsupported schema: $schema"))
     }
-    return Result.success(payload)
+    val commandId = root.optionalString("command_id")
+        ?: return Result.failure(IllegalArgumentException("Missing command_id"))
+    val senderDeviceId = root.optionalString("from_device_id")
+        ?: return Result.failure(IllegalArgumentException("Missing from_device_id"))
+    return Result.success(
+        VerifiedIncomingCommand(
+            payloadJson = payload,
+            commandId = commandId,
+            senderDeviceId = senderDeviceId,
+            peerId = null,
+            verificationState = IncomingVerificationState.Verified,
+            receivedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
+        ),
+    )
 }
 
 private fun JsonObject.optionalString(name: String): String? {

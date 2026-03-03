@@ -51,4 +51,6 @@ sealed interface OrgClockUiAction {
     data object SyncEnableStandard : OrgClockUiAction
     data object SyncEnableActive : OrgClockUiAction
     data object SyncStopRuntime : OrgClockUiAction
+    data class SyncSetEnabled(val enabled: Boolean) : OrgClockUiAction
+    data class SyncSetDefaultPeerId(val peerId: String) : OrgClockUiAction
 }

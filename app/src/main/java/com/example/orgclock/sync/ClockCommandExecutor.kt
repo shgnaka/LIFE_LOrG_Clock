@@ -23,6 +23,9 @@ class DefaultClockCommandExecutor(
     private val repository: ClockRepository,
     private val clockService: ClockService,
     private val commandIdStore: CommandIdStore,
+    private val deviceIdProvider: DeviceIdProvider = object : DeviceIdProvider {
+        override fun getOrCreate(): String = LEGACY_LOCAL_DEVICE_ID
+    },
     private val clockEnvironment: ClockEnvironment = SystemClockEnvironment,
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) : ClockCommandExecutor {
@@ -119,12 +122,12 @@ class DefaultClockCommandExecutor(
 
         return execution.fold(
             onSuccess = {
-                ClockResultPayload(
-                    commandId = command.commandId,
-                    status = ClockResultStatus.Applied,
-                    appliedAt = now,
-                    byDeviceId = LOCAL_DEVICE_ID,
-                )
+                    ClockResultPayload(
+                        commandId = command.commandId,
+                        status = ClockResultStatus.Applied,
+                        appliedAt = now,
+                        byDeviceId = deviceIdProvider.getOrCreate(),
+                    )
             },
             onFailure = { error ->
                 val mapped = mapExecutionError(error)
@@ -137,7 +140,7 @@ class DefaultClockCommandExecutor(
                     mapped.first,
                     mapped.second,
                     now,
-                    LOCAL_DEVICE_ID,
+                    deviceIdProvider.getOrCreate(),
                 )
             },
         )
@@ -151,7 +154,7 @@ class DefaultClockCommandExecutor(
             errorCode = ClockErrorCode.VALIDATION_FAILED,
             errorMessage = message,
             appliedAt = now,
-            byDeviceId = LOCAL_DEVICE_ID,
+            byDeviceId = deviceIdProvider.getOrCreate(),
         )
     }
 
@@ -163,7 +166,7 @@ class DefaultClockCommandExecutor(
             errorCode = ClockErrorCode.DUPLICATE_COMMAND,
             errorMessage = "Duplicate command id: $commandId",
             appliedAt = now,
-            byDeviceId = LOCAL_DEVICE_ID,
+            byDeviceId = deviceIdProvider.getOrCreate(),
         )
     }
 
@@ -172,7 +175,7 @@ class DefaultClockCommandExecutor(
         errorCode: ClockErrorCode,
         message: String,
         appliedAt: Instant,
-        byDeviceId: String = LOCAL_DEVICE_ID,
+        byDeviceId: String = deviceIdProvider.getOrCreate(),
     ): ClockResultPayload {
         return ClockResultPayload(
             commandId = commandId,
@@ -180,7 +183,7 @@ class DefaultClockCommandExecutor(
             errorCode = errorCode,
             errorMessage = message,
             appliedAt = appliedAt,
-            byDeviceId = byDeviceId.ifBlank { LOCAL_DEVICE_ID },
+            byDeviceId = byDeviceId.ifBlank { deviceIdProvider.getOrCreate() },
         )
     }
 
@@ -264,6 +267,6 @@ class DefaultClockCommandExecutor(
     private companion object {
         private val logger: Logger = Logger.getLogger(DefaultClockCommandExecutor::class.java.name)
         const val UNKNOWN_COMMAND_ID = "unknown"
-        const val LOCAL_DEVICE_ID = "local-device"
+        const val LEGACY_LOCAL_DEVICE_ID = "local-device"
     }
 }

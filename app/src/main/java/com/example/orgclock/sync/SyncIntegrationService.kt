@@ -16,15 +16,26 @@ data class SyncIntegrationSnapshot(
     val lastDeliveryStates: List<SyncDeliveryState> = emptyList(),
     val metrics: SyncMetricsSnapshot = SyncMetricsSnapshot(),
     val runtimeMode: SyncRuntimeMode = SyncRuntimeMode.Off,
+    val runtimeEnabled: Boolean = false,
+    val defaultPeerId: String? = null,
 )
 
 class SyncIntegrationService(
     private val featureFlag: SyncIntegrationFeatureFlag,
     private val syncCoreClient: OrgSyncCoreClient,
     private val commandExecutor: ClockCommandExecutor,
+    private val deviceIdProvider: DeviceIdProvider,
+    private val runtimePrefs: SyncRuntimePrefs,
+    private val peerTrustStore: PeerTrustStore,
     private val runtimeManager: SyncRuntimeManager? = null,
 ) {
-    private val _snapshot = MutableStateFlow(SyncIntegrationSnapshot())
+    private val _snapshot = MutableStateFlow(
+        SyncIntegrationSnapshot(
+            runtimeEnabled = runtimePrefs.isEnabled(),
+            runtimeMode = runtimePrefs.selectedMode(),
+            defaultPeerId = runtimePrefs.defaultPeerId(),
+        ),
+    )
     val snapshot: StateFlow<SyncIntegrationSnapshot> = _snapshot.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -42,7 +53,7 @@ class SyncIntegrationService(
                 errorCode = ClockErrorCode.VALIDATION_FAILED,
                 errorMessage = "Sync integration is disabled by feature flag",
                 appliedAt = kotlinx.datetime.Clock.System.now(),
-                byDeviceId = LOCAL_DEVICE_ID,
+                byDeviceId = deviceIdProvider.getOrCreate(),
             )
             logger.fine("sync.manual.rejected feature_flag_disabled")
             updateLastResult(disabledResult, disabledResult.errorMessage)
@@ -83,8 +94,12 @@ class SyncIntegrationService(
 
         val incoming = syncCoreClient.observeIncomingCommands()
         logger.fine("sync.poll.received count=${incoming.size}")
-        for (payload in incoming) {
-            executeManualCommand(payload)
+        for (command in incoming) {
+            if (command.verificationState != IncomingVerificationState.Verified) {
+                logger.fine("sync.incoming.rejected commandId=${command.commandId} reason=${command.verificationReason}")
+                continue
+            }
+            executeManualCommand(command.payloadJson)
         }
         refreshStateSnapshot()
         return incoming.size
@@ -93,6 +108,7 @@ class SyncIntegrationService(
     /** Enables standard runtime mode (periodic/background managed path). */
     suspend fun enableStandardMode() {
         if (!featureFlag.isEnabled()) return
+        runtimePrefs.setSelectedMode(SyncRuntimeMode.Standard)
         runtimeManager?.enableStandardMode() ?: syncCoreClient.start()
         _snapshot.update { it.copy(runtimeMode = SyncRuntimeMode.Standard) }
         refreshStateSnapshot()
@@ -101,6 +117,7 @@ class SyncIntegrationService(
     /** Enables active runtime mode (foreground/short tick path). */
     suspend fun enableActiveMode() {
         if (!featureFlag.isEnabled()) return
+        runtimePrefs.setSelectedMode(SyncRuntimeMode.Active)
         runtimeManager?.enableActiveMode() ?: syncCoreClient.start()
         _snapshot.update { it.copy(runtimeMode = SyncRuntimeMode.Active) }
         refreshStateSnapshot()
@@ -108,6 +125,7 @@ class SyncIntegrationService(
 
     /** Stops sync runtime processing regardless of currently selected mode. */
     suspend fun stopRuntime() {
+        runtimePrefs.setSelectedMode(SyncRuntimeMode.Off)
         runtimeManager?.stop() ?: syncCoreClient.stop()
         _snapshot.update { it.copy(runtimeMode = SyncRuntimeMode.Off) }
         refreshStateSnapshot()
@@ -128,7 +146,11 @@ class SyncIntegrationService(
         if (!featureFlag.isEnabled()) return
         scope.launch {
             runCatching {
-                enableStandardMode()
+                when (runtimePrefs.selectedMode()) {
+                    SyncRuntimeMode.Standard -> enableStandardMode()
+                    SyncRuntimeMode.Active -> enableActiveMode()
+                    SyncRuntimeMode.Off -> stopRuntime()
+                }
                 flushNow()
             }.onFailure { error ->
                 logger.fine("sync.startup.failed reason=${error.message ?: "unknown"}")
@@ -160,10 +182,45 @@ class SyncIntegrationService(
         }
     }
 
+    suspend fun submitOutgoingCommand(command: OutgoingClockCommand): SubmitResult {
+        if (!featureFlag.isEnabled()) {
+            return SubmitResult.Rejected("sync integration is disabled")
+        }
+        if (!peerTrustStore.isTrusted(command.targetPeerId)) {
+            return SubmitResult.Rejected("peer is not trusted: ${command.targetPeerId}")
+        }
+        return syncCoreClient.submitOutgoing(command)
+    }
+
+    fun markSyncError(message: String) {
+        _snapshot.update { it.copy(lastError = message) }
+    }
+
+    suspend fun setRuntimeEnabled(enabled: Boolean) {
+        runtimePrefs.setEnabled(enabled)
+        _snapshot.update { it.copy(runtimeEnabled = enabled) }
+        if (!enabled) {
+            stopRuntime()
+        } else {
+            when (runtimePrefs.selectedMode()) {
+                SyncRuntimeMode.Active -> enableActiveMode()
+                SyncRuntimeMode.Standard -> enableStandardMode()
+                SyncRuntimeMode.Off -> enableStandardMode()
+            }
+        }
+    }
+
+    fun setDefaultPeerId(peerId: String?) {
+        runtimePrefs.setDefaultPeerId(peerId)
+        if (!peerId.isNullOrBlank()) {
+            peerTrustStore.trust(peerId)
+        }
+        _snapshot.update { it.copy(defaultPeerId = peerId) }
+    }
+
     companion object {
         private val logger: Logger = Logger.getLogger(SyncIntegrationService::class.java.name)
         private const val MAX_DELIVERY_STATES = 20
         private const val MANUAL_COMMAND_ID = "manual"
-        private const val LOCAL_DEVICE_ID = "local-device"
     }
 }

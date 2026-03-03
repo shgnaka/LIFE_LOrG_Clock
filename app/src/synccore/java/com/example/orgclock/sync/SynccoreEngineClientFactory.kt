@@ -4,14 +4,9 @@ import android.content.Context
 import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.domain.ClockService
 import com.example.orgclock.time.ClockEnvironment
-import io.github.shgnaka.synccore.api.CommandState
-import io.github.shgnaka.synccore.api.DomainCommandExecutor
-import io.github.shgnaka.synccore.api.ResultStatus
-import io.github.shgnaka.synccore.api.SyncResult
 import io.github.shgnaka.synccore.engine.DispatchOutcome
 import io.github.shgnaka.synccore.engine.EngineStore
 import io.github.shgnaka.synccore.engine.MessageDispatcher
-import io.github.shgnaka.synccore.engine.OutgoingCommandRecord
 import io.github.shgnaka.synccore.engine.SyncCoreEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,61 +24,33 @@ class SynccoreEngineClientFactory : SyncCoreClientFactory {
         clockService: ClockService,
         clockEnvironment: ClockEnvironment,
     ): OrgSyncCoreClient {
-        val commandIdStore = SharedPreferencesCommandIdStore(
-            appContext.getSharedPreferences("orgclock_sync", Context.MODE_PRIVATE),
-        )
-        val appCommandExecutor = DefaultClockCommandExecutor(
-            repository = repository,
-            clockService = clockService,
-            commandIdStore = commandIdStore,
-            clockEnvironment = clockEnvironment,
-        )
-        val domainExecutor = OrgClockDomainCommandExecutor(appCommandExecutor)
-        val store = InMemoryEngineStore()
+        val database = SyncQueueDatabaseFactory.create(appContext)
+        val store: EngineStore = RoomEngineStore(database.syncQueueDao())
         val engine = SyncCoreEngine(
             store = store,
-            dispatcher = LocalLoopbackDispatcher(domainExecutor),
+            dispatcher = GatewayDispatcher(NoOpSyncTransportGateway()),
             ioDispatcher = Dispatchers.Default,
             flushIntervalMs = 1_000L,
         )
         return EngineBackedOrgSyncCoreClient(
             engine = engine,
-            incomingCommandSource = HttpIncomingCommandSource(),
+            incomingCommandSource = NoOpIncomingCommandSource(),
         )
     }
 }
-
-private class OrgClockDomainCommandExecutor(
-    private val appExecutor: ClockCommandExecutor,
-) : DomainCommandExecutor {
-    override suspend fun execute(topic: String, payloadJson: String): SyncResult {
-        val result = appExecutor.execute(payloadJson)
-        return SyncResult(
-            commandId = result.commandId,
-            status = when (result.status) {
-                ClockResultStatus.Applied -> ResultStatus.APPLIED
-                ClockResultStatus.Failed -> ResultStatus.FAILED
-                ClockResultStatus.Duplicate -> ResultStatus.DUPLICATE
-                ClockResultStatus.Rejected -> ResultStatus.REJECTED
-            },
-            errorCode = result.errorCode?.name,
-            errorMessage = result.errorMessage,
-            appliedAtEpochMs = result.appliedAt.toEpochMilliseconds(),
-        )
-    }
-}
-
-private class LocalLoopbackDispatcher(
-    private val domainExecutor: DomainCommandExecutor,
+private class GatewayDispatcher(
+    private val gateway: SyncTransportGateway,
 ) : MessageDispatcher {
     override suspend fun dispatch(command: io.github.shgnaka.synccore.api.SyncCommand): DispatchOutcome {
-        return runCatching {
-            val result = domainExecutor.execute(command.topic, command.payloadJson)
-            DispatchOutcome.Accepted(result = result)
-        }.getOrElse { error ->
-            DispatchOutcome.Rejected(
-                errorCode = io.github.shgnaka.synccore.api.DeliveryErrorCode.PROTOCOL_ERROR,
-                errorMessage = error.message ?: "domain execution failed",
+        return when (val result = gateway.dispatch(command)) {
+            is TransportDispatchResult.Accepted -> DispatchOutcome.Accepted(result.result)
+            is TransportDispatchResult.RetryableFailure -> DispatchOutcome.RetryableFailure(
+                errorCode = result.errorCode,
+                errorMessage = result.errorMessage,
+            )
+            is TransportDispatchResult.Rejected -> DispatchOutcome.Rejected(
+                errorCode = result.errorCode,
+                errorMessage = result.errorMessage,
             )
         }
     }
@@ -142,10 +109,27 @@ private class EngineBackedOrgSyncCoreClient(
         engine.flushNow()
     }
 
-    override suspend fun observeIncomingCommands(): List<String> = incomingCommands.drainAll()
+    override suspend fun submitOutgoing(command: OutgoingClockCommand): SubmitResult {
+        return runCatching {
+            engine.submit(
+                io.github.shgnaka.synccore.api.SyncCommand(
+                    commandId = command.commandId,
+                    topic = CLOCK_COMMAND_SCHEMA_V1,
+                    payloadJson = command.payloadJson,
+                    targetPeerId = command.targetPeerId,
+                    createdAtEpochMs = Clock.System.now().toEpochMilliseconds(),
+                ),
+            ).fold(
+                onSuccess = { SubmitResult.Submitted },
+                onFailure = { SubmitResult.Failed(it.message ?: "submit failed") },
+            )
+        }.getOrElse { SubmitResult.Failed(it.message ?: "submit failed") }
+    }
+
+    override suspend fun observeIncomingCommands(): List<VerifiedIncomingCommand> = incomingCommands.drainAll()
 
     override suspend fun reportResult(result: ClockResultPayload) {
-        // The local loopback dispatcher already reports result via SyncCoreEngine.
+        // Result reporting transport integration is provided by external transport binding.
     }
 
     override suspend fun observeDeliveryState(): List<SyncDeliveryState> {
@@ -166,106 +150,5 @@ private class EngineBackedOrgSyncCoreClient(
         private val logger: Logger = Logger.getLogger(EngineBackedOrgSyncCoreClient::class.java.name)
         const val MAX_DELIVERY_STATE_HISTORY = 100
         const val MAX_INCOMING_COMMAND_HISTORY = 500
-    }
-}
-
-private class InMemoryEngineStore : EngineStore {
-    private val outgoing = LinkedHashMap<String, MutableOutgoingRecord>()
-    private val processed = LinkedHashMap<String, SyncResult>()
-    private val events = mutableListOf<io.github.shgnaka.synccore.api.DeliveryEvent>()
-
-    override suspend fun healthCheck(): Result<Unit> = Result.success(Unit)
-
-    override suspend fun insertOutgoing(command: io.github.shgnaka.synccore.api.SyncCommand): Result<Unit> {
-        if (outgoing.containsKey(command.commandId)) {
-            return Result.failure(IllegalStateException("Command already exists: ${command.commandId}"))
-        }
-        outgoing[command.commandId] = MutableOutgoingRecord(
-            command = command,
-            state = CommandState.PENDING,
-            retryCount = 0,
-            nextRetryAtEpochMs = command.createdAtEpochMs,
-            lastUpdatedAtEpochMs = Clock.System.now().toEpochMilliseconds(),
-        )
-        return Result.success(Unit)
-    }
-
-    override suspend fun markState(commandId: String, state: CommandState): Result<Unit> {
-        val row = outgoing[commandId] ?: return Result.failure(IllegalStateException("Unknown command: $commandId"))
-        row.state = state
-        row.lastUpdatedAtEpochMs = Clock.System.now().toEpochMilliseconds()
-        return Result.success(Unit)
-    }
-
-    override suspend fun recordResult(result: SyncResult): Result<Unit> {
-        processed[result.commandId] = result
-        return Result.success(Unit)
-    }
-
-    override suspend fun isProcessed(commandId: String): Boolean = processed.containsKey(commandId)
-
-    override suspend fun listPendingCommands(limit: Int): List<io.github.shgnaka.synccore.api.SyncCommand> {
-        return outgoing.values
-            .asSequence()
-            .filter { it.state == CommandState.PENDING }
-            .take(limit)
-            .map { it.command }
-            .toList()
-    }
-
-    override suspend fun listDueCommands(nowEpochMs: Long, limit: Int): List<OutgoingCommandRecord> {
-        return outgoing.values
-            .asSequence()
-            .filter {
-                it.state == CommandState.PENDING &&
-                    it.nextRetryAtEpochMs <= nowEpochMs &&
-                    !processed.containsKey(it.command.commandId)
-            }
-            .sortedBy { it.nextRetryAtEpochMs }
-            .take(limit)
-            .map { it.toImmutable() }
-            .toList()
-    }
-
-    override suspend fun updateRetry(
-        commandId: String,
-        retryCount: Int,
-        nextRetryAtEpochMs: Long,
-        errorCode: io.github.shgnaka.synccore.api.DeliveryErrorCode?,
-        errorMessage: String?,
-    ): Result<Unit> {
-        val row = outgoing[commandId] ?: return Result.failure(IllegalStateException("Unknown command: $commandId"))
-        row.retryCount = retryCount
-        row.nextRetryAtEpochMs = nextRetryAtEpochMs
-        row.lastUpdatedAtEpochMs = Clock.System.now().toEpochMilliseconds()
-        return Result.success(Unit)
-    }
-
-    override suspend fun appendDeliveryEvent(event: io.github.shgnaka.synccore.api.DeliveryEvent): Result<Unit> {
-        events += event
-        return Result.success(Unit)
-    }
-
-    override suspend fun getQueueDepth(): Long {
-        return outgoing.values.count {
-            it.state == CommandState.PENDING || it.state == CommandState.SENT || it.state == CommandState.ACKED
-        }.toLong()
-    }
-}
-
-private data class MutableOutgoingRecord(
-    val command: io.github.shgnaka.synccore.api.SyncCommand,
-    var state: CommandState,
-    var retryCount: Int,
-    var nextRetryAtEpochMs: Long,
-    var lastUpdatedAtEpochMs: Long,
-) {
-    fun toImmutable(): OutgoingCommandRecord {
-        return OutgoingCommandRecord(
-            command = command,
-            state = state,
-            retryCount = retryCount,
-            nextRetryAtEpochMs = nextRetryAtEpochMs,
-        )
     }
 }

@@ -62,6 +62,8 @@ class OrgClockViewModel(
     private val syncEnableActiveMode: suspend () -> Unit = {},
     private val syncStopRuntime: suspend () -> Unit = {},
     private val syncFlushNow: suspend () -> Unit = {},
+    private val syncSetEnabled: suspend (Boolean) -> Unit = {},
+    private val syncSetDefaultPeerId: suspend (String) -> Unit = {},
     private val syncDebugEnabled: Boolean = false,
     private val nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
     private val todayProvider: () -> LocalDate = { LocalDate.now() },
@@ -433,6 +435,16 @@ class OrgClockViewModel(
 
             OrgClockUiAction.SyncStopRuntime -> {
                 viewModelScope.launch { syncStopRuntime() }
+                true
+            }
+
+            is OrgClockUiAction.SyncSetEnabled -> {
+                viewModelScope.launch { syncSetEnabled(action.enabled) }
+                true
+            }
+
+            is OrgClockUiAction.SyncSetDefaultPeerId -> {
+                viewModelScope.launch { syncSetDefaultPeerId(action.peerId) }
                 true
             }
 
@@ -981,6 +993,8 @@ class OrgClockViewModel(
     private fun applySyncSnapshot(snapshot: SyncIntegrationSnapshot) {
         _uiState.update { state ->
             state.copy(
+                syncRuntimeEnabled = snapshot.runtimeEnabled,
+                syncDefaultPeerId = snapshot.defaultPeerId.orEmpty(),
                 syncRuntimeMode = snapshot.runtimeMode,
                 syncLastResultSummary = snapshot.lastResult?.let { result ->
                     buildString {

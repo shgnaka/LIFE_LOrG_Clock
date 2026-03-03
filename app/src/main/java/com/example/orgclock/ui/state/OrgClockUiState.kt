@@ -84,6 +84,8 @@ data class OrgClockUiState(
     val openAppNotificationSettingsPending: Boolean = false,
     val showPerfOverlay: Boolean = false,
     val syncDebugVisible: Boolean = false,
+    val syncRuntimeEnabled: Boolean = false,
+    val syncDefaultPeerId: String = "",
     val syncRuntimeMode: SyncRuntimeMode = SyncRuntimeMode.Off,
     val syncLastResultSummary: String? = null,
     val syncLastError: String? = null,

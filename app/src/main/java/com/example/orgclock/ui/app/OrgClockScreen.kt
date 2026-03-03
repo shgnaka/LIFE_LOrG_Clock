@@ -35,6 +35,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -187,6 +188,8 @@ fun OrgClockScreen(
                 notificationDisplayMode = state.notificationDisplayMode,
                 notificationPermissionGranted = state.notificationPermissionGranted,
                 syncDebugVisible = state.syncDebugVisible,
+                syncRuntimeEnabled = state.syncRuntimeEnabled,
+                syncDefaultPeerId = state.syncDefaultPeerId,
                 syncRuntimeMode = state.syncRuntimeMode,
                 syncLastResultSummary = state.syncLastResultSummary,
                 syncLastError = state.syncLastError,
@@ -206,6 +209,8 @@ fun OrgClockScreen(
                 onSyncEnableStandard = { onAction(OrgClockUiAction.SyncEnableStandard) },
                 onSyncEnableActive = { onAction(OrgClockUiAction.SyncEnableActive) },
                 onSyncStopRuntime = { onAction(OrgClockUiAction.SyncStopRuntime) },
+                onSyncSetEnabled = { onAction(OrgClockUiAction.SyncSetEnabled(it)) },
+                onSyncSetDefaultPeerId = { onAction(OrgClockUiAction.SyncSetDefaultPeerId(it)) },
                 onBack = { onAction(OrgClockUiAction.BackFromSettings) },
             )
         }
@@ -684,6 +689,8 @@ private fun SettingsScreen(
     notificationDisplayMode: NotificationDisplayMode,
     notificationPermissionGranted: Boolean,
     syncDebugVisible: Boolean,
+    syncRuntimeEnabled: Boolean,
+    syncDefaultPeerId: String,
     syncRuntimeMode: SyncRuntimeMode,
     syncLastResultSummary: String?,
     syncLastError: String?,
@@ -697,6 +704,8 @@ private fun SettingsScreen(
     onSyncEnableStandard: () -> Unit,
     onSyncEnableActive: () -> Unit,
     onSyncStopRuntime: () -> Unit,
+    onSyncSetEnabled: (Boolean) -> Unit,
+    onSyncSetDefaultPeerId: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     Column(
@@ -770,6 +779,28 @@ private fun SettingsScreen(
             SectionCard {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.sync_debug_title), style = MaterialTheme.typography.titleMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(stringResource(R.string.sync_enabled_label), style = MaterialTheme.typography.bodyLarge)
+                        Switch(
+                            checked = syncRuntimeEnabled,
+                            onCheckedChange = onSyncSetEnabled,
+                        )
+                    }
+                    var peerInput by remember(syncDefaultPeerId) { mutableStateOf(syncDefaultPeerId) }
+                    OutlinedTextField(
+                        value = peerInput,
+                        onValueChange = { value ->
+                            peerInput = value
+                            onSyncSetDefaultPeerId(value)
+                        },
+                        label = { Text(stringResource(R.string.sync_default_peer_id_label)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                     Text(
                         text = stringResource(R.string.sync_debug_runtime_mode, syncRuntimeMode.name),
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

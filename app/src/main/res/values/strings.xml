@@ -103,6 +103,8 @@
     <string name="sync_debug_standard_mode">Standard mode</string>
     <string name="sync_debug_active_mode">Active mode</string>
     <string name="sync_debug_stop_mode">Stop sync</string>
+    <string name="sync_enabled_label">Sync enabled</string>
+    <string name="sync_default_peer_id_label">Default peer id</string>
     <string name="sync_active_channel_name">Sync Active Mode</string>
     <string name="sync_active_channel_description">Foreground sync ticker for active mode</string>
     <string name="sync_active_notification_title">Sync active mode</string>
