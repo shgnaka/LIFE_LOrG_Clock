@@ -48,7 +48,7 @@ class SynccoreEngineClientFactory : SyncCoreClientFactory {
         )
         return EngineBackedOrgSyncCoreClient(
             engine = engine,
-            incomingCommandSource = NoOpIncomingCommandSource(),
+            incomingCommandSource = HttpIncomingCommandSource(),
         )
     }
 }

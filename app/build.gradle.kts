@@ -104,6 +104,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    implementation("org.nanohttpd:nanohttpd:2.3.1")
     if (syncCoreEnabled) {
         implementation("io.github.shgnaka.synccore:sync-core-api:0.1.0-SNAPSHOT")
         implementation("io.github.shgnaka.synccore:sync-core-engine:0.1.0-SNAPSHOT")
