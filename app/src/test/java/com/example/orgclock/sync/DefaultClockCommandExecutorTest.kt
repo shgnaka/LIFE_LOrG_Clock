@@ -12,6 +12,7 @@ import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -72,6 +73,17 @@ class DefaultClockCommandExecutorTest {
     }
 
     @Test
+    fun execute_malformedRequestedAt_returnsRejected() = runBlocking {
+        val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to baseFile()))
+        val payload = validCommand(requestedAt = "not-a-timestamp")
+
+        val result = newExecutor(repo).execute(payload)
+
+        assertEquals(ClockResultStatus.Rejected, result.status)
+        assertEquals(ClockErrorCode.VALIDATION_FAILED, result.errorCode)
+    }
+
+    @Test
     fun execute_fileNotFound_returnsTargetFileNotFound() = runBlocking {
         val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to baseFile()))
         val payload = validCommand(fileName = "2026-03-02.org")
@@ -121,6 +133,54 @@ class DefaultClockCommandExecutorTest {
 
         assertEquals(ClockResultStatus.Failed, result.status)
         assertEquals(ClockErrorCode.NO_OPEN_CLOCK, result.errorCode)
+    }
+
+    @Test
+    fun execute_stopWithOpenClock_returnsApplied() = runBlocking {
+        val repo = FakeClockRepository(
+            mutableMapOf(
+                "2026-03-01.org" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-03-01 Sun 09:00:00]",
+                    ":END:",
+                ),
+            ),
+        )
+
+        val result = newExecutor(repo).execute(validCommand(kind = "clock.stop"))
+
+        assertEquals(ClockResultStatus.Applied, result.status)
+    }
+
+    @Test
+    fun execute_cancelWithOpenClock_returnsApplied() = runBlocking {
+        val repo = FakeClockRepository(
+            mutableMapOf(
+                "2026-03-01.org" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-03-01 Sun 09:00:00]",
+                    ":END:",
+                ),
+            ),
+        )
+
+        val result = newExecutor(repo).execute(validCommand(kind = "clock.cancel"))
+
+        assertEquals(ClockResultStatus.Applied, result.status)
+    }
+
+    @Test
+    fun execute_levelOneHeading_returnsInvalidHeadingLevel() = runBlocking {
+        val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to baseFile()))
+
+        val result = newExecutor(repo).execute(validCommand(headingPath = "Work"))
+
+        assertEquals(ClockResultStatus.Failed, result.status)
+        assertEquals(ClockErrorCode.INVALID_HEADING_LEVEL, result.errorCode)
     }
 
     @Test
@@ -198,6 +258,76 @@ class DefaultClockCommandExecutorTest {
         assertNotNull(service.snapshot.value.lastResult)
     }
 
+    @Test
+    fun syncIntegrationService_pollIncomingCommandsOnce_processesAllPayloads() = runBlocking {
+        val repo = FakeClockRepository(
+            mutableMapOf(
+                "2026-03-01.org" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    ":END:",
+                ),
+            ),
+        )
+        val executor = newExecutor(repo)
+        val client = RecordingSyncCoreClient().apply {
+            incomingCommands += validCommand(commandId = "cmd-1", kind = "clock.start")
+            incomingCommands += validCommand(commandId = "cmd-2", kind = "clock.stop")
+        }
+        val service = newEnabledService(executor, client)
+
+        val processed = service.pollIncomingCommandsOnce()
+
+        assertEquals(2, processed)
+        assertEquals(2, client.reported.size)
+    }
+
+    @Test
+    fun syncIntegrationService_runtimeModeTransitions_updateSnapshot() = runBlocking {
+        val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to baseFile()))
+        val client = RecordingSyncCoreClient()
+        val service = newEnabledService(newExecutor(repo), client)
+
+        service.enableStandardMode()
+        assertEquals(SyncRuntimeMode.Standard, service.snapshot.value.runtimeMode)
+        assertTrue(client.started)
+
+        service.enableActiveMode()
+        assertEquals(SyncRuntimeMode.Active, service.snapshot.value.runtimeMode)
+        assertTrue(client.started)
+
+        service.stopRuntime()
+        assertEquals(SyncRuntimeMode.Off, service.snapshot.value.runtimeMode)
+        assertFalse(client.started)
+    }
+
+    @Test
+    fun syncIntegrationService_reportFailure_updatesSnapshotErrorAndResult() = runBlocking {
+        val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to baseFile()))
+        val executor = newExecutor(repo)
+        val client = RecordingSyncCoreClient().apply { reportErrorMessage = "report down" }
+        val service = newEnabledService(executor, client)
+
+        val result = service.executeManualCommand(validCommand())
+
+        assertEquals(ClockResultStatus.Applied, result.status)
+        assertEquals("report down", service.snapshot.value.lastError)
+        assertNotNull(service.snapshot.value.lastResult)
+    }
+
+    @Test
+    fun inMemoryCommandIdStore_evictsOldIdsWhenCapacityExceeded() {
+        val store = InMemoryCommandIdStore()
+
+        repeat(3_000) { index ->
+            store.markProcessed("cmd-$index")
+        }
+
+        assertFalse(store.contains("cmd-0"))
+        assertTrue(store.contains("cmd-2999"))
+    }
+
     private fun newExecutor(
         repository: FakeClockRepository,
         commandIdStore: CommandIdStore = InMemoryCommandIdStore(),
@@ -210,12 +340,26 @@ class DefaultClockCommandExecutorTest {
         )
     }
 
+    private fun newEnabledService(
+        executor: ClockCommandExecutor,
+        client: RecordingSyncCoreClient,
+    ): SyncIntegrationService {
+        return SyncIntegrationService(
+            featureFlag = object : SyncIntegrationFeatureFlag {
+                override fun isEnabled(): Boolean = true
+            },
+            syncCoreClient = client,
+            commandExecutor = executor,
+        )
+    }
+
     private fun validCommand(
         schema: String = CLOCK_COMMAND_SCHEMA_V1,
         commandId: String = "cmd-1",
         kind: String = "clock.start",
         fileName: String = "2026-03-01.org",
         headingPath: String = "Work/Project A",
+        requestedAt: String = "2026-03-01T12:34:56Z",
     ): String {
         return """
             {
@@ -226,7 +370,7 @@ class DefaultClockCommandExecutorTest {
                 "file_name": "$fileName",
                 "heading_path": "$headingPath"
               },
-              "requested_at": "2026-03-01T12:34:56Z",
+              "requested_at": "$requestedAt",
               "from_device_id": "device-a",
               "request_id": "trace-1"
             }
@@ -248,6 +392,10 @@ private object FixedClockEnvironment : ClockEnvironment {
 
 private class RecordingSyncCoreClient : OrgSyncCoreClient {
     val reported = mutableListOf<ClockResultPayload>()
+    val incomingCommands = mutableListOf<String>()
+    var deliveryStates: List<SyncDeliveryState> = emptyList()
+    var metrics: SyncMetricsSnapshot = SyncMetricsSnapshot()
+    var reportErrorMessage: String? = null
     var started: Boolean = false
     var flushCount: Int = 0
 
@@ -263,15 +411,16 @@ private class RecordingSyncCoreClient : OrgSyncCoreClient {
         flushCount += 1
     }
 
-    override suspend fun observeIncomingCommands(): List<String> = emptyList()
+    override suspend fun observeIncomingCommands(): List<String> = incomingCommands.toList()
 
     override suspend fun reportResult(result: ClockResultPayload) {
+        reportErrorMessage?.let { throw IllegalStateException(it) }
         reported += result
     }
 
-    override suspend fun observeDeliveryState(): List<SyncDeliveryState> = emptyList()
+    override suspend fun observeDeliveryState(): List<SyncDeliveryState> = deliveryStates
 
-    override suspend fun metricsSnapshot(): SyncMetricsSnapshot = SyncMetricsSnapshot()
+    override suspend fun metricsSnapshot(): SyncMetricsSnapshot = metrics
 }
 
 private class SharedBackingCommandIdStore(
