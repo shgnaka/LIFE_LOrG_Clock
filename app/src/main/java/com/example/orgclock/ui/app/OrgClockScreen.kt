@@ -65,6 +65,8 @@ import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
 import com.example.orgclock.ui.time.RUNNING_PANEL_TICK_MS
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.sync.SyncDeliveryState
+import com.example.orgclock.sync.SyncRuntimeMode
 import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.ui.theme.CalmBorder
 import com.example.orgclock.ui.theme.CalmOnAccent
@@ -184,6 +186,12 @@ fun OrgClockScreen(
                 notificationEnabled = state.notificationEnabled,
                 notificationDisplayMode = state.notificationDisplayMode,
                 notificationPermissionGranted = state.notificationPermissionGranted,
+                syncDebugVisible = state.syncDebugVisible,
+                syncRuntimeMode = state.syncRuntimeMode,
+                syncLastResultSummary = state.syncLastResultSummary,
+                syncLastError = state.syncLastError,
+                syncMetricsSummary = "submitted=${state.syncMetrics.commandsSubmittedTotal}, applied=${state.syncMetrics.commandsAppliedTotal}, retries=${state.syncMetrics.retryAttemptsTotal}, depth=${state.syncMetrics.queueDepth}",
+                syncDeliveryStates = state.syncDeliveryStates.takeLast(3),
                 onChangeRoot = onPickRoot,
                 onToggleNotificationEnabled = {
                     onAction(OrgClockUiAction.ToggleNotificationEnabled(it))
@@ -194,6 +202,10 @@ fun OrgClockScreen(
                 onOpenAppNotificationSettings = {
                     onAction(OrgClockUiAction.OpenAppNotificationSettings)
                 },
+                onSyncFlushNow = { onAction(OrgClockUiAction.SyncFlushNow) },
+                onSyncEnableStandard = { onAction(OrgClockUiAction.SyncEnableStandard) },
+                onSyncEnableActive = { onAction(OrgClockUiAction.SyncEnableActive) },
+                onSyncStopRuntime = { onAction(OrgClockUiAction.SyncStopRuntime) },
                 onBack = { onAction(OrgClockUiAction.BackFromSettings) },
             )
         }
@@ -671,10 +683,20 @@ private fun SettingsScreen(
     notificationEnabled: Boolean,
     notificationDisplayMode: NotificationDisplayMode,
     notificationPermissionGranted: Boolean,
+    syncDebugVisible: Boolean,
+    syncRuntimeMode: SyncRuntimeMode,
+    syncLastResultSummary: String?,
+    syncLastError: String?,
+    syncMetricsSummary: String,
+    syncDeliveryStates: List<SyncDeliveryState>,
     onChangeRoot: () -> Unit,
     onToggleNotificationEnabled: (Boolean) -> Unit,
     onChangeNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     onOpenAppNotificationSettings: () -> Unit,
+    onSyncFlushNow: () -> Unit,
+    onSyncEnableStandard: () -> Unit,
+    onSyncEnableActive: () -> Unit,
+    onSyncStopRuntime: () -> Unit,
     onBack: () -> Unit,
 ) {
     Column(
@@ -741,6 +763,53 @@ private fun SettingsScreen(
                         },
                         enabled = notificationEnabled,
                     )
+                }
+            }
+        }
+        if (syncDebugVisible) {
+            SectionCard {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.sync_debug_title), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = stringResource(R.string.sync_debug_runtime_mode, syncRuntimeMode.name),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(R.string.sync_debug_metrics, syncMetricsSummary),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.sync_debug_last_result,
+                            syncLastResultSummary ?: stringResource(R.string.none),
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.sync_debug_last_error,
+                            syncLastError ?: stringResource(R.string.none),
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (syncDeliveryStates.isNotEmpty()) {
+                        Text(stringResource(R.string.sync_debug_delivery_events), style = MaterialTheme.typography.bodyMedium)
+                        syncDeliveryStates.forEach { delivery ->
+                            Text(
+                                text = "${delivery.state} / ${delivery.commandId} / ${delivery.detail ?: "-"}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onSyncFlushNow) { Text(stringResource(R.string.sync_debug_flush_now)) }
+                        Button(onClick = onSyncEnableStandard) { Text(stringResource(R.string.sync_debug_standard_mode)) }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onSyncEnableActive) { Text(stringResource(R.string.sync_debug_active_mode)) }
+                        Button(onClick = onSyncStopRuntime) { Text(stringResource(R.string.sync_debug_stop_mode)) }
+                    }
                 }
             }
         }

@@ -69,12 +69,22 @@ export SYNC_CORE_DIR=/absolute/path/to/lanonly-p2p-cmdsync-core
 ./gradlew :app:assembleDebug -Psynccore.integration.enabled=true
 ```
 
+`sync-core` 実Adapter（Engine API）は `SYNC_CORE_DIR` が有効なときだけ有効化されます。
+有効時は `settings.gradle.kts` の composite build で `sync-core-api` / `sync-core-engine` / `sync-core-android` を参照します。
+
 デバッグ用の単発コマンド実行（manual slice）は `sync_command_payload` extra 付きで Activity を起動すると実行できます。
 
 ```bash
 adb shell am start -n com.example.orgclock/.MainActivity \
   --es sync_command_payload '{"schema":"clock.command.v1","command_id":"cmd-1","kind":"clock.start","target":{"file_name":"2026-03-01.org","heading_path":"Work/Project A"},"requested_at":"2026-03-01T12:34:56Z","from_device_id":"device-a"}'
 ```
+
+Debug build では Settings 画面に `Sync Debug` セクションが表示され、以下を操作できます。
+
+- `Flush now`
+- `Standard mode`（WorkManager 15分周期 + 起動時 flush）
+- `Active mode`（Foreground Service 5秒 tick）
+- `Stop sync`
 
 ## CI Distribution (No ADB / No USB)
 

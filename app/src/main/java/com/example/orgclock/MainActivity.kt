@@ -41,6 +41,8 @@ open class MainActivity : ComponentActivity() {
             }
         }
 
+        appGraph.syncIntegrationService(this).onAppStarted()
+
         val debugPayload = intent.getStringExtra(EXTRA_SYNC_COMMAND_PAYLOAD)
         if (!debugPayload.isNullOrBlank()) {
             lifecycleScope.launch {

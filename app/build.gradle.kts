@@ -29,6 +29,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        buildConfigField("boolean", "SYNC_CORE_INCLUDED", syncCoreEnabled.toString())
         buildConfigField("boolean", "SYNC_INTEGRATION_ENABLED", syncIntegrationEnabled.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -99,11 +100,14 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     if (syncCoreEnabled) {
+        implementation("io.github.shgnaka.synccore:sync-core-api:0.1.0-SNAPSHOT")
         implementation("io.github.shgnaka.synccore:sync-core-engine:0.1.0-SNAPSHOT")
+        implementation("io.github.shgnaka.synccore:sync-core-android:0.1.0-SNAPSHOT")
     }
 
     testImplementation("junit:junit:4.13.2")
@@ -113,4 +117,8 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+if (syncCoreEnabled) {
+    android.sourceSets.getByName("main").java.srcDir("src/synccore/java")
 }

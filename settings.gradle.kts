@@ -24,8 +24,12 @@ val syncCoreDir = (
 if (syncCoreDir != null) {
     includeBuild(syncCoreDir) {
         dependencySubstitution {
+            substitute(module("io.github.shgnaka.synccore:sync-core-api"))
+                .using(project(":sync-core-api"))
             substitute(module("io.github.shgnaka.synccore:sync-core-engine"))
                 .using(project(":sync-core-engine"))
+            substitute(module("io.github.shgnaka.synccore:sync-core-android"))
+                .using(project(":sync-core-android"))
         }
     }
 }

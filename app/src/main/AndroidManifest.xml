@@ -13,6 +13,10 @@
             android:name=".notification.ClockInNotificationService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".sync.SyncTickerService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
         <activity
             android:name=".MainActivity"
             android:exported="true">

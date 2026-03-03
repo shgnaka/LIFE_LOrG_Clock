@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import com.example.orgclock.BuildConfig
 import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.data.RootAccessGateway
 import com.example.orgclock.data.SafOrgRepository
@@ -18,9 +19,11 @@ import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.notification.NotificationServiceConfig
 import com.example.orgclock.sync.BuildConfigSyncIntegrationFeatureFlag
 import com.example.orgclock.sync.DefaultClockCommandExecutor
-import com.example.orgclock.sync.NoOpSyncCoreClient
 import com.example.orgclock.sync.SharedPreferencesCommandIdStore
+import com.example.orgclock.sync.SyncCoreClientFactory
 import com.example.orgclock.sync.SyncIntegrationService
+import com.example.orgclock.sync.SyncRuntimeEntryPoint
+import com.example.orgclock.sync.SyncRuntimeManager
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
 import com.example.orgclock.time.toJavaLocalDateCompat
@@ -49,19 +52,33 @@ class DefaultAppGraph(
     private val clockService by lazy { ClockService(repository) }
     private val clockInScanner by lazy { ClockInScanner(repository) }
     private val notificationServiceConfig: NotificationServiceConfig = NotificationServiceConfig()
+    private val syncCoreClientFactory: SyncCoreClientFactory by lazy {
+        loadSyncCoreClientFactory()
+    }
     private val syncIntegrationService: SyncIntegrationService by lazy {
         val prefs = appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
         val commandIdStore = SharedPreferencesCommandIdStore(prefs)
+        val orgSyncCoreClient = syncCoreClientFactory.create(
+            appContext = appContext,
+            repository = repository,
+            clockService = clockService,
+            clockEnvironment = clockEnvironment,
+        )
         val commandExecutor = DefaultClockCommandExecutor(
             repository = repository,
             clockService = clockService,
             commandIdStore = commandIdStore,
             clockEnvironment = clockEnvironment,
         )
+        val runtimeManager = SyncRuntimeManager(
+            appContext = appContext,
+            runtimeController = com.example.orgclock.sync.DefaultSyncRuntimeController(orgSyncCoreClient),
+        )
         SyncIntegrationService(
             featureFlag = BuildConfigSyncIntegrationFeatureFlag(),
-            syncCoreClient = NoOpSyncCoreClient(),
+            syncCoreClient = orgSyncCoreClient,
             commandExecutor = commandExecutor,
+            runtimeManager = runtimeManager,
         )
     }
 
@@ -146,6 +163,20 @@ class DefaultAppGraph(
                 }
                 activity.startActivity(intent)
             },
+            syncSnapshotFlow = syncIntegrationService.snapshot,
+            syncEnableStandardMode = {
+                syncIntegrationService.enableStandardMode()
+            },
+            syncEnableActiveMode = {
+                syncIntegrationService.enableActiveMode()
+            },
+            syncStopRuntime = {
+                syncIntegrationService.stopRuntime()
+            },
+            syncFlushNow = {
+                syncIntegrationService.flushNow()
+            },
+            syncDebugEnabled = BuildConfig.DEBUG,
             nowProvider = { clockEnvironment.now().toJavaZonedDateTime(clockEnvironment.currentTimeZone().toJavaZoneId()) },
             todayProvider = { clockEnvironment.today().toJavaLocalDateCompat() },
             zoneIdProvider = { clockEnvironment.currentTimeZone().toJavaZoneId() },
@@ -154,6 +185,19 @@ class DefaultAppGraph(
     }
 
     override fun syncIntegrationService(activity: ComponentActivity): SyncIntegrationService {
+        SyncRuntimeEntryPoint.syncIntegrationService = syncIntegrationService
         return syncIntegrationService
+    }
+
+    private fun loadSyncCoreClientFactory(): SyncCoreClientFactory {
+        if (!BuildConfig.SYNC_CORE_INCLUDED) {
+            return com.example.orgclock.sync.NoOpSyncCoreClientFactory()
+        }
+        return runCatching {
+            val clazz = Class.forName("com.example.orgclock.sync.SynccoreEngineClientFactory")
+            clazz.getDeclaredConstructor().newInstance() as SyncCoreClientFactory
+        }.getOrElse {
+            com.example.orgclock.sync.NoOpSyncCoreClientFactory()
+        }
     }
 }

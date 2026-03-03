@@ -13,6 +13,8 @@ import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.sync.SyncIntegrationSnapshot
+import com.example.orgclock.sync.SyncRuntimeMode
 import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.ui.state.ClockEditDraft
@@ -27,6 +29,7 @@ import com.example.orgclock.ui.time.normalizeMinuteToStep
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -54,6 +57,12 @@ class OrgClockViewModel(
     private val loadNotificationDisplayMode: () -> NotificationDisplayMode,
     private val saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     private val notificationPermissionGrantedProvider: () -> Boolean,
+    private val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
+    private val syncEnableStandardMode: suspend () -> Unit = {},
+    private val syncEnableActiveMode: suspend () -> Unit = {},
+    private val syncStopRuntime: suspend () -> Unit = {},
+    private val syncFlushNow: suspend () -> Unit = {},
+    private val syncDebugEnabled: Boolean = false,
     private val nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
     private val todayProvider: () -> LocalDate = { LocalDate.now() },
     showPerfOverlay: Boolean,
@@ -69,6 +78,16 @@ class OrgClockViewModel(
 
     private var initialized = false
     private var headingsSyncJob: Job? = null
+
+    init {
+        if (syncDebugEnabled) {
+            viewModelScope.launch {
+                syncSnapshotFlow.collectLatest { snapshot ->
+                    applySyncSnapshot(snapshot)
+                }
+            }
+        }
+    }
 
     fun onAction(action: OrgClockUiAction) {
         if (handleNavigationAction(action)) return
@@ -392,6 +411,31 @@ class OrgClockViewModel(
                 true
             }
 
+            OrgClockUiAction.RefreshSyncDebug -> {
+                applySyncSnapshot(syncSnapshotFlow.value)
+                true
+            }
+
+            OrgClockUiAction.SyncFlushNow -> {
+                viewModelScope.launch { syncFlushNow() }
+                true
+            }
+
+            OrgClockUiAction.SyncEnableStandard -> {
+                viewModelScope.launch { syncEnableStandardMode() }
+                true
+            }
+
+            OrgClockUiAction.SyncEnableActive -> {
+                viewModelScope.launch { syncEnableActiveMode() }
+                true
+            }
+
+            OrgClockUiAction.SyncStopRuntime -> {
+                viewModelScope.launch { syncStopRuntime() }
+                true
+            }
+
             else -> false
         }
     }
@@ -405,8 +449,10 @@ class OrgClockViewModel(
                 notificationEnabled = notificationEnabled,
                 notificationDisplayMode = notificationDisplayMode,
                 notificationPermissionGranted = notificationPermissionGranted,
+                syncDebugVisible = syncDebugEnabled,
             )
         }
+        applySyncSnapshot(syncSnapshotFlow.value)
         val saved = loadSavedUri()
         if (saved == null) {
             _uiState.update { it.copy(screen = Screen.RootSetup) }
@@ -930,5 +976,27 @@ class OrgClockViewModel(
 
     private companion object {
         val DAILY_ORG_FILE_REGEX = Regex("^\\d{4}-\\d{2}-\\d{2}\\.org$")
+    }
+
+    private fun applySyncSnapshot(snapshot: SyncIntegrationSnapshot) {
+        _uiState.update { state ->
+            state.copy(
+                syncRuntimeMode = snapshot.runtimeMode,
+                syncLastResultSummary = snapshot.lastResult?.let { result ->
+                    buildString {
+                        append(result.status.wireValue)
+                        append(" / ")
+                        append(result.commandId)
+                        if (result.errorCode != null) {
+                            append(" / ")
+                            append(result.errorCode.name)
+                        }
+                    }
+                },
+                syncLastError = snapshot.lastError,
+                syncMetrics = snapshot.metrics,
+                syncDeliveryStates = snapshot.lastDeliveryStates,
+            )
+        }
     }
 }

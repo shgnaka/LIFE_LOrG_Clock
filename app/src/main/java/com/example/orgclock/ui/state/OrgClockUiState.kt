@@ -8,6 +8,9 @@ import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.sync.SyncDeliveryState
+import com.example.orgclock.sync.SyncMetricsSnapshot
+import com.example.orgclock.sync.SyncRuntimeMode
 
 enum class Screen {
     RootSetup,
@@ -80,4 +83,10 @@ data class OrgClockUiState(
     val pendingEnableNotificationAfterPermission: Boolean = false,
     val openAppNotificationSettingsPending: Boolean = false,
     val showPerfOverlay: Boolean = false,
+    val syncDebugVisible: Boolean = false,
+    val syncRuntimeMode: SyncRuntimeMode = SyncRuntimeMode.Off,
+    val syncLastResultSummary: String? = null,
+    val syncLastError: String? = null,
+    val syncMetrics: SyncMetricsSnapshot = SyncMetricsSnapshot(),
+    val syncDeliveryStates: List<SyncDeliveryState> = emptyList(),
 )

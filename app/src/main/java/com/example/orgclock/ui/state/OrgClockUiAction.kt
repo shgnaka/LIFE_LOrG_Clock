@@ -46,4 +46,9 @@ sealed interface OrgClockUiAction {
     data object RefreshNotificationPermissionState : OrgClockUiAction
     data object OpenAppNotificationSettings : OrgClockUiAction
     data object AppNotificationSettingsOpened : OrgClockUiAction
+    data object RefreshSyncDebug : OrgClockUiAction
+    data object SyncFlushNow : OrgClockUiAction
+    data object SyncEnableStandard : OrgClockUiAction
+    data object SyncEnableActive : OrgClockUiAction
+    data object SyncStopRuntime : OrgClockUiAction
 }

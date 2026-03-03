@@ -93,4 +93,18 @@
     <string name="notif_foreground_channel_description">同期状態とエラー状態のサービス通知</string>
     <string name="notif_channel_name">Clock In</string>
     <string name="notif_channel_description">Clock in 状態の常駐通知</string>
+    <string name="sync_debug_title">Sync Debug</string>
+    <string name="sync_debug_runtime_mode">Runtime mode: %1$s</string>
+    <string name="sync_debug_metrics">Metrics: %1$s</string>
+    <string name="sync_debug_last_result">Last result: %1$s</string>
+    <string name="sync_debug_last_error">Last error: %1$s</string>
+    <string name="sync_debug_delivery_events">Recent delivery events</string>
+    <string name="sync_debug_flush_now">Flush now</string>
+    <string name="sync_debug_standard_mode">Standard mode</string>
+    <string name="sync_debug_active_mode">Active mode</string>
+    <string name="sync_debug_stop_mode">Stop sync</string>
+    <string name="sync_active_channel_name">Sync Active Mode</string>
+    <string name="sync_active_channel_description">Foreground sync ticker for active mode</string>
+    <string name="sync_active_notification_title">Sync active mode</string>
+    <string name="sync_active_notification_text">Running low-latency sync ticks</string>
 </resources>

@@ -246,8 +246,22 @@ private object FixedClockEnvironment : ClockEnvironment {
     override fun currentTimeZone(): TimeZone = TimeZone.UTC
 }
 
-private class RecordingSyncCoreClient : SyncCoreClient {
+private class RecordingSyncCoreClient : OrgSyncCoreClient {
     val reported = mutableListOf<ClockResultPayload>()
+    var started: Boolean = false
+    var flushCount: Int = 0
+
+    override suspend fun start() {
+        started = true
+    }
+
+    override suspend fun stop() {
+        started = false
+    }
+
+    override suspend fun flushNow() {
+        flushCount += 1
+    }
 
     override suspend fun observeIncomingCommands(): List<String> = emptyList()
 
@@ -256,6 +270,8 @@ private class RecordingSyncCoreClient : SyncCoreClient {
     }
 
     override suspend fun observeDeliveryState(): List<SyncDeliveryState> = emptyList()
+
+    override suspend fun metricsSnapshot(): SyncMetricsSnapshot = SyncMetricsSnapshot()
 }
 
 private class SharedBackingCommandIdStore(
