@@ -1,6 +1,5 @@
 package com.example.orgclock.notification
 
-import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
@@ -19,7 +18,7 @@ class DefaultNotificationPermissionChecker(
     private val runtimePermissionGrantedProvider: (Context) -> Boolean = {
         ContextCompat.checkSelfPermission(
             it,
-            Manifest.permission.POST_NOTIFICATIONS,
+            POST_NOTIFICATIONS_PERMISSION,
         ) == PackageManager.PERMISSION_GRANTED
     },
 ) : NotificationPermissionChecker {
@@ -30,5 +29,9 @@ class DefaultNotificationPermissionChecker(
         }
         val runtimeGranted = runtimePermissionGrantedProvider(context)
         return runtimeGranted && notificationsEnabled
+    }
+
+    private companion object {
+        const val POST_NOTIFICATIONS_PERMISSION = "android.permission.POST_NOTIFICATIONS"
     }
 }

@@ -325,7 +325,6 @@ class ClockInNotificationService : Service() {
     }
 
     private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val foregroundChannel = NotificationChannel(
             FOREGROUND_CHANNEL_ID,
             getString(R.string.notif_foreground_channel_name),
@@ -339,7 +338,7 @@ class ClockInNotificationService : Service() {
         val clockChannel = NotificationChannel(
             CLOCK_CHANNEL_ID,
             getString(R.string.notif_channel_name),
-            NotificationManager.IMPORTANCE_MAX,
+            NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = getString(R.string.notif_channel_description)
             setShowBadge(false)
