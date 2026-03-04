@@ -24,6 +24,11 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/ios-support/roadmap.md`
 - iOS 対応進捗ログ（Progress Ledger）  
   `docs/ios-support/progress.md`
+- sync-core 統合計画（M2 hardening）  
+  `docs/synccore-integration/overview.md`  
+  `docs/synccore-integration/contract.md`  
+  `docs/synccore-integration/execution-plan-m1.md`  
+  `docs/synccore-integration/test-acceptance.md`
 - iOS 配布/検証フロー（M5 Runbook）  
   `docs/ios-support/distribution-testing-flow.md`
 
@@ -47,6 +52,41 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
 ./gradlew :shared:compileDebugKotlinAndroid
 ./gradlew :app:assembleDebug
 ```
+
+## Local sync-core Integration (Composite Build)
+
+`lanonly-p2p-cmdsync-core` をローカルソースのまま依存解決するには、`SYNC_CORE_DIR`（または `-Psynccore.dir`）を指定してビルドします。
+
+```bash
+export SYNC_CORE_DIR=/absolute/path/to/lanonly-p2p-cmdsync-core
+./gradlew :app:dependencies --configuration debugRuntimeClasspath
+./gradlew :app:assembleDebug
+```
+
+別リポジトリ側で `:sync-core-engine` モジュールを定義し、`io.github.shgnaka.synccore:sync-core-engine` 座標と対応づけてください。
+
+`sync` 実行パス自体はデフォルト無効です。手動検証時のみ `-Psynccore.integration.enabled=true` を付けてビルドしてください。
+
+```bash
+./gradlew :app:assembleDebug -Psynccore.integration.enabled=true
+```
+
+`sync-core` 実Adapter（Engine API）は `SYNC_CORE_DIR` が有効なときだけ有効化されます。
+有効時は `settings.gradle.kts` の composite build で `sync-core-api` / `sync-core-engine` / `sync-core-android` を参照します。
+
+デバッグ用の単発コマンド実行（manual slice）は `sync_command_payload` extra 付きで Activity を起動すると実行できます。
+
+```bash
+adb shell am start -n com.example.orgclock/.MainActivity \
+  --es sync_command_payload '{"schema":"clock.command.v1","command_id":"cmd-1","kind":"clock.start","target":{"file_name":"2026-03-01.org","heading_path":"Work/Project A"},"requested_at":"2026-03-01T12:34:56Z","from_device_id":"device-a"}'
+```
+
+Debug build では Settings 画面に `Sync Debug` セクションが表示され、以下を操作できます。
+
+- `Flush now`
+- `Standard mode`（WorkManager 15分周期 + 起動時 flush）
+- `Active mode`（Foreground Service 5秒 tick）
+- `Stop sync`
 
 ## iOS Host Skeleton (M3)
 
@@ -113,3 +153,49 @@ Repository Secrets に以下を登録してください。
 実行時に release APK をビルドして Firebase App Distribution へ配布します。
 
 詳細なセットアップとトラブルシュートは `docs/firebase-app-distribution-guide.md` を参照してください。
+
+## Multi-Agent Security Loop
+
+`security-loop/` は module 単位で attacker/defender ループを実行します。
+
+```bash
+security-loop/run.sh --module sync-core-transport-lan --iterations 3
+```
+
+主なオプション:
+
+- `--out <dir>`: 成果物ディレクトリ指定
+- `--skip-gates`: module の `manifest.json` に定義した `gate_commands` をスキップ
+- `--no-fail-on-high`: High/Critical 残存時でも終了コードを失敗にしない
+
+module 要件 (`security-loop/modules/<module>/manifest.json`):
+
+- `attacker.entry`: module ディレクトリからの相対パスで attacker スクリプトを指定（必須）
+- `defender.entry`: module ディレクトリからの相対パスで defender スクリプトを指定（必須）
+- `gate_commands`: 1つ以上の検証コマンドを定義（必須）
+- `targets`: attacker が調査する対象パス配列
+
+`sync-core-transport-lan` の例:
+
+```json
+{
+  "module": "sync-core-transport-lan",
+  "attacker": { "entry": "attackers/static_v1.sh" },
+  "defender": { "entry": "defenders/static_v1.sh" },
+  "targets": [
+    "app/src/main/java/com/example/orgclock/sync",
+    "app/src/synccore/java/com/example/orgclock/sync"
+  ],
+  "gate_commands": [
+    "./gradlew --stacktrace testDebugUnitTest",
+    "./gradlew --stacktrace lintDebug",
+    "./gradlew --stacktrace :app:testDebugUnitTest --tests com.example.orgclock.sync.*"
+  ]
+}
+```
+
+成果物:
+
+- `iteration-N-attacker.json`
+- `iteration-N-defender.json` (High/Critical がある場合)
+- `summary.json`

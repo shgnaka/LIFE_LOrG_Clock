@@ -22,12 +22,16 @@ import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.sync.PeerProbeResult
+import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.viewmodel.OrgClockViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -55,6 +59,33 @@ data class OrgClockRouteDependencies(
     val syncNotificationService: (Boolean, NotificationDisplayMode) -> Unit,
     val stopNotificationService: () -> Unit,
     val openAppNotificationSettings: () -> Unit,
+    val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
+    val syncEnableStandardMode: suspend () -> Unit = {},
+    val syncEnableActiveMode: suspend () -> Unit = {},
+    val syncStopRuntime: suspend () -> Unit = {},
+    val syncFlushNow: suspend () -> Unit = {},
+    val syncSetEnabled: suspend (Boolean) -> Unit = {},
+    val syncSetDefaultPeerId: suspend (String) -> Unit = {},
+    val syncListTrustedPeers: () -> List<String> = { emptyList() },
+    val syncAddTrustedPeer: suspend (String) -> PeerProbeResult = { peerId ->
+        PeerProbeResult(
+            peerId = peerId,
+            reachable = false,
+            checkedAtEpochMs = 0L,
+            reason = "sync integration unavailable",
+        )
+    },
+    val syncRevokePeer: suspend (String) -> Unit = {},
+    val syncProbePeer: suspend (String) -> PeerProbeResult = { peerId ->
+        PeerProbeResult(
+            peerId = peerId,
+            reachable = false,
+            checkedAtEpochMs = 0L,
+            reason = "sync integration unavailable",
+        )
+    },
+    val syncFeatureEnabled: Boolean = false,
+    val syncDebugEnabled: Boolean = false,
     val nowProvider: () -> ZonedDateTime,
     val todayProvider: () -> LocalDate,
     val zoneIdProvider: () -> ZoneId,
@@ -112,6 +143,11 @@ fun OrgClockRoute(
         if (!state.openAppNotificationSettingsPending) return@LaunchedEffect
         dependencies.openAppNotificationSettings()
         viewModel.onAction(OrgClockUiAction.AppNotificationSettingsOpened)
+    }
+    LaunchedEffect(state.screen) {
+        if (state.screen == Screen.Settings) {
+            viewModel.onAction(OrgClockUiAction.RefreshSyncDebug)
+        }
     }
     val notificationSyncKey = remember(state) { buildNotificationSyncKey(state) }
     LaunchedEffect(notificationSyncKey) {
@@ -174,6 +210,19 @@ private fun orgClockViewModelFactory(
                 loadNotificationDisplayMode = dependencies.loadNotificationDisplayMode,
                 saveNotificationDisplayMode = dependencies.saveNotificationDisplayMode,
                 notificationPermissionGrantedProvider = dependencies.notificationPermissionGrantedProvider,
+                syncSnapshotFlow = dependencies.syncSnapshotFlow,
+                syncEnableStandardMode = dependencies.syncEnableStandardMode,
+                syncEnableActiveMode = dependencies.syncEnableActiveMode,
+                syncStopRuntime = dependencies.syncStopRuntime,
+                syncFlushNow = dependencies.syncFlushNow,
+                syncSetEnabled = dependencies.syncSetEnabled,
+                syncSetDefaultPeerId = dependencies.syncSetDefaultPeerId,
+                syncListTrustedPeers = dependencies.syncListTrustedPeers,
+                syncAddTrustedPeer = dependencies.syncAddTrustedPeer,
+                syncRevokePeer = dependencies.syncRevokePeer,
+                syncProbePeer = dependencies.syncProbePeer,
+                syncFeatureEnabled = dependencies.syncFeatureEnabled,
+                syncDebugEnabled = dependencies.syncDebugEnabled,
                 nowProvider = dependencies.nowProvider,
                 todayProvider = dependencies.todayProvider,
                 showPerfOverlay = dependencies.showPerfOverlay,

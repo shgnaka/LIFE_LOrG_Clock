@@ -12,6 +12,7 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
@@ -583,6 +584,42 @@ class OrgClockViewModelTest {
         assertFalse(savedEnabled)
     }
 
+    @Test
+    fun syncAddPeer_success_clearsInputAndShowsSuccess() = runTest {
+        val vm = testViewModel(
+            syncFeatureEnabled = true,
+            syncAddTrustedPeer = { peerId ->
+                PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SyncUpdatePeerInput("example.local:39091"))
+        vm.onAction(OrgClockUiAction.SyncAddPeer)
+        advanceUntilIdle()
+
+        assertEquals("", vm.uiState.value.syncPeerInput)
+        assertNull(vm.uiState.value.syncPeerInputError)
+        assertEquals(StatusTone.Success, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun syncAddPeer_probeFailure_keepsInputAndShowsError() = runTest {
+        val vm = testViewModel(
+            syncFeatureEnabled = true,
+            syncAddTrustedPeer = { peerId ->
+                PeerProbeResult(peerId = peerId, reachable = false, checkedAtEpochMs = 1L, reason = "timeout")
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SyncUpdatePeerInput("example.local:39091"))
+        vm.onAction(OrgClockUiAction.SyncAddPeer)
+        advanceUntilIdle()
+
+        assertEquals("example.local:39091", vm.uiState.value.syncPeerInput)
+        assertEquals("timeout", vm.uiState.value.syncPeerInputError)
+        assertEquals(StatusTone.Warning, vm.uiState.value.status.tone)
+    }
+
     private fun sampleHeadings(): List<HeadingViewItem> {
         val root = HeadingViewItem(
             node = HeadingNode(
@@ -679,6 +716,14 @@ class OrgClockViewModelTest {
         loadNotificationDisplayMode: () -> NotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
         saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit = {},
         notificationPermissionGrantedProvider: () -> Boolean = { true },
+        syncAddTrustedPeer: suspend (String) -> PeerProbeResult = { peerId ->
+            PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
+        },
+        syncRevokePeer: suspend (String) -> Unit = {},
+        syncProbePeer: suspend (String) -> PeerProbeResult = { peerId ->
+            PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
+        },
+        syncFeatureEnabled: Boolean = false,
         nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
         todayProvider: () -> LocalDate = { LocalDate.now() },
     ): OrgClockViewModel {
@@ -702,6 +747,10 @@ class OrgClockViewModelTest {
             loadNotificationDisplayMode = loadNotificationDisplayMode,
             saveNotificationDisplayMode = saveNotificationDisplayMode,
             notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
+            syncAddTrustedPeer = syncAddTrustedPeer,
+            syncRevokePeer = syncRevokePeer,
+            syncProbePeer = syncProbePeer,
+            syncFeatureEnabled = syncFeatureEnabled,
             nowProvider = nowProvider,
             todayProvider = todayProvider,
             showPerfOverlay = true,

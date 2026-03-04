@@ -46,4 +46,15 @@ sealed interface OrgClockUiAction {
     data object RefreshNotificationPermissionState : OrgClockUiAction
     data object OpenAppNotificationSettings : OrgClockUiAction
     data object AppNotificationSettingsOpened : OrgClockUiAction
+    data object RefreshSyncDebug : OrgClockUiAction
+    data object SyncFlushNow : OrgClockUiAction
+    data object SyncEnableStandard : OrgClockUiAction
+    data object SyncEnableActive : OrgClockUiAction
+    data object SyncStopRuntime : OrgClockUiAction
+    data class SyncSetEnabled(val enabled: Boolean) : OrgClockUiAction
+    data class SyncSetDefaultPeerId(val peerId: String) : OrgClockUiAction
+    data class SyncUpdatePeerInput(val value: String) : OrgClockUiAction
+    data object SyncAddPeer : OrgClockUiAction
+    data class SyncRevokePeer(val peerId: String) : OrgClockUiAction
+    data class SyncProbePeer(val peerId: String) : OrgClockUiAction
 }

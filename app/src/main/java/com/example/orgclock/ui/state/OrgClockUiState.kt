@@ -8,6 +8,9 @@ import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.sync.SyncDeliveryState
+import com.example.orgclock.sync.SyncMetricsSnapshot
+import com.example.orgclock.sync.SyncRuntimeMode
 
 enum class Screen {
     RootSetup,
@@ -41,6 +44,14 @@ data class ClockEditDraft(
     val startMinute: Int,
     val endHour: Int,
     val endMinute: Int,
+)
+
+@Immutable
+data class PeerUiItem(
+    val peerId: String,
+    val reachable: Boolean? = null,
+    val lastCheckedAtEpochMs: Long? = null,
+    val lastSyncedAtEpochMs: Long? = null,
 )
 
 @Immutable
@@ -80,4 +91,17 @@ data class OrgClockUiState(
     val pendingEnableNotificationAfterPermission: Boolean = false,
     val openAppNotificationSettingsPending: Boolean = false,
     val showPerfOverlay: Boolean = false,
+    val syncFeatureVisible: Boolean = false,
+    val syncDebugVisible: Boolean = false,
+    val syncRuntimeEnabled: Boolean = false,
+    val syncDefaultPeerId: String = "",
+    val syncPeers: List<PeerUiItem> = emptyList(),
+    val syncPeerInput: String = "",
+    val syncPeerInputError: String? = null,
+    val syncPeerBusy: Boolean = false,
+    val syncRuntimeMode: SyncRuntimeMode = SyncRuntimeMode.Off,
+    val syncLastResultSummary: String? = null,
+    val syncLastError: String? = null,
+    val syncMetrics: SyncMetricsSnapshot = SyncMetricsSnapshot(),
+    val syncDeliveryStates: List<SyncDeliveryState> = emptyList(),
 )

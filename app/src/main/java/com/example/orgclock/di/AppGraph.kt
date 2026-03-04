@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import com.example.orgclock.BuildConfig
 import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.data.RootAccessGateway
 import com.example.orgclock.data.SafOrgRepository
@@ -16,6 +17,20 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.notification.NotificationPermissionChecker
 import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.notification.NotificationServiceConfig
+import com.example.orgclock.sync.BuildConfigSyncIntegrationFeatureFlag
+import com.example.orgclock.sync.ClockCommandKind
+import com.example.orgclock.sync.ClockTargetResolver
+import com.example.orgclock.sync.DefaultClockCommandExecutor
+import com.example.orgclock.sync.LocalClockOperationPublisher
+import com.example.orgclock.sync.SharedPreferencesPeerTrustStore
+import com.example.orgclock.sync.RuntimeSyncIntegrationFeatureFlag
+import com.example.orgclock.sync.SharedPreferencesDeviceIdProvider
+import com.example.orgclock.sync.RoomCommandIdStore
+import com.example.orgclock.sync.SyncCoreClientFactory
+import com.example.orgclock.sync.SyncIntegrationService
+import com.example.orgclock.sync.SyncRuntimeEntryPoint
+import com.example.orgclock.sync.SyncRuntimeManager
+import com.example.orgclock.sync.SharedPreferencesSyncRuntimePrefs
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
 import com.example.orgclock.time.toJavaLocalDateCompat
@@ -30,6 +45,8 @@ interface AppGraph {
         activity: ComponentActivity,
         notificationPermissionChecker: NotificationPermissionChecker,
     ): OrgClockRouteDependencies
+
+    fun syncIntegrationService(): SyncIntegrationService
 }
 
 class DefaultAppGraph(
@@ -42,6 +59,52 @@ class DefaultAppGraph(
     private val clockService by lazy { ClockService(repository) }
     private val clockInScanner by lazy { ClockInScanner(repository) }
     private val notificationServiceConfig: NotificationServiceConfig = NotificationServiceConfig()
+    private val syncCoreClientFactory: SyncCoreClientFactory by lazy {
+        loadSyncCoreClientFactory()
+    }
+    private val runtimePrefs by lazy {
+        SharedPreferencesSyncRuntimePrefs(
+            appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
+        )
+    }
+    private val deviceIdProvider by lazy {
+        SharedPreferencesDeviceIdProvider(
+            appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
+        )
+    }
+    private val syncIntegrationService: SyncIntegrationService by lazy {
+        val prefs = appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
+        val commandIdStore = RoomCommandIdStore.create(appContext)
+        val orgSyncCoreClient = syncCoreClientFactory.create(
+            appContext = appContext,
+            repository = repository,
+            clockService = clockService,
+            clockEnvironment = clockEnvironment,
+        )
+        val commandExecutor = DefaultClockCommandExecutor(
+            repository = repository,
+            clockService = clockService,
+            commandIdStore = commandIdStore,
+            deviceIdProvider = deviceIdProvider,
+            clockEnvironment = clockEnvironment,
+        )
+        val runtimeManager = SyncRuntimeManager(
+            appContext = appContext,
+            runtimeController = com.example.orgclock.sync.DefaultSyncRuntimeController(orgSyncCoreClient),
+        )
+        SyncIntegrationService(
+            featureFlag = RuntimeSyncIntegrationFeatureFlag(
+                buildConfigFlag = BuildConfigSyncIntegrationFeatureFlag(),
+                runtimePrefs = runtimePrefs,
+            ),
+            syncCoreClient = orgSyncCoreClient,
+            commandExecutor = commandExecutor,
+            deviceIdProvider = deviceIdProvider,
+            runtimePrefs = runtimePrefs,
+            peerTrustStore = SharedPreferencesPeerTrustStore(prefs),
+            runtimeManager = runtimeManager,
+        )
+    }
 
     override fun routeDependencies(
         activity: ComponentActivity,
@@ -49,6 +112,12 @@ class DefaultAppGraph(
     ): OrgClockRouteDependencies {
         val prefs = activity.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
         ClockInNotificationService.clockEnvironmentFactory = { clockEnvironment }
+        val localPublisher = LocalClockOperationPublisher(
+            syncIntegrationService = syncIntegrationService,
+            targetResolver = ClockTargetResolver(repository, clockService),
+            deviceIdProvider = deviceIdProvider,
+            runtimePrefs = runtimePrefs,
+        )
 
         return OrgClockRouteDependencies(
             loadSavedUri = { prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)?.let(Uri::parse) },
@@ -62,13 +131,35 @@ class DefaultAppGraph(
             },
             listHeadings = { fileId -> clockService.listHeadings(fileId, clockEnvironment.currentTimeZone()) },
             startClock = { fileId, lineIndex ->
-                clockService.startClockInFile(fileId, lineIndex, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                val result = clockService.startClockInFile(
+                    fileId,
+                    lineIndex,
+                    clockEnvironment.now(),
+                    clockEnvironment.currentTimeZone(),
+                )
+                if (result.isSuccess) {
+                    localPublisher.publish(ClockCommandKind.Start, fileId, lineIndex)
+                }
+                result
             },
             stopClock = { fileId, lineIndex ->
-                clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                val result = clockService.stopClockInFile(
+                    fileId,
+                    lineIndex,
+                    clockEnvironment.now(),
+                    clockEnvironment.currentTimeZone(),
+                )
+                if (result.isSuccess) {
+                    localPublisher.publish(ClockCommandKind.Stop, fileId, lineIndex)
+                }
+                result
             },
             cancelClock = { fileId, lineIndex ->
-                clockService.cancelClockInFile(fileId, lineIndex)
+                val result = clockService.cancelClockInFile(fileId, lineIndex)
+                if (result.isSuccess) {
+                    localPublisher.publish(ClockCommandKind.Cancel, fileId, lineIndex)
+                }
+                result
             },
             listClosedClocks = { fileId, lineIndex ->
                 clockService.listClosedClocksInFile(fileId, lineIndex, clockEnvironment.currentTimeZone())
@@ -124,10 +215,60 @@ class DefaultAppGraph(
                 }
                 activity.startActivity(intent)
             },
+            syncSnapshotFlow = syncIntegrationService.snapshot,
+            syncEnableStandardMode = {
+                syncIntegrationService.enableStandardMode()
+            },
+            syncEnableActiveMode = {
+                syncIntegrationService.enableActiveMode()
+            },
+            syncStopRuntime = {
+                syncIntegrationService.stopRuntime()
+            },
+            syncFlushNow = {
+                syncIntegrationService.flushNow()
+            },
+            syncSetEnabled = { enabled ->
+                syncIntegrationService.setRuntimeEnabled(enabled)
+            },
+            syncSetDefaultPeerId = { peerId ->
+                syncIntegrationService.setDefaultPeerId(peerId)
+            },
+            syncListTrustedPeers = {
+                syncIntegrationService.listTrustedPeers()
+            },
+            syncAddTrustedPeer = { peerId ->
+                syncIntegrationService.addTrustedPeer(peerId)
+            },
+            syncRevokePeer = { peerId ->
+                syncIntegrationService.revokePeer(peerId)
+            },
+            syncProbePeer = { peerId ->
+                syncIntegrationService.probePeer(peerId)
+            },
+            syncFeatureEnabled = BuildConfig.SYNC_CORE_INCLUDED,
+            syncDebugEnabled = BuildConfig.DEBUG && BuildConfig.SYNC_CORE_INCLUDED,
             nowProvider = { clockEnvironment.now().toJavaZonedDateTime(clockEnvironment.currentTimeZone().toJavaZoneId()) },
             todayProvider = { clockEnvironment.today().toJavaLocalDateCompat() },
             zoneIdProvider = { clockEnvironment.currentTimeZone().toJavaZoneId() },
             showPerfOverlay = (activity.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0,
         )
+    }
+
+    override fun syncIntegrationService(): SyncIntegrationService {
+        SyncRuntimeEntryPoint.syncIntegrationService = syncIntegrationService
+        return syncIntegrationService
+    }
+
+    private fun loadSyncCoreClientFactory(): SyncCoreClientFactory {
+        if (!BuildConfig.SYNC_CORE_INCLUDED) {
+            return com.example.orgclock.sync.NoOpSyncCoreClientFactory()
+        }
+        return runCatching {
+            val clazz = Class.forName("com.example.orgclock.sync.SynccoreEngineClientFactory")
+            clazz.getDeclaredConstructor().newInstance() as SyncCoreClientFactory
+        }.getOrElse {
+            com.example.orgclock.sync.NoOpSyncCoreClientFactory()
+        }
     }
 }

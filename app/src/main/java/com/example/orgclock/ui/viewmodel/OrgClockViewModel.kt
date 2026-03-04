@@ -13,6 +13,9 @@ import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.sync.PeerProbeResult
+import com.example.orgclock.sync.SyncIntegrationSnapshot
+import com.example.orgclock.sync.SyncRuntimeMode
 import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.ui.state.ClockEditDraft
@@ -20,6 +23,7 @@ import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
+import com.example.orgclock.ui.state.PeerUiItem
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
@@ -27,6 +31,7 @@ import com.example.orgclock.ui.time.normalizeMinuteToStep
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -54,6 +59,23 @@ class OrgClockViewModel(
     private val loadNotificationDisplayMode: () -> NotificationDisplayMode,
     private val saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     private val notificationPermissionGrantedProvider: () -> Boolean,
+    private val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
+    private val syncEnableStandardMode: suspend () -> Unit = {},
+    private val syncEnableActiveMode: suspend () -> Unit = {},
+    private val syncStopRuntime: suspend () -> Unit = {},
+    private val syncFlushNow: suspend () -> Unit = {},
+    private val syncSetEnabled: suspend (Boolean) -> Unit = {},
+    private val syncSetDefaultPeerId: suspend (String) -> Unit = {},
+    private val syncListTrustedPeers: () -> List<String> = { emptyList() },
+    private val syncAddTrustedPeer: suspend (String) -> PeerProbeResult = { peerId ->
+        PeerProbeResult(peerId = peerId, reachable = false, checkedAtEpochMs = 0L, reason = "sync unavailable")
+    },
+    private val syncRevokePeer: suspend (String) -> Unit = {},
+    private val syncProbePeer: suspend (String) -> PeerProbeResult = { peerId ->
+        PeerProbeResult(peerId = peerId, reachable = false, checkedAtEpochMs = 0L, reason = "sync unavailable")
+    },
+    private val syncFeatureEnabled: Boolean = false,
+    private val syncDebugEnabled: Boolean = false,
     private val nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
     private val todayProvider: () -> LocalDate = { LocalDate.now() },
     showPerfOverlay: Boolean,
@@ -69,6 +91,16 @@ class OrgClockViewModel(
 
     private var initialized = false
     private var headingsSyncJob: Job? = null
+
+    init {
+        if (syncFeatureEnabled) {
+            viewModelScope.launch {
+                syncSnapshotFlow.collectLatest { snapshot ->
+                    applySyncSnapshot(snapshot)
+                }
+            }
+        }
+    }
 
     fun onAction(action: OrgClockUiAction) {
         if (handleNavigationAction(action)) return
@@ -392,6 +424,66 @@ class OrgClockViewModel(
                 true
             }
 
+            OrgClockUiAction.RefreshSyncDebug -> {
+                applySyncSnapshot(syncSnapshotFlow.value)
+                true
+            }
+
+            OrgClockUiAction.SyncFlushNow -> {
+                viewModelScope.launch { syncFlushNow() }
+                true
+            }
+
+            OrgClockUiAction.SyncEnableStandard -> {
+                viewModelScope.launch { syncEnableStandardMode() }
+                true
+            }
+
+            OrgClockUiAction.SyncEnableActive -> {
+                viewModelScope.launch { syncEnableActiveMode() }
+                true
+            }
+
+            OrgClockUiAction.SyncStopRuntime -> {
+                viewModelScope.launch { syncStopRuntime() }
+                true
+            }
+
+            is OrgClockUiAction.SyncSetEnabled -> {
+                viewModelScope.launch { syncSetEnabled(action.enabled) }
+                true
+            }
+
+            is OrgClockUiAction.SyncSetDefaultPeerId -> {
+                viewModelScope.launch { syncSetDefaultPeerId(action.peerId) }
+                true
+            }
+
+            is OrgClockUiAction.SyncUpdatePeerInput -> {
+                _uiState.update {
+                    it.copy(
+                        syncPeerInput = action.value,
+                        syncPeerInputError = null,
+                    )
+                }
+                true
+            }
+
+            OrgClockUiAction.SyncAddPeer -> {
+                viewModelScope.launch { addPeer() }
+                true
+            }
+
+            is OrgClockUiAction.SyncRevokePeer -> {
+                viewModelScope.launch { revokePeer(action.peerId) }
+                true
+            }
+
+            is OrgClockUiAction.SyncProbePeer -> {
+                viewModelScope.launch { probePeer(action.peerId) }
+                true
+            }
+
             else -> false
         }
     }
@@ -405,8 +497,11 @@ class OrgClockViewModel(
                 notificationEnabled = notificationEnabled,
                 notificationDisplayMode = notificationDisplayMode,
                 notificationPermissionGranted = notificationPermissionGranted,
+                syncFeatureVisible = syncFeatureEnabled,
+                syncDebugVisible = syncDebugEnabled,
             )
         }
+        applySyncSnapshot(syncSnapshotFlow.value)
         val saved = loadSavedUri()
         if (saved == null) {
             _uiState.update { it.copy(screen = Screen.RootSetup) }
@@ -928,7 +1023,116 @@ class OrgClockViewModel(
         }
     }
 
+    private suspend fun addPeer() {
+        val input = uiState.value.syncPeerInput.trim()
+        val validation = validatePeerId(input)
+        if (validation != null) {
+            _uiState.update { it.copy(syncPeerInputError = validation) }
+            return
+        }
+        _uiState.update { it.copy(syncPeerBusy = true, syncPeerInputError = null) }
+        val probe = syncAddTrustedPeer(input)
+        _uiState.update { it.copy(syncPeerBusy = false) }
+        if (!probe.reachable) {
+            _uiState.update {
+                it.copy(
+                    syncPeerInputError = probe.reason ?: "failed to reach peer",
+                    status = status(R.string.status_sync_peer_add_failed, StatusTone.Warning, probe.reason ?: "unknown"),
+                )
+            }
+            return
+        }
+        _uiState.update {
+            it.copy(
+                syncPeerInput = "",
+                syncPeerInputError = null,
+                status = status(R.string.status_sync_peer_added, StatusTone.Success, input),
+            )
+        }
+    }
+
+    private suspend fun revokePeer(peerId: String) {
+        _uiState.update { it.copy(syncPeerBusy = true, syncPeerInputError = null) }
+        syncRevokePeer(peerId)
+        _uiState.update {
+            it.copy(
+                syncPeerBusy = false,
+                status = status(R.string.status_sync_peer_removed, StatusTone.Success, peerId),
+            )
+        }
+    }
+
+    private suspend fun probePeer(peerId: String) {
+        _uiState.update { it.copy(syncPeerBusy = true, syncPeerInputError = null) }
+        val probe = syncProbePeer(peerId)
+        _uiState.update {
+            it.copy(
+                syncPeerBusy = false,
+                status = if (probe.reachable) {
+                    status(R.string.status_sync_peer_probe_ok, StatusTone.Success, peerId)
+                } else {
+                    status(
+                        R.string.status_sync_peer_probe_failed,
+                        StatusTone.Warning,
+                        peerId,
+                        probe.reason ?: "unknown",
+                    )
+                },
+            )
+        }
+    }
+
+    private fun validatePeerId(raw: String): String? {
+        if (raw.isBlank()) return "peer id is empty"
+        if (raw.contains("://")) return "peer id must be host[:port]"
+        val regex = Regex("^[a-zA-Z0-9.-]+(:\\d{1,5})?$")
+        if (!regex.matches(raw)) return "peer id format is invalid"
+        return null
+    }
+
     private companion object {
         val DAILY_ORG_FILE_REGEX = Regex("^\\d{4}-\\d{2}-\\d{2}\\.org$")
+    }
+
+    private fun applySyncSnapshot(snapshot: SyncIntegrationSnapshot) {
+        _uiState.update { state ->
+            state.copy(
+                syncRuntimeEnabled = snapshot.runtimeEnabled,
+                syncDefaultPeerId = snapshot.defaultPeerId.orEmpty(),
+                syncPeers = buildPeerUiItems(snapshot),
+                syncRuntimeMode = snapshot.runtimeMode,
+                syncLastResultSummary = snapshot.lastResult?.let { result ->
+                    buildString {
+                        append(result.status.wireValue)
+                        append(" / ")
+                        append(result.commandId)
+                        if (result.errorCode != null) {
+                            append(" / ")
+                            append(result.errorCode.name)
+                        }
+                    }
+                },
+                syncLastError = snapshot.lastError,
+                syncMetrics = snapshot.metrics,
+                syncDeliveryStates = snapshot.lastDeliveryStates,
+            )
+        }
+    }
+
+    private fun buildPeerUiItems(snapshot: SyncIntegrationSnapshot): List<PeerUiItem> {
+        val stateByPeer = snapshot.peerStates.associateBy { it.peerId }
+        return snapshot.trustedPeers
+            .ifEmpty { syncListTrustedPeers() }
+            .distinct()
+            .sorted()
+            .map { peerId ->
+                val peerState = stateByPeer[peerId]
+                PeerUiItem(
+                    peerId = peerId,
+                    reachable = peerState?.reachable,
+                    lastCheckedAtEpochMs = peerState?.lastCheckedAtEpochMs,
+                    lastSyncedAtEpochMs = peerState?.lastSyncedAtEpochMs,
+                )
+            }
     }
 }
