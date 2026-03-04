@@ -173,9 +173,9 @@ class ClockInNotificationService : Service() {
 
     private fun notifyIndividualClockNotifications(entries: List<ClockInEntry>) {
         val manager = getSystemService(NotificationManager::class.java)
-        
+
         val currentIds = mutableSetOf<Int>()
-        
+
         if (entries.isEmpty()) {
             val notification = buildClockStatusNotification(
                 title = getString(R.string.notif_title_clock_in),
@@ -191,7 +191,7 @@ class ClockInNotificationService : Service() {
                 currentIds.add(notificationId)
             }
         }
-        
+
         for (i in CLOCK_NOTIFICATION_BASE until CLOCK_NOTIFICATION_BASE + CLOCK_NOTIFICATION_RANGE) {
             if (i !in currentIds) {
                 manager.cancel(i)
