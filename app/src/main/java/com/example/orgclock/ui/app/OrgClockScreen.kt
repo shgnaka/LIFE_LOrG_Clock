@@ -39,6 +39,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -52,6 +53,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -319,7 +325,10 @@ private fun FilePickerScreen(
             Button(onClick = onPickRoot) { Text(stringResource(R.string.change_root)) }
             Button(onClick = onOpenSettings) { Text(stringResource(R.string.settings)) }
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = onRefreshFiles) {
+            IconButton(
+                onClick = onRefreshFiles,
+                modifier = Modifier.minimumInteractiveComponentSize(),
+            ) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = stringResource(R.string.refresh),
@@ -329,36 +338,45 @@ private fun FilePickerScreen(
         StatusBanner(status)
         Text(stringResource(R.string.select_org_file), style = MaterialTheme.typography.titleMedium)
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(files, key = { it.fileId }) { file ->
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSelectFile(file) },
-                ) {
-                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(file.displayName, fontWeight = FontWeight.SemiBold)
-                            if (file.fileId in filesWithOpenClock) {
-                                Box(
-                                    modifier = Modifier
-                                        .padding(start = 8.dp)
-                                        .size(8.dp)
-                                        .background(StateSuccessFg, CircleShape),
-                                )
+        if (files.isEmpty()) {
+            Text(
+                text = stringResource(R.string.empty_files_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                items(files, key = { it.fileId }) { file ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .semantics { role = Role.Button }
+                            .clickable { onSelectFile(file) },
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(file.displayName, fontWeight = FontWeight.SemiBold)
+                                if (file.fileId in filesWithOpenClock) {
+                                    Box(
+                                        modifier = Modifier
+                                            .padding(start = 8.dp)
+                                            .size(8.dp)
+                                            .background(StateSuccessFg, CircleShape),
+                                    )
+                                }
                             }
+                            val modified = file.modifiedAt?.let {
+                                DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
+                                    .withLocale(Locale.getDefault())
+                                    .format(it.toJavaZonedDateTime(zoneIdProvider()))
+                            } ?: stringResource(R.string.unknown_modified_time)
+                            Text(modified, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        val modified = file.modifiedAt?.let {
-                            DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM)
-                                .withLocale(Locale.getDefault())
-                                .format(it.toJavaZonedDateTime(zoneIdProvider()))
-                        } ?: stringResource(R.string.unknown_modified_time)
-                        Text(modified, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -432,6 +450,16 @@ private fun HeadingListScreen(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 170.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                if (rows.isEmpty()) {
+                    item {
+                        Text(
+                            text = stringResource(R.string.empty_headings_message),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 12.dp),
+                        )
+                    }
+                }
                 items(
                     items = rows,
                     key = { it.key },
@@ -441,6 +469,11 @@ private fun HeadingListScreen(
                         is HeadingListRow.L1Header -> {
                             val title = row.item.node.title
                             val collapsed = title in collapsedL1
+                            val headingStateDescription = if (collapsed) {
+                                stringResource(R.string.heading_state_collapsed)
+                            } else {
+                                stringResource(R.string.heading_state_expanded)
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -453,6 +486,11 @@ private fun HeadingListScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .semantics {
+                                            heading()
+                                            role = Role.Button
+                                            stateDescription = headingStateDescription
+                                        }
                                         .combinedClickable(
                                             onClick = { onToggleL1(title) },
                                             onLongClick = { onLongPressL1(row.item) },
@@ -640,7 +678,10 @@ private fun HeadingListTopBar(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(onClick = onRefresh) {
+                    IconButton(
+                        onClick = onRefresh,
+                        modifier = Modifier.minimumInteractiveComponentSize(),
+                    ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = stringResource(R.string.refresh),
@@ -991,7 +1032,7 @@ private fun ClockActionIconButton(
     actionType: ClockActionType,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    size: Dp = 42.dp,
+    size: Dp = 48.dp,
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
 ) {
     val (icon, label, color) = when (actionType) {
@@ -1005,6 +1046,7 @@ private fun ClockActionIconButton(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier
+            .minimumInteractiveComponentSize()
             .size(size)
             .background(backgroundColor, CircleShape),
     ) {

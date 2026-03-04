@@ -43,7 +43,15 @@ open class MainActivity : ComponentActivity() {
             lifecycleScope.launch {
                 val result = appGraph.syncIntegrationService()
                     .executeManualCommand(debugPayload)
-                Log.d(TAG, "Executed debug sync command status=${result.status} error=${result.errorCode}")
+                if (result.errorCode == null) {
+                    Log.i(TAG, "Debug sync command succeeded: status=${result.status}")
+                } else {
+                    Log.w(
+                        TAG,
+                        "Debug sync command failed: status=${result.status} error=${result.errorCode}. " +
+                            "Open Sync Debug panel in app for retry details.",
+                    )
+                }
             }
         }
     }

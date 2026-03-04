@@ -135,7 +135,7 @@ class ClockInNotificationService : Service() {
 
         val opened = repository.openRoot(rootUri)
         if (opened.isFailure) {
-            val reason = opened.exceptionOrNull()?.message ?: "unknown"
+            val reason = opened.exceptionOrNull()?.message ?: getString(R.string.unknown_reason)
             val notification = buildForegroundStatusNotification(
                 title = getString(R.string.notif_title_clock_in),
                 summary = getString(R.string.notif_status_root_open_failed, reason),
@@ -146,7 +146,7 @@ class ClockInNotificationService : Service() {
 
         val result = scanner.scan(clockEnvironment.currentTimeZone())
         if (result.isFailure) {
-            val reason = result.exceptionOrNull()?.message ?: "unknown"
+            val reason = result.exceptionOrNull()?.message ?: getString(R.string.unknown_reason)
             val notification = buildForegroundStatusNotification(
                 title = getString(R.string.notif_title_clock_in),
                 summary = getString(R.string.notif_status_refresh_failed, reason),
@@ -167,11 +167,17 @@ class ClockInNotificationService : Service() {
             return false
         }
 
-        notifyIndividualClockNotifications(entries)
+        notifyIndividualClockNotifications(
+            entries = entries,
+            failedFiles = failedFiles,
+        )
         return true
     }
 
-    private fun notifyIndividualClockNotifications(entries: List<ClockInEntry>) {
+    private fun notifyIndividualClockNotifications(
+        entries: List<ClockInEntry>,
+        failedFiles: List<FileScanFailure>,
+    ) {
         val manager = getSystemService(NotificationManager::class.java)
 
         val currentIds = mutableSetOf<Int>()
@@ -179,7 +185,11 @@ class ClockInNotificationService : Service() {
         if (entries.isEmpty()) {
             val notification = buildClockStatusNotification(
                 title = getString(R.string.notif_title_clock_in),
-                summary = getString(R.string.notif_summary_no_active),
+                summary = if (failedFiles.isEmpty()) {
+                    getString(R.string.notif_summary_no_active)
+                } else {
+                    getString(R.string.notif_summary_scan_degraded, failedFiles.size)
+                },
             )
             manager.notify(CLOCK_NOTIFICATION_BASE, notification)
             currentIds.add(CLOCK_NOTIFICATION_BASE)
@@ -224,7 +234,7 @@ class ClockInNotificationService : Service() {
 
         return NotificationCompat.Builder(this, CLOCK_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_popup_reminder)
-            .setContentTitle(entry.headingTitle)
+            .setContentTitle(getString(R.string.notif_title_active_heading, title))
             .setContentText(summary)
             .setStyle(NotificationCompat.BigTextStyle().bigText(summary))
             .setPriority(NotificationCompat.PRIORITY_MAX)
@@ -275,6 +285,11 @@ class ClockInNotificationService : Service() {
             .setSilent(true)
             .setOngoing(true)
             .setContentIntent(createOpenAppPendingIntent())
+            .addAction(
+                android.R.drawable.ic_menu_view,
+                getString(R.string.open_app),
+                createOpenAppPendingIntent(),
+            )
             .build()
     }
 
@@ -288,6 +303,11 @@ class ClockInNotificationService : Service() {
             .setOnlyAlertOnce(true)
             .setOngoing(true)
             .setContentIntent(createOpenAppPendingIntent())
+            .addAction(
+                android.R.drawable.ic_menu_view,
+                getString(R.string.open_app),
+                createOpenAppPendingIntent(),
+            )
             .build()
     }
 
