@@ -1,0 +1,18 @@
+{
+  "module": "notification-service-surface",
+  "description": "Security loop for notification service surface and PendingIntent safety.",
+  "attacker": {
+    "entry": "attackers/static_v1.sh"
+  },
+  "defender": {
+    "entry": "defenders/static_v1.sh"
+  },
+  "targets": [
+    "app/src/main/java/com/example/orgclock/notification"
+  ],
+  "gate_commands": [
+    "./gradlew --stacktrace testDebugUnitTest",
+    "./gradlew --stacktrace lintDebug"
+  ],
+  "stop_rule": "high_or_critical_zero_and_gates_green"
+}

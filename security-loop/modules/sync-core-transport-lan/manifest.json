@@ -1,6 +1,12 @@
 {
   "module": "sync-core-transport-lan",
   "description": "Security hardening loop for sync transport and inbound command handling.",
+  "attacker": {
+    "entry": "attackers/static_v1.sh"
+  },
+  "defender": {
+    "entry": "defenders/static_v1.sh"
+  },
   "targets": [
     "app/src/main/java/com/example/orgclock/sync",
     "app/src/synccore/java/com/example/orgclock/sync"

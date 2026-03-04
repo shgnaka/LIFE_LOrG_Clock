@@ -25,6 +25,7 @@ ITERATIONS=3
 OUT_DIR=""
 FAIL_ON_HIGH=1
 SKIP_GATES=0
+STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -50,11 +51,87 @@ if ! [[ "$ITERATIONS" =~ ^[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
+require_manifest_field() {
+  local manifest="$1"
+  local jq_expr="$2"
+  local message="$3"
+  if ! jq -e "$jq_expr" "$manifest" >/dev/null; then
+    echo "$message: $manifest" >&2
+    exit 2
+  fi
+}
+
+validate_manifest_schema() {
+  local manifest="$1"
+  require_manifest_field "$manifest" '.module | type=="string" and length>0' \
+    "manifest.module must be a non-empty string"
+  require_manifest_field "$manifest" '.attacker | type=="object"' \
+    "manifest.attacker must be an object"
+  require_manifest_field "$manifest" '.attacker.entry | type=="string" and length>0' \
+    "manifest.attacker.entry must be a non-empty string"
+  require_manifest_field "$manifest" '.defender | type=="object"' \
+    "manifest.defender must be an object"
+  require_manifest_field "$manifest" '.defender.entry | type=="string" and length>0' \
+    "manifest.defender.entry must be a non-empty string"
+  require_manifest_field "$manifest" '.targets | type=="array" and length>0' \
+    "manifest.targets must be a non-empty array"
+  require_manifest_field "$manifest" 'all(.targets[]; type=="string" and length>0)' \
+    "manifest.targets must contain non-empty strings"
+  require_manifest_field "$manifest" '.gate_commands | type=="array" and length>0' \
+    "manifest.gate_commands must be a non-empty array"
+  require_manifest_field "$manifest" 'all(.gate_commands[]; type=="string" and length>0)' \
+    "manifest.gate_commands must contain non-empty strings"
+}
+
 MODULE_DIR="$ROOT_DIR/security-loop/modules/$MODULE"
 if [[ ! -d "$MODULE_DIR" ]]; then
   echo "module not found: $MODULE" >&2
   exit 2
 fi
+MANIFEST="$MODULE_DIR/manifest.json"
+if [[ ! -f "$MANIFEST" ]]; then
+  echo "manifest not found: $MANIFEST" >&2
+  exit 2
+fi
+validate_manifest_schema "$MANIFEST"
+
+ATTACKER_ENTRY="$(jq -r '.attacker.entry // empty' "$MANIFEST")"
+if [[ -z "$ATTACKER_ENTRY" ]]; then
+  echo "manifest.attacker.entry is required: $MANIFEST" >&2
+  exit 2
+fi
+ATTACKER_PATH="$MODULE_DIR/$ATTACKER_ENTRY"
+if [[ ! -f "$ATTACKER_PATH" ]]; then
+  echo "attacker entry not found: $ATTACKER_PATH" >&2
+  exit 2
+fi
+if [[ ! -x "$ATTACKER_PATH" ]]; then
+  echo "attacker entry is not executable: $ATTACKER_PATH" >&2
+  exit 2
+fi
+
+mapfile -t GATE_COMMANDS < <(jq -r '.gate_commands[]?' "$MANIFEST")
+if [[ ${#GATE_COMMANDS[@]} -eq 0 ]]; then
+  echo "manifest.gate_commands must have at least one command: $MANIFEST" >&2
+  exit 2
+fi
+gate_commands_json="$(printf '%s\n' "${GATE_COMMANDS[@]}" | jq -R . | jq -cs .)"
+
+DEFENDER_ENTRY="$(jq -r '.defender.entry // empty' "$MANIFEST")"
+if [[ -z "$DEFENDER_ENTRY" ]]; then
+  echo "manifest.defender.entry is required: $MANIFEST" >&2
+  exit 2
+fi
+DEFENDER_PATH="$MODULE_DIR/$DEFENDER_ENTRY"
+if [[ ! -f "$DEFENDER_PATH" ]]; then
+  echo "defender entry not found: $DEFENDER_PATH" >&2
+  exit 2
+fi
+if [[ ! -x "$DEFENDER_PATH" ]]; then
+  echo "defender entry is not executable: $DEFENDER_PATH" >&2
+  exit 2
+fi
+defender_entry_json="$(jq -nc --arg v "$DEFENDER_ENTRY" '$v')"
 
 if [[ -z "$OUT_DIR" ]]; then
   stamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -81,12 +158,14 @@ validate_defender_json() {
 
 run_gate() {
   local name="$1"
-  shift
+  local command="$2"
   local log_file="$OUT_DIR/${name}.log"
-  if "$@" >"$log_file" 2>&1; then
-    jq -n --arg name "$name" --arg status "passed" --arg log "$log_file" '{name:$name,status:$status,log:$log}'
+  if bash -lc "$command" >"$log_file" 2>&1; then
+    jq -n --arg name "$name" --arg command "$command" --arg status "passed" --arg log "$log_file" \
+      '{name:$name,command:$command,status:$status,log:$log}'
   else
-    jq -n --arg name "$name" --arg status "failed" --arg log "$log_file" '{name:$name,status:$status,log:$log}'
+    jq -n --arg name "$name" --arg command "$command" --arg status "failed" --arg log "$log_file" \
+      '{name:$name,command:$command,status:$status,log:$log}'
   fi
 }
 
@@ -99,8 +178,8 @@ for iter in $(seq 1 "$ITERATIONS"); do
   attacker_out="$OUT_DIR/iteration-${iter}-attacker.json"
   defender_out="$OUT_DIR/iteration-${iter}-defender.json"
 
-  MODULE="$MODULE" OUT_FILE="$attacker_out" CODEX_MODEL="$CODEX_MODEL" \
-    "$ROOT_DIR/security-loop/agents/attacker_codex.sh"
+  MODULE="$MODULE" MODULE_ROOT="$MODULE_DIR" ROOT_DIR="$ROOT_DIR" OUT_FILE="$attacker_out" CODEX_MODEL="$CODEX_MODEL" \
+    "$ATTACKER_PATH"
   validate_attacker_json "$attacker_out"
 
   high_count="$(jq '[.findings[] | select(.severity=="high" or .severity=="critical")] | length' "$attacker_out")"
@@ -108,8 +187,8 @@ for iter in $(seq 1 "$ITERATIONS"); do
 
   defender_status="skipped"
   if [[ "$high_count" -gt 0 ]]; then
-    MODULE="$MODULE" IN_REPORT="$attacker_out" OUT_FILE="$defender_out" CODEX_MODEL="$CODEX_MODEL" \
-      "$ROOT_DIR/security-loop/agents/defender_codex.sh"
+    MODULE="$MODULE" MODULE_ROOT="$MODULE_DIR" ROOT_DIR="$ROOT_DIR" IN_REPORT="$attacker_out" OUT_FILE="$defender_out" \
+      CODEX_MODEL="$CODEX_MODEL" "$DEFENDER_PATH"
     validate_defender_json "$defender_out" "$attacker_out"
     defender_status="generated"
     defense_reports="$(jq -c --arg file "$defender_out" '. + [$file]' <<<"$defense_reports")"
@@ -117,9 +196,11 @@ for iter in $(seq 1 "$ITERATIONS"); do
 
   gates='[]'
   if [[ "$SKIP_GATES" -eq 0 ]]; then
-    gates="$(jq -c --argjson item "$(run_gate "iter-${iter}-unit" ./gradlew --stacktrace testDebugUnitTest)" '. + [$item]' <<<"$gates")"
-    gates="$(jq -c --argjson item "$(run_gate "iter-${iter}-lint" ./gradlew --stacktrace lintDebug)" '. + [$item]' <<<"$gates")"
-    gates="$(jq -c --argjson item "$(run_gate "iter-${iter}-sync-tests" ./gradlew --stacktrace :app:testDebugUnitTest --tests 'com.example.orgclock.sync.*')" '. + [$item]' <<<"$gates")"
+    for i in "${!GATE_COMMANDS[@]}"; do
+      gate_name="iter-${iter}-gate-$((i+1))"
+      gate_result="$(run_gate "$gate_name" "${GATE_COMMANDS[$i]}")"
+      gates="$(jq -c --argjson item "$gate_result" '. + [$item]' <<<"$gates")"
+    done
   fi
 
   attack_reports="$(jq -c --arg file "$attacker_out" '. + [$file]' <<<"$attack_reports")"
@@ -161,12 +242,17 @@ fi
 
 summary_file="$OUT_DIR/summary.json"
 jq -n \
-  --arg run_id "sync-loop-$(date -u +%Y%m%dT%H%M%SZ)" \
+  --arg run_id "security-loop-$(date -u +%Y%m%dT%H%M%SZ)" \
   --arg module "$MODULE" \
-  --arg started_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg started_at "$STARTED_AT" \
   --arg model "$CODEX_MODEL" \
   --arg attacker_schema "$ATTACKER_SCHEMA" \
   --arg defender_schema "$DEFENDER_SCHEMA" \
+  --arg attacker_entry "$ATTACKER_ENTRY" \
+  --arg attacker_path "$ATTACKER_PATH" \
+  --arg defender_path "$DEFENDER_PATH" \
+  --argjson defender_entry "$defender_entry_json" \
+  --argjson gate_commands "$gate_commands_json" \
   --argjson configured_iterations "$ITERATIONS" \
   --argjson iterations "$iteration_summaries" \
   --argjson attack_reports "$attack_reports" \
@@ -179,11 +265,18 @@ jq -n \
     module:$module,
     started_at:$started_at,
     model:$model,
+    execution:{
+      attacker_entry:$attacker_entry,
+      attacker_path:$attacker_path,
+      defender_entry:$defender_entry,
+      defender_path:$defender_path,
+      gate_commands:$gate_commands
+    },
     configured_iterations:$configured_iterations,
     iterations:$iterations,
     gates:{
       skipped:$skip_gates,
-      required:["testDebugUnitTest","lintDebug",":app:testDebugUnitTest --tests com.example.orgclock.sync.*"]
+      required:$gate_commands
     },
     schemas:{attacker:$attacker_schema,defender:$defender_schema},
     artifacts:{attacker_reports:$attack_reports,defender_reports:$defense_reports},

@@ -124,9 +124,9 @@ Repository Secrets に以下を登録してください。
 
 詳細なセットアップとトラブルシュートは `docs/firebase-app-distribution-guide.md` を参照してください。
 
-## Multi-Agent Security Loop (Sync)
+## Multi-Agent Security Loop
 
-sync 境界向けの攻撃者/防御者ループは `security-loop/` 配下で実行できます。
+`security-loop/` は module 単位で attacker/defender ループを実行します。
 
 ```bash
 security-loop/run.sh --module sync-core-transport-lan --iterations 3
@@ -135,8 +135,34 @@ security-loop/run.sh --module sync-core-transport-lan --iterations 3
 主なオプション:
 
 - `--out <dir>`: 成果物ディレクトリ指定
-- `--skip-gates`: Gradleゲート (`testDebugUnitTest`, `lintDebug`) をスキップ
+- `--skip-gates`: module の `manifest.json` に定義した `gate_commands` をスキップ
 - `--no-fail-on-high`: High/Critical 残存時でも終了コードを失敗にしない
+
+module 要件 (`security-loop/modules/<module>/manifest.json`):
+
+- `attacker.entry`: module ディレクトリからの相対パスで attacker スクリプトを指定（必須）
+- `defender.entry`: module ディレクトリからの相対パスで defender スクリプトを指定（必須）
+- `gate_commands`: 1つ以上の検証コマンドを定義（必須）
+- `targets`: attacker が調査する対象パス配列
+
+`sync-core-transport-lan` の例:
+
+```json
+{
+  "module": "sync-core-transport-lan",
+  "attacker": { "entry": "attackers/static_v1.sh" },
+  "defender": { "entry": "defenders/static_v1.sh" },
+  "targets": [
+    "app/src/main/java/com/example/orgclock/sync",
+    "app/src/synccore/java/com/example/orgclock/sync"
+  ],
+  "gate_commands": [
+    "./gradlew --stacktrace testDebugUnitTest",
+    "./gradlew --stacktrace lintDebug",
+    "./gradlew --stacktrace :app:testDebugUnitTest --tests com.example.orgclock.sync.*"
+  ]
+}
+```
 
 成果物:
 
