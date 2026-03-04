@@ -64,7 +64,12 @@ fi
 today="$(date +%Y%m%d)"
 mkdir -p docs/kaizens/items
 
-last_num="$(ls docs/kaizens/items/KZN-"$today"-*.md 2>/dev/null | sed -E 's#.*-([0-9]{3})\.md#\1#' | sort | tail -n1)"
+last_num="$(
+  find docs/kaizens/items -maxdepth 1 -type f -name "KZN-${today}-*.md" \
+    | sed -E 's#.*-([0-9]{3})\.md#\1#' \
+    | sort \
+    | tail -n1
+)"
 if [[ -z "$last_num" ]]; then
   next_num="001"
 else

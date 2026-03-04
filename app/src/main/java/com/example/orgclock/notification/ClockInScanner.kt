@@ -44,7 +44,7 @@ class ClockInScanner(
                 failedFiles += FileScanFailure(
                     fileId = file.fileId,
                     fileName = file.displayName,
-                    reason = docResult.exceptionOrNull()?.message ?: "unknown",
+                    reason = readableFailureReason(docResult.exceptionOrNull()),
                 )
                 continue
             }
@@ -54,7 +54,7 @@ class ClockInScanner(
                 failedFiles += FileScanFailure(
                     fileId = file.fileId,
                     fileName = file.displayName,
-                    reason = parsedResult.exceptionOrNull()?.message ?: "unknown",
+                    reason = readableFailureReason(parsedResult.exceptionOrNull()),
                 )
                 continue
             }
@@ -85,4 +85,12 @@ class ClockInScanner(
     }
 
     suspend fun scan(zoneId: ZoneId): Result<ClockInScanResult> = scan(zoneId.toKotlinTimeZone())
+
+    private fun readableFailureReason(error: Throwable?): String {
+        val message = error?.message?.trim()
+        if (!message.isNullOrEmpty()) {
+            return message
+        }
+        return error?.javaClass?.simpleName ?: "unknown error"
+    }
 }

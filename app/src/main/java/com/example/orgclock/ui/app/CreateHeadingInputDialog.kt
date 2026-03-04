@@ -32,6 +32,7 @@ internal fun CreateHeadingInputDialog(
     } else {
         stringResource(R.string.create_l2_heading)
     }
+    val canSubmit = !dialog.submitting && dialog.titleInput.trim().isNotEmpty()
     AlertDialog(
         onDismissRequest = {
             if (!dialog.submitting) {
@@ -52,6 +53,11 @@ internal fun CreateHeadingInputDialog(
                     value = dialog.titleInput,
                     onValueChange = onUpdateTitle,
                     label = { Text(stringResource(R.string.heading_title_label)) },
+                    supportingText = {
+                        if (dialog.titleInput.trim().isEmpty()) {
+                            Text(stringResource(R.string.heading_title_required_hint))
+                        }
+                    },
                     singleLine = true,
                     enabled = !dialog.submitting,
                     modifier = Modifier.fillMaxWidth(),
@@ -82,7 +88,7 @@ internal fun CreateHeadingInputDialog(
         confirmButton = {
             TextButton(
                 onClick = onSubmit,
-                enabled = !dialog.submitting,
+                enabled = canSubmit,
             ) {
                 Text(
                     if (dialog.submitting) {

@@ -18,7 +18,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.example.orgclock.R
 import com.example.orgclock.model.ClosedClockEntry
@@ -44,8 +47,11 @@ internal fun EditClockEntryDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
-                    "${entry.start.toJavaZonedDateTime(ZoneId.systemDefault()).toLocalDate()} / " +
+                    stringResource(
+                        R.string.clock_time_edit_date_range,
+                        entry.start.toJavaZonedDateTime(ZoneId.systemDefault()).toLocalDate(),
                         entry.end.toJavaZonedDateTime(ZoneId.systemDefault()).toLocalDate(),
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -53,6 +59,8 @@ internal fun EditClockEntryDialog(
                     label = stringResource(R.string.start_label),
                     hour = draft.startHour,
                     minute = draft.startMinute,
+                    hourContentDescription = stringResource(R.string.start_hour_picker_content_description),
+                    minuteContentDescription = stringResource(R.string.start_minute_picker_content_description),
                     onHourSelected = onSelectStartHour,
                     onMinuteSelected = onSelectStartMinute,
                 )
@@ -60,6 +68,8 @@ internal fun EditClockEntryDialog(
                     label = stringResource(R.string.end_label),
                     hour = draft.endHour,
                     minute = draft.endMinute,
+                    hourContentDescription = stringResource(R.string.end_hour_picker_content_description),
+                    minuteContentDescription = stringResource(R.string.end_minute_picker_content_description),
                     onHourSelected = onSelectEndHour,
                     onMinuteSelected = onSelectEndMinute,
                 )
@@ -83,6 +93,8 @@ private fun TimeFieldEditor(
     label: String,
     hour: Int,
     minute: Int,
+    hourContentDescription: String,
+    minuteContentDescription: String,
     onHourSelected: (Int) -> Unit,
     onMinuteSelected: (Int) -> Unit,
 ) {
@@ -94,7 +106,13 @@ private fun TimeFieldEditor(
         Text(label, style = MaterialTheme.typography.bodySmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box {
-                Button(onClick = { hourExpanded = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                Button(
+                    onClick = { hourExpanded = true },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.semantics {
+                        contentDescription = hourContentDescription
+                    },
+                ) {
                     Text("%02d".format(hour))
                 }
                 DropdownMenu(expanded = hourExpanded, onDismissRequest = { hourExpanded = false }) {
@@ -111,7 +129,13 @@ private fun TimeFieldEditor(
             }
             Text(":")
             Box {
-                Button(onClick = { minuteExpanded = true }, contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
+                Button(
+                    onClick = { minuteExpanded = true },
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.semantics {
+                        contentDescription = minuteContentDescription
+                    },
+                ) {
                     Text("%02d".format(minute))
                 }
                 DropdownMenu(expanded = minuteExpanded, onDismissRequest = { minuteExpanded = false }) {

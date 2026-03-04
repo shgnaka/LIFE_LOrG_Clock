@@ -1,0 +1,4 @@
+interface:
+  display_name: "Org Clock UI Kaizen"
+  short_description: "Find UI/UX and a11y improvements as ready tickets."
+  default_prompt: "Scan Compose UI and notification UX for usability and accessibility issues, then draft implementation-ready kaizen tickets under docs/kaizens/items."
