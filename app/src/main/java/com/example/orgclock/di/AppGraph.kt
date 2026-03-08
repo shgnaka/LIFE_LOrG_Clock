@@ -22,15 +22,15 @@ import com.example.orgclock.sync.BuildConfigSyncIntegrationFeatureFlag
 import com.example.orgclock.sync.ClockCommandKind
 import com.example.orgclock.sync.DefaultClockCommandExecutor
 import com.example.orgclock.sync.LocalClockOperationPublisher
-import com.example.orgclock.sync.SharedPreferencesPeerTrustStore
 import com.example.orgclock.sync.RuntimeSyncIntegrationFeatureFlag
-import com.example.orgclock.sync.SharedPreferencesDeviceIdProvider
 import com.example.orgclock.sync.RoomCommandIdStore
+import com.example.orgclock.sync.SharedPreferencesDeviceIdProvider
+import com.example.orgclock.sync.SharedPreferencesPeerTrustStore
+import com.example.orgclock.sync.SharedPreferencesSyncRuntimePrefs
 import com.example.orgclock.sync.SyncCoreClientFactory
 import com.example.orgclock.sync.SyncIntegrationService
 import com.example.orgclock.sync.SyncRuntimeEntryPoint
 import com.example.orgclock.sync.SyncRuntimeManager
-import com.example.orgclock.sync.SharedPreferencesSyncRuntimePrefs
 import androidx.lifecycle.lifecycleScope
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
@@ -136,64 +136,67 @@ class DefaultAppGraph(
                 }
             },
             listHeadings = { fileId -> clockService.listHeadings(fileId, clockEnvironment.currentTimeZone()) },
-            startClock = { fileId, fileName, headingPath, lineIndex ->
-                scheduleSyncPublishAfterLocalSave(
-                    result = clockService.startClockInFile(
-                        fileId,
-                        lineIndex,
-                        clockEnvironment.now(),
-                        clockEnvironment.currentTimeZone(),
-                    ),
+            startClock = { fileId, headingPath ->
+                val result = clockService.startClockInFile(
+                    fileId,
+                    headingPath,
+                    clockEnvironment.now(),
+                    clockEnvironment.currentTimeZone(),
+                )
+                launchPublishIfSaved(
+                    result = result,
                     kind = ClockCommandKind.Start,
-                    fileName = fileName,
-                    headingPath = headingPath,
+                    fileId = fileId,
+                    headingPath = headingPath.toString(),
                     launchPublish = launchClockPublish,
                 )
             },
-            stopClock = { fileId, fileName, headingPath, lineIndex ->
-                scheduleSyncPublishAfterLocalSave(
-                    result = clockService.stopClockInFile(
-                        fileId,
-                        lineIndex,
-                        clockEnvironment.now(),
-                        clockEnvironment.currentTimeZone(),
-                    ),
+            stopClock = { fileId, headingPath ->
+                val result = clockService.stopClockInFile(
+                    fileId,
+                    headingPath,
+                    clockEnvironment.now(),
+                    clockEnvironment.currentTimeZone(),
+                )
+                launchPublishIfSaved(
+                    result = result,
                     kind = ClockCommandKind.Stop,
-                    fileName = fileName,
-                    headingPath = headingPath,
+                    fileId = fileId,
+                    headingPath = headingPath.toString(),
                     launchPublish = launchClockPublish,
                 )
             },
-            cancelClock = { fileId, fileName, headingPath, lineIndex ->
-                scheduleSyncPublishAfterLocalSave(
-                    result = clockService.cancelClockInFile(fileId, lineIndex),
+            cancelClock = { fileId, headingPath ->
+                val result = clockService.cancelClockInFile(fileId, headingPath)
+                launchPublishIfSaved(
+                    result = result,
                     kind = ClockCommandKind.Cancel,
-                    fileName = fileName,
-                    headingPath = headingPath,
+                    fileId = fileId,
+                    headingPath = headingPath.toString(),
                     launchPublish = launchClockPublish,
                 )
             },
-            listClosedClocks = { fileId, lineIndex ->
-                clockService.listClosedClocksInFile(fileId, lineIndex, clockEnvironment.currentTimeZone())
+            listClosedClocks = { fileId, headingPath ->
+                clockService.listClosedClocksInFile(fileId, headingPath, clockEnvironment.currentTimeZone())
             },
-            editClosedClock = { fileId, headingLineIndex, clockLineIndex, start, end ->
+            editClosedClock = { fileId, headingPath, clockLineIndex, start, end ->
                 clockService.editClosedClockInFile(
                     fileId,
-                    headingLineIndex,
+                    headingPath,
                     clockLineIndex,
                     start.toKotlinInstantCompat(),
                     end.toKotlinInstantCompat(),
                     clockEnvironment.currentTimeZone(),
                 )
             },
-            deleteClosedClock = { fileId, headingLineIndex, clockLineIndex ->
-                clockService.deleteClosedClockInFile(fileId, headingLineIndex, clockLineIndex)
+            deleteClosedClock = { fileId, headingPath, clockLineIndex ->
+                clockService.deleteClosedClockInFile(fileId, headingPath, clockLineIndex)
             },
             createL1Heading = { fileId, title, attachTplTag ->
                 clockService.createL1HeadingInFile(fileId, title, attachTplTag)
             },
-            createL2Heading = { fileId, parentL1LineIndex, title, attachTplTag ->
-                clockService.createL2HeadingInFile(fileId, parentL1LineIndex, title, attachTplTag)
+            createL2Heading = { fileId, parentL1Path, title, attachTplTag ->
+                clockService.createL2HeadingInFile(fileId, parentL1Path, title, attachTplTag)
             },
             loadNotificationEnabled = { prefs.getBoolean(NotificationPrefs.KEY_ENABLED, true) },
             saveNotificationEnabled = { enabled ->
@@ -270,6 +273,38 @@ class DefaultAppGraph(
     override fun syncIntegrationService(): SyncIntegrationService {
         SyncRuntimeEntryPoint.syncIntegrationService = syncIntegrationService
         return syncIntegrationService
+    }
+
+    private suspend fun launchPublishIfSaved(
+        result: Result<ClockMutationResult>,
+        kind: ClockCommandKind,
+        fileId: String,
+        headingPath: String,
+        launchPublish: (ClockCommandKind, String, String) -> Unit,
+    ): Result<ClockMutationResult> {
+        if (result.isFailure) {
+            return result
+        }
+        val fileName = resolveFileNameForPublish(fileId) ?: return result
+        return scheduleSyncPublishAfterLocalSave(
+            result = result,
+            kind = kind,
+            fileName = fileName,
+            headingPath = headingPath,
+            launchPublish = launchPublish,
+        )
+    }
+
+    private suspend fun resolveFileNameForPublish(fileId: String): String? {
+        val files = repository.listOrgFiles().getOrElse {
+            syncIntegrationService.markSyncError("file lookup failed: ${it.message ?: "unknown"}")
+            return null
+        }
+        val fileName = files.firstOrNull { it.fileId == fileId }?.displayName
+        if (fileName == null) {
+            syncIntegrationService.markSyncError("unknown file id: $fileId")
+        }
+        return fileName
     }
 
     private fun loadSyncCoreClientFactory(): SyncCoreClientFactory {

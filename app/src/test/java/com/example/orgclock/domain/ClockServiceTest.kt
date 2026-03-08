@@ -100,7 +100,7 @@ class ClockServiceTest {
 
         val result = service.startClockInFile(
             fileId = "f1",
-            headingLineIndex = 0,
+            headingPath = HeadingPath.parse("Work"),
             now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
         )
 
@@ -127,7 +127,7 @@ class ClockServiceTest {
 
         val result = service.startClockInFile(
             fileId = "f1",
-            headingLineIndex = 1,
+            headingPath = HeadingPath.parse("Work/Project A"),
             now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
         )
 
@@ -152,7 +152,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.cancelClockInFile("f1", 1)
+        val result = service.cancelClockInFile("f1", HeadingPath.parse("Work/Project A"))
 
         assertTrue(result.isSuccess)
         assertTrue(repo.files["f1"]!!.none { it.startsWith("CLOCK: [2026-02-15 Sun 09:00:00]") })
@@ -173,7 +173,11 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.listClosedClocksInFile("f1", 1, ZonedDateTime.of(2026, 2, 15, 12, 0, 0, 0, ZoneId.of("Asia/Tokyo")))
+        val result = service.listClosedClocksInFile(
+            "f1",
+            HeadingPath.parse("Work/Project A"),
+            ZonedDateTime.of(2026, 2, 15, 12, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+        )
 
         assertTrue(result.isSuccess)
         val entries = result.getOrThrow()
@@ -198,7 +202,7 @@ class ClockServiceTest {
         val start = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
         val end = ZonedDateTime.of(2026, 2, 15, 11, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
 
-        val result = service.editClosedClockInFile("f1", 1, 3, start, end)
+        val result = service.editClosedClockInFile("f1", HeadingPath.parse("Work/Project A"), 3, start, end)
 
         assertTrue(result.isSuccess)
         assertTrue(repo.files["f1"]!![3].contains("10:00:00]--[2026-02-15 Sun 11:00:00]"))
@@ -221,7 +225,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.deleteClosedClockInFile("f1", 1, 3)
+        val result = service.deleteClosedClockInFile("f1", HeadingPath.parse("Work/Project A"), 3)
 
         assertTrue(result.isSuccess)
         assertTrue(repo.files["f1"]!!.none { it.contains("09:00:00") })
@@ -244,7 +248,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.deleteClosedClockInFile("f1", 1, 3)
+        val result = service.deleteClosedClockInFile("f1", HeadingPath.parse("Work/Project A"), 3)
 
         assertTrue(result.isSuccess)
         assertEquals(2, repo.saveAttempts["f1"])
@@ -266,7 +270,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.deleteClosedClockInFile("f1", 0, 3)
+        val result = service.deleteClosedClockInFile("f1", HeadingPath.parse("Work"), 3)
 
         assertTrue(result.isFailure)
     }
@@ -334,7 +338,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.createL2HeadingInFile("f1", 0, "Project B")
+        val result = service.createL2HeadingInFile("f1", HeadingPath.parse("Work"), "Project B")
 
         assertTrue(result.isSuccess)
         assertEquals("** Project B", repo.files["f1"]!![2])
@@ -353,7 +357,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.createL2HeadingInFile("f1", 0, "Project A")
+        val result = service.createL2HeadingInFile("f1", HeadingPath.parse("Work"), "Project A")
 
         assertTrue(result.isFailure)
     }
@@ -371,7 +375,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.createL2HeadingInFile("f1", 0, "Project B", attachTplTag = true)
+        val result = service.createL2HeadingInFile("f1", HeadingPath.parse("Work"), "Project B", attachTplTag = true)
 
         assertTrue(result.isSuccess)
         assertEquals("** Project B :TPL:", repo.files["f1"]!![2])
@@ -514,7 +518,7 @@ class ClockServiceTest {
 
         val result = service.startClockInFile(
             fileId = "f1",
-            headingLineIndex = 1,
+            headingPath = HeadingPath.parse("Work/Project A"),
             now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
         )
 
@@ -522,6 +526,69 @@ class ClockServiceTest {
         val ex = result.exceptionOrNull()
         assertTrue(ex is ClockOperationException)
         assertEquals(ClockOperationCode.AlreadyRunning, (ex as ClockOperationException).code)
+    }
+
+    @Test
+    fun startClockInFile_withHeadingPath_retargetsLatestLineAfterConflict() = runBlocking {
+        val repo = object : ClockRepository {
+            private var fileLines = listOf(
+                "* Work",
+                "** Project A",
+                ":LOGBOOK:",
+                ":END:",
+            )
+            private var conflicted = false
+
+            override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.success(listOf(OrgFileEntry("f1", "f1.org", null)))
+            override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
+            override suspend fun saveDaily(date: LocalDate, lines: List<String>, expectedHash: String): SaveResult =
+                SaveResult.ValidationError("unsupported")
+
+            override suspend fun loadFile(fileId: String): Result<OrgDocument> {
+                return Result.success(OrgDocument(LocalDate(2026, 2, 15), fileLines, hash(fileLines.joinToString("\n"))))
+            }
+
+            override suspend fun saveFile(
+                fileId: String,
+                lines: List<String>,
+                expectedHash: String,
+                writeIntent: FileWriteIntent,
+            ): SaveResult {
+                if (!conflicted) {
+                    conflicted = true
+                    fileLines = listOf(
+                        "* Inbox",
+                        "** Triage",
+                        "* Work",
+                        "** Project A",
+                        ":LOGBOOK:",
+                        ":END:",
+                    )
+                    return SaveResult.Conflict("Injected conflict")
+                }
+                fileLines = lines
+                return SaveResult.Success
+            }
+
+            private fun hash(text: String): String {
+                val digest = MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
+                return digest.joinToString("") { "%02x".format(it) }
+            }
+        }
+        val service = ClockService(repo)
+
+        val result = service.startClockInFile(
+            fileId = "f1",
+            headingPath = HeadingPath.parse("Work/Project A"),
+            now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+        )
+
+        assertTrue(result.isSuccess)
+        val lines = repo.loadFile("f1").getOrThrow().lines
+        val projectAIndex = lines.indexOf("** Project A")
+        assertTrue(projectAIndex >= 0)
+        assertTrue(lines.subList(projectAIndex, lines.size).any { it.startsWith("CLOCK: [2026-02-15 Sun 10:00:00]") })
+        assertTrue(lines.none { it == "** Triage" && lines.getOrNull(lines.indexOf(it) + 1)?.startsWith("CLOCK:") == true })
     }
 
     @Test
@@ -541,7 +608,7 @@ class ClockServiceTest {
 
         val result = service.stopClockInFile(
             fileId = "f1",
-            headingLineIndex = 0,
+            headingPath = HeadingPath.parse("Work"),
             now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
         )
 
@@ -566,7 +633,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.cancelClockInFile(fileId = "f1", headingLineIndex = 0)
+        val result = service.cancelClockInFile(fileId = "f1", headingPath = HeadingPath.parse("Work"))
 
         assertTrue(result.isFailure)
         val ex = result.exceptionOrNull()
@@ -585,7 +652,7 @@ class ClockServiceTest {
         val start = ZonedDateTime.of(2026, 2, 15, 11, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
         val end = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
 
-        val result = service.editClosedClockInFile("f1", 1, 3, start, end)
+        val result = service.editClosedClockInFile("f1", HeadingPath.parse("Work/Project A"), 3, start, end)
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is IllegalArgumentException)
@@ -805,31 +872,31 @@ private suspend fun ClockService.startClock(dateTime: ZonedDateTime, headingPath
 
 private suspend fun ClockService.startClockInFile(
     fileId: String,
-    headingLineIndex: Int,
+    headingPath: HeadingPath,
     now: ZonedDateTime,
-): Result<ClockMutationResult> = startClockInFile(fileId, headingLineIndex, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
+): Result<ClockMutationResult> = startClockInFile(fileId, headingPath, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
 
 private suspend fun ClockService.stopClockInFile(
     fileId: String,
-    headingLineIndex: Int,
+    headingPath: HeadingPath,
     now: ZonedDateTime,
-): Result<ClockMutationResult> = stopClockInFile(fileId, headingLineIndex, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
+): Result<ClockMutationResult> = stopClockInFile(fileId, headingPath, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
 
 private suspend fun ClockService.listClosedClocksInFile(
     fileId: String,
-    headingLineIndex: Int,
+    headingPath: HeadingPath,
     now: ZonedDateTime,
-) = listClosedClocksInFile(fileId, headingLineIndex, now.zone.toKotlinTimeZone())
+) = listClosedClocksInFile(fileId, headingPath, now.zone.toKotlinTimeZone())
 
 private suspend fun ClockService.editClosedClockInFile(
     fileId: String,
-    headingLineIndex: Int,
+    headingPath: HeadingPath,
     clockLineIndex: Int,
     newStart: ZonedDateTime,
     newEnd: ZonedDateTime,
 ) = editClosedClockInFile(
     fileId,
-    headingLineIndex,
+    headingPath,
     clockLineIndex,
     newStart.toKotlinInstantCompat(),
     newEnd.toKotlinInstantCompat(),

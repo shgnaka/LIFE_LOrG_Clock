@@ -1,6 +1,7 @@
 package com.example.orgclock.notification
 
 import com.example.orgclock.data.ClockRepository
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.time.toZonedDateTime
 import com.example.orgclock.parser.OrgParser
 import kotlinx.datetime.TimeZone
@@ -20,8 +21,8 @@ data class ClockInEntry(
     val fileName: String,
     val headingTitle: String,
     val l1Title: String?,
+    val headingPath: HeadingPath,
     val startedAt: ZonedDateTime,
-    val headingLineIndex: Int,
 )
 
 data class ClockInScanResult(
@@ -68,8 +69,8 @@ class ClockInScanner(
                         fileName = file.displayName,
                         headingTitle = heading.node.title,
                         l1Title = heading.node.parentL1,
+                        headingPath = heading.node.path,
                         startedAt = heading.openClock!!.toZonedDateTime(timeZone.toJavaZoneId()),
-                        headingLineIndex = heading.node.lineIndex,
                     )
                 }
             entries += opened

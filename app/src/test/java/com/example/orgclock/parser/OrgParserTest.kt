@@ -4,6 +4,7 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.time.toKotlinInstantCompat
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -58,6 +59,62 @@ class OrgParserTest {
         val heading = parser.findHeading(lines, HeadingPath.parse("Work/Project A"))
 
         assertEquals(1, heading?.start)
+    }
+
+    @Test
+    fun findHeadingNode_returnsResolvedHeadingMetadata() {
+        val lines = listOf(
+            "* Work",
+            "** Project A :tag:",
+            "*** Task 1",
+        )
+
+        val heading = parser.findHeadingNode(lines, HeadingPath.parse("Work/Project A"))
+
+        assertNotNull(heading)
+        assertEquals(1, heading?.lineIndex)
+        assertEquals(2, heading?.level)
+        assertEquals("Project A", heading?.title)
+        assertEquals("Work/Project A", heading?.path.toString())
+        assertEquals("Work", heading?.parentL1)
+    }
+
+    @Test
+    fun findHeadingNode_returnsNullWhenPathMissing() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+        )
+
+        val heading = parser.findHeadingNode(lines, HeadingPath.parse("Work/Project B"))
+
+        assertNull(heading)
+    }
+
+    @Test
+    fun findLevel2HeadingNode_returnsNullForLevelOneHeading() {
+        val lines = listOf(
+            "* Work",
+            "** Project A",
+        )
+
+        val heading = parser.findLevel2HeadingNode(lines, HeadingPath.parse("Work"))
+
+        assertNull(heading)
+    }
+
+    @Test
+    fun findHeadingNode_retargetsCurrentLineAfterInsertions() {
+        val lines = listOf(
+            "* Inbox",
+            "** Triage",
+            "* Work",
+            "** Project A",
+        )
+
+        val heading = parser.findHeadingNode(lines, HeadingPath.parse("Work/Project A"))
+
+        assertEquals(3, heading?.lineIndex)
     }
 
     @Test

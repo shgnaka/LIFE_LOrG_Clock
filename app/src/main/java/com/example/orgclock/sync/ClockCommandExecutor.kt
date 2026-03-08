@@ -4,6 +4,7 @@ import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.domain.ClockOperationCode
 import com.example.orgclock.domain.ClockOperationException
 import com.example.orgclock.domain.ClockService
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
 import kotlinx.datetime.Instant
@@ -85,6 +86,7 @@ class DefaultClockCommandExecutor(
                 "Target heading not found: ${command.target.headingPath}",
                 now,
             )
+        val headingPath = HeadingPath.parse(command.target.headingPath)
 
         if (heading.node.level != 2) {
             return failedResult(
@@ -99,7 +101,7 @@ class DefaultClockCommandExecutor(
             ClockCommandKind.Start -> {
                 clockService.startClockInFile(
                     fileId = fileEntry.fileId,
-                    headingLineIndex = heading.node.lineIndex,
+                    headingPath = headingPath,
                     now = now,
                     timeZone = timeZone,
                 )
@@ -107,7 +109,7 @@ class DefaultClockCommandExecutor(
             ClockCommandKind.Stop -> {
                 clockService.stopClockInFile(
                     fileId = fileEntry.fileId,
-                    headingLineIndex = heading.node.lineIndex,
+                    headingPath = headingPath,
                     now = now,
                     timeZone = timeZone,
                 )
@@ -115,7 +117,7 @@ class DefaultClockCommandExecutor(
             ClockCommandKind.Cancel -> {
                 clockService.cancelClockInFile(
                     fileId = fileEntry.fileId,
-                    headingLineIndex = heading.node.lineIndex,
+                    headingPath = headingPath,
                 )
             }
         }

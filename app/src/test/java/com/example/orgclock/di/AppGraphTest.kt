@@ -9,7 +9,7 @@ import org.junit.Test
 class AppGraphTest {
     @Test
     fun scheduleSyncPublishAfterLocalSave_success_enqueuesPublishAndReturnsOriginalResult() {
-        val result = Result.success(ClockMutationResult(headingLineIndex = 7))
+        val result = Result.success(ClockMutationResult())
         var publishedKind: ClockCommandKind? = null
         var publishedFileName: String? = null
         var publishedHeadingPath: String? = null
@@ -26,7 +26,6 @@ class AppGraphTest {
         }
 
         assertTrue(returned.isSuccess)
-        assertEquals(7, returned.getOrThrow().headingLineIndex)
         assertEquals(ClockCommandKind.Start, publishedKind)
         assertEquals("2026-02-16.org", publishedFileName)
         assertEquals("Work/Project A", publishedHeadingPath)

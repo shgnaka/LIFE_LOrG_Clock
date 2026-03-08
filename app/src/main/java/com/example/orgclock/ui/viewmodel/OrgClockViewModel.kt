@@ -10,6 +10,7 @@ import com.example.orgclock.domain.ClockOperationCode
 import com.example.orgclock.domain.ClockOperationException
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
@@ -46,14 +47,14 @@ class OrgClockViewModel(
     private val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     private val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     private val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
-    private val startClock: suspend (String, String, String, Int) -> Result<ClockMutationResult>,
-    private val stopClock: suspend (String, String, String, Int) -> Result<ClockMutationResult>,
-    private val cancelClock: suspend (String, String, String, Int) -> Result<ClockMutationResult>,
-    private val listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
-    private val editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
-    private val deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
+    private val startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
+    private val stopClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
+    private val cancelClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
+    private val listClosedClocks: suspend (String, HeadingPath) -> Result<List<ClosedClockEntry>>,
+    private val editClosedClock: suspend (String, HeadingPath, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
+    private val deleteClosedClock: suspend (String, HeadingPath, Int) -> Result<Unit>,
     private val createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
-    private val createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
+    private val createL2Heading: suspend (String, HeadingPath, String, Boolean) -> Result<Unit>,
     private val loadNotificationEnabled: () -> Boolean,
     private val saveNotificationEnabled: (Boolean) -> Unit,
     private val loadNotificationDisplayMode: () -> NotificationDisplayMode,
@@ -91,7 +92,7 @@ class OrgClockViewModel(
 
     private var initialized = false
     private var headingsSyncJob: Job? = null
-    private val inFlightClockOps = mutableSetOf<Int>()
+    private val inFlightClockOps = mutableSetOf<HeadingPath>()
     private var editSaveInFlight = false
     private var createHeadingSubmitInFlight = false
     private var deleteInFlight = false
@@ -179,6 +180,11 @@ class OrgClockViewModel(
                 true
             }
 
+            is OrgClockUiAction.SelectHeading -> {
+                _uiState.update { state -> state.copy(selectedHeadingPath = action.path) }
+                true
+            }
+
             OrgClockUiAction.OpenFilePicker -> {
                 _uiState.update { it.copy(screen = Screen.FilePicker) }
                 true
@@ -203,22 +209,22 @@ class OrgClockViewModel(
     private fun handleClockMutationAction(action: OrgClockUiAction): Boolean {
         return when (action) {
             is OrgClockUiAction.StartClock -> {
-                if (beginClockMutation(action.item.node.lineIndex)) {
-                    viewModelScope.launch { startClock(action.item) }
+                if (beginClockMutation(action.path)) {
+                    viewModelScope.launch { startClock(action.path) }
                 }
                 true
             }
 
             is OrgClockUiAction.StopClock -> {
-                if (beginClockMutation(action.item.node.lineIndex)) {
-                    viewModelScope.launch { stopClock(action.item) }
+                if (beginClockMutation(action.path)) {
+                    viewModelScope.launch { stopClock(action.path) }
                 }
                 true
             }
 
             is OrgClockUiAction.CancelClock -> {
-                if (beginClockMutation(action.item.node.lineIndex)) {
-                    viewModelScope.launch { cancelClock(action.item) }
+                if (beginClockMutation(action.path)) {
+                    viewModelScope.launch { cancelClock(action.path) }
                 }
                 true
             }
@@ -363,7 +369,7 @@ class OrgClockViewModel(
                         it.copy(
                             createHeadingDialog = CreateHeadingDialogState(
                                 mode = CreateHeadingMode.L2,
-                                parentL1LineIndex = action.parent.node.lineIndex,
+                                parentL1Path = action.parent.node.path,
                                 parentL1Title = action.parent.node.title,
                                 canAttachTplTag = isDailyOrgFile(it.selectedFile),
                             ),
@@ -542,11 +548,24 @@ class OrgClockViewModel(
         headingsSyncJob?.cancel()
         val loaded = listHeadings(file.fileId)
         if (loaded.isSuccess) {
+            val headings = loaded.getOrThrow()
             _uiState.update {
+                val sameFile = it.selectedFile?.fileId == file.fileId
+                val selectedHeadingPath = if (sameFile) {
+                    it.selectedHeadingPath?.takeIf { path -> headings.any { heading -> heading.node.path == path } }
+                } else {
+                    null
+                }
+                val pendingClockOps = if (sameFile) {
+                    it.pendingClockOps.filterTo(mutableSetOf()) { path -> headings.any { heading -> heading.node.path == path } }
+                } else {
+                    emptySet()
+                }
                 it.copy(
                     selectedFile = file,
-                    headings = loaded.getOrThrow(),
-                    pendingClockOps = emptySet(),
+                    headings = headings,
+                    selectedHeadingPath = selectedHeadingPath,
+                    pendingClockOps = pendingClockOps,
                     collapsedL1 = emptySet(),
                     historyTarget = null,
                     historyEntries = emptyList(),
@@ -598,6 +617,7 @@ class OrgClockViewModel(
                 it.copy(
                     selectedFile = null,
                     headings = emptyList(),
+                    selectedHeadingPath = null,
                     screen = Screen.FilePicker,
                     status = status(R.string.status_today_file_not_found, StatusTone.Warning),
                 )
@@ -644,12 +664,13 @@ class OrgClockViewModel(
         val file = uiState.value.selectedFile ?: return
         _uiState.update {
             it.copy(
+                selectedHeadingPath = item.node.path,
                 historyTarget = item,
                 historyLoading = true,
                 historyEntries = emptyList(),
             )
         }
-        val result = listClosedClocks(file.fileId, item.node.lineIndex)
+        val result = listClosedClocks(file.fileId, item.node.path)
         if (result.isSuccess) {
             _uiState.update {
                 it.copy(
@@ -673,7 +694,7 @@ class OrgClockViewModel(
         val state = uiState.value
         val file = state.selectedFile ?: return
         val target = state.historyTarget ?: return
-        val result = listClosedClocks(file.fileId, target.node.lineIndex)
+        val result = listClosedClocks(file.fileId, target.node.path)
         if (result.isSuccess) {
             _uiState.update { it.copy(historyEntries = result.getOrThrow()) }
         } else {
@@ -687,16 +708,22 @@ class OrgClockViewModel(
         }
     }
 
-    private suspend fun startClock(item: HeadingViewItem) {
-        val file = uiState.value.selectedFile ?: return
-        val lineIndex = item.node.lineIndex
+    private suspend fun startClock(path: HeadingPath) {
+        val file = uiState.value.selectedFile ?: run {
+            finishClockMutation(path)
+            return
+        }
+        val item = uiState.value.headings.firstOrNull { it.node.path == path } ?: run {
+            finishClockMutation(path)
+            return
+        }
         val optimisticStartedAt = nowProvider()
-        updateHeadingOpenClock(lineIndex, OpenClockState(optimisticStartedAt.toKotlinInstantCompat()))
+        updateHeadingOpenClock(path, OpenClockState(optimisticStartedAt.toKotlinInstantCompat()))
 
         val result = try {
-            startClock(file.fileId, file.displayName, item.node.path.toString(), lineIndex)
+            startClock(file.fileId, path)
         } finally {
-            finishClockMutation(lineIndex)
+            finishClockMutation(path)
         }
         val status = if (result.isSuccess) {
             status(R.string.status_clock_started, StatusTone.Success)
@@ -711,24 +738,29 @@ class OrgClockViewModel(
         }
         if (result.isSuccess) {
             val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt.toKotlinInstantCompat()
-            updateHeadingOpenClock(lineIndex, OpenClockState(startedAt))
+            updateHeadingOpenClock(path, OpenClockState(startedAt))
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()
         } else {
-            updateHeadingOpenClock(lineIndex, item.openClock)
+            updateHeadingOpenClock(path, item.openClock)
             _uiState.update { it.copy(status = status) }
         }
     }
 
-    private suspend fun stopClock(item: HeadingViewItem) {
-        val file = uiState.value.selectedFile ?: return
-        val lineIndex = item.node.lineIndex
-        updateHeadingOpenClock(lineIndex, null)
-
+    private suspend fun stopClock(path: HeadingPath) {
+        val file = uiState.value.selectedFile ?: run {
+            finishClockMutation(path)
+            return
+        }
+        val item = uiState.value.headings.firstOrNull { it.node.path == path } ?: run {
+            finishClockMutation(path)
+            return
+        }
+        updateHeadingOpenClock(path, null)
         val result = try {
-            stopClock(file.fileId, file.displayName, item.node.path.toString(), lineIndex)
+            stopClock(file.fileId, path)
         } finally {
-            finishClockMutation(lineIndex)
+            finishClockMutation(path)
         }
         val status = if (result.isSuccess) {
             status(R.string.status_clock_stopped, StatusTone.Success)
@@ -740,20 +772,25 @@ class OrgClockViewModel(
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()
         } else {
-            updateHeadingOpenClock(lineIndex, item.openClock)
+            updateHeadingOpenClock(path, item.openClock)
             _uiState.update { it.copy(status = status) }
         }
     }
 
-    private suspend fun cancelClock(item: HeadingViewItem) {
-        val file = uiState.value.selectedFile ?: return
-        val lineIndex = item.node.lineIndex
-        updateHeadingOpenClock(lineIndex, null)
-
+    private suspend fun cancelClock(path: HeadingPath) {
+        val file = uiState.value.selectedFile ?: run {
+            finishClockMutation(path)
+            return
+        }
+        val item = uiState.value.headings.firstOrNull { it.node.path == path } ?: run {
+            finishClockMutation(path)
+            return
+        }
+        updateHeadingOpenClock(path, null)
         val result = try {
-            cancelClock(file.fileId, file.displayName, item.node.path.toString(), lineIndex)
+            cancelClock(file.fileId, path)
         } finally {
-            finishClockMutation(lineIndex)
+            finishClockMutation(path)
         }
         val status = if (result.isSuccess) {
             status(R.string.status_clock_cancelled, StatusTone.Warning)
@@ -765,7 +802,7 @@ class OrgClockViewModel(
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()
         } else {
-            updateHeadingOpenClock(lineIndex, item.openClock)
+            updateHeadingOpenClock(path, item.openClock)
             _uiState.update { it.copy(status = status) }
         }
     }
@@ -800,7 +837,7 @@ class OrgClockViewModel(
         val result = try {
             editClosedClock(
                 file.fileId,
-                entry.headingLineIndex,
+                entry.headingPath,
                 entry.clockLineIndex,
                 updatedStart,
                 updatedEnd,
@@ -847,8 +884,8 @@ class OrgClockViewModel(
             when (dialog.mode) {
                 CreateHeadingMode.L1 -> createL1Heading(file.fileId, title, dialog.attachTplTag)
                 CreateHeadingMode.L2 -> {
-                    val parentIndex = dialog.parentL1LineIndex
-                    if (parentIndex == null) {
+                    val parentPath = dialog.parentL1Path
+                    if (parentPath == null) {
                         _uiState.update {
                             it.copy(
                                 status = status(R.string.status_parent_l1_missing, StatusTone.Error),
@@ -857,7 +894,7 @@ class OrgClockViewModel(
                         finishCreateHeadingSubmit()
                         return
                     }
-                    createL2Heading(file.fileId, parentIndex, title, dialog.attachTplTag)
+                    createL2Heading(file.fileId, parentPath, title, dialog.attachTplTag)
                 }
             }
         } finally {
@@ -896,7 +933,7 @@ class OrgClockViewModel(
         val entry = state.deletingEntry ?: return
 
         val result = try {
-            deleteClosedClock(file.fileId, entry.headingLineIndex, entry.clockLineIndex)
+            deleteClosedClock(file.fileId, entry.headingPath, entry.clockLineIndex)
         } finally {
             finishDelete()
         }
@@ -1016,30 +1053,43 @@ class OrgClockViewModel(
         return DAILY_ORG_FILE_REGEX.matches(name)
     }
 
-    private fun updatePendingClock(lineIndex: Int, pending: Boolean) {
+    private fun updatePendingClock(path: HeadingPath, pending: Boolean) {
         _uiState.update { state ->
             val next = if (pending) {
-                state.pendingClockOps + lineIndex
+                state.pendingClockOps + path
             } else {
-                state.pendingClockOps - lineIndex
+                state.pendingClockOps - path
             }
             state.copy(pendingClockOps = next)
         }
     }
 
-    private fun beginClockMutation(lineIndex: Int): Boolean {
-        synchronized(inFlightClockOps) {
-            if (!inFlightClockOps.add(lineIndex)) return false
+    private fun updateHeadingOpenClock(path: HeadingPath, openClock: OpenClockState?) {
+        _uiState.update { state ->
+            val updated = state.headings.map { heading ->
+                if (heading.node.path == path) {
+                    heading.copy(openClock = openClock)
+                } else {
+                    heading
+                }
+            }
+            state.copy(headings = updated)
         }
-        updatePendingClock(lineIndex, true)
+    }
+
+    private fun beginClockMutation(path: HeadingPath): Boolean {
+        synchronized(inFlightClockOps) {
+            if (!inFlightClockOps.add(path)) return false
+        }
+        updatePendingClock(path, true)
         return true
     }
 
-    private fun finishClockMutation(lineIndex: Int) {
+    private fun finishClockMutation(path: HeadingPath) {
         synchronized(inFlightClockOps) {
-            inFlightClockOps.remove(lineIndex)
+            inFlightClockOps.remove(path)
         }
-        updatePendingClock(lineIndex, false)
+        updatePendingClock(path, false)
     }
 
     private fun beginEditSave(): Boolean {
@@ -1100,19 +1150,6 @@ class OrgClockViewModel(
         _uiState.update { it.copy(deletingInProgress = false) }
     }
 
-    private fun updateHeadingOpenClock(lineIndex: Int, openClock: OpenClockState?) {
-        _uiState.update { state ->
-            val updated = state.headings.map { heading ->
-                if (heading.node.lineIndex == lineIndex) {
-                    heading.copy(openClock = openClock)
-                } else {
-                    heading
-                }
-            }
-            state.copy(headings = updated)
-        }
-    }
-
     private fun requestHeadingsSync(file: OrgFileEntry) {
         headingsSyncJob?.cancel()
         headingsSyncJob = viewModelScope.launch {
@@ -1123,11 +1160,23 @@ class OrgClockViewModel(
     private suspend fun synchronizeHeadings(file: OrgFileEntry) {
         val loaded = listHeadings(file.fileId)
         if (loaded.isSuccess) {
+            val headings = loaded.getOrThrow()
             _uiState.update { state ->
                 if (state.selectedFile?.fileId != file.fileId) {
                     state
                 } else {
-                    state.copy(headings = loaded.getOrThrow())
+                    state.copy(
+                        headings = headings,
+                        selectedHeadingPath = state.selectedHeadingPath?.takeIf { path ->
+                            headings.any { heading -> heading.node.path == path }
+                        },
+                        pendingClockOps = state.pendingClockOps.filterTo(mutableSetOf()) { path ->
+                            headings.any { heading -> heading.node.path == path }
+                        },
+                        historyTarget = state.historyTarget?.let { target ->
+                            headings.firstOrNull { heading -> heading.node.path == target.node.path }
+                        },
+                    )
                 }
             }
         } else {

@@ -3,6 +3,7 @@ import OrgClockShared
 
 struct ContentView: View {
     private let facade = IosHostFacade()
+    private let coreFlowFacade = IosCoreFlowFacade()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -21,11 +22,11 @@ struct ContentView: View {
 
             Text("M4 Core Flow Probe")
                 .font(.headline)
-            Text(iosCoreFlowListFilesSummary())
+            Text(coreFlowFacade.listFilesSummary())
                 .font(.footnote)
-            Text(iosCoreFlowVerifyDailyReadWriteRoundTrip())
+            Text(coreFlowFacade.verifyDailyReadWriteRoundTrip())
                 .font(.footnote)
-            Text(iosCoreFlowListHeadingsSummaryForFirstFile())
+            Text(coreFlowFacade.listHeadingsSummaryForFirstFile())
                 .font(.footnote)
         }
         .frame(maxWidth: .infinity, alignment: .leading)

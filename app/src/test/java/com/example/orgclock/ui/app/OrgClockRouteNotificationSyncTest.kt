@@ -17,7 +17,7 @@ import java.time.ZonedDateTime
 
 class OrgClockRouteNotificationSyncTest {
     @Test
-    fun buildNotificationSyncKey_ignoresHeadingOnlyChangesWithoutOpenClockFootprintChange() {
+    fun buildNotificationSyncKey_ignoresLineChangesWhenOpenHeadingPathIsStable() {
         val rootUri = Mockito.mock(Uri::class.java)
         val state1 = OrgClockUiState(
             rootUri = rootUri,
@@ -30,8 +30,8 @@ class OrgClockRouteNotificationSyncTest {
         )
         val state2 = state1.copy(
             headings = listOf(
-                heading(lineIndex = 1, title = "Project A renamed", open = true),
-                heading(lineIndex = 2, title = "Project B renamed", open = false),
+                heading(lineIndex = 8, title = "Project A", open = true),
+                heading(lineIndex = 9, title = "Project B", open = false),
             ),
         )
 
@@ -54,7 +54,7 @@ class OrgClockRouteNotificationSyncTest {
         val modeChanged = base.copy(notificationDisplayMode = NotificationDisplayMode.Always)
         val footprintChanged = base.copy(
             headings = listOf(
-                heading(lineIndex = 1, title = "A", open = false),
+                heading(lineIndex = 1, title = "A renamed", open = false),
                 heading(lineIndex = 2, title = "B", open = true),
             ),
         )

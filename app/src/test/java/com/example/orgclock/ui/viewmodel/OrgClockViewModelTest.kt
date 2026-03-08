@@ -114,7 +114,7 @@ class OrgClockViewModelTest {
         advanceUntilIdle()
 
         openFiles = setOf("f1")
-        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1]))
+        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1].node.path))
         advanceUntilIdle()
 
         assertEquals(setOf("f1"), vm.uiState.value.filesWithOpenClock)
@@ -124,7 +124,7 @@ class OrgClockViewModelTest {
     fun startClock_failureShowsWarningWhenAlreadyRunning() = runTest {
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
-            startClock = { _, _, _, _ ->
+            startClock = { _, _ ->
                 Result.failure(
                     ClockOperationException(
                         code = ClockOperationCode.AlreadyRunning,
@@ -136,7 +136,7 @@ class OrgClockViewModelTest {
 
         vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
         advanceUntilIdle()
-        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1]))
+        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1].node.path))
         advanceUntilIdle()
 
         val status = vm.uiState.value.status
@@ -148,7 +148,7 @@ class OrgClockViewModelTest {
     fun startClock_failureShowsErrorForUnknownCode() = runTest {
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
-            startClock = { _, _, _, _ ->
+            startClock = { _, _ ->
                 Result.failure(
                     ClockOperationException(
                         code = ClockOperationCode.IoFailed,
@@ -160,7 +160,7 @@ class OrgClockViewModelTest {
 
         vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
         advanceUntilIdle()
-        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1]))
+        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1].node.path))
         advanceUntilIdle()
 
         val status = vm.uiState.value.status
@@ -174,19 +174,23 @@ class OrgClockViewModelTest {
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
             nowProvider = { startedAt },
-            startClock = { _, _, _, lineIndex ->
+            startClock = { _, headingPath ->
                 kotlinx.coroutines.delay(1_000)
-                Result.success(ClockMutationResult(headingLineIndex = lineIndex, startedAt = startedAt.toKotlinInstantCompat()))
+                Result.success(
+                    ClockMutationResult(
+                        startedAt = startedAt.toKotlinInstantCompat(),
+                    ),
+                )
             },
         )
 
         vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
         advanceUntilIdle()
-        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1]))
+        vm.onAction(OrgClockUiAction.StartClock(sampleHeadings()[1].node.path))
         runCurrent()
 
         val pendingState = vm.uiState.value
-        assertTrue(1 in pendingState.pendingClockOps)
+        assertTrue(HeadingPath.parse("Work/Project A") in pendingState.pendingClockOps)
         assertTrue(pendingState.headings.first { it.node.lineIndex == 1 }.openClock != null)
 
         advanceUntilIdle()
@@ -199,19 +203,19 @@ class OrgClockViewModelTest {
         var calls = 0
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
-            startClock = { _, _, _, lineIndex ->
+            startClock = { _, _ ->
                 calls += 1
                 kotlinx.coroutines.delay(1_000)
-                Result.success(ClockMutationResult(headingLineIndex = lineIndex))
+                Result.success(ClockMutationResult())
             },
         )
 
         vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
         advanceUntilIdle()
 
-        val item = vm.uiState.value.headings.first { it.node.lineIndex == 1 }
-        vm.onAction(OrgClockUiAction.StartClock(item))
-        vm.onAction(OrgClockUiAction.StartClock(item))
+        val path = vm.uiState.value.headings.first { it.node.lineIndex == 1 }.node.path
+        vm.onAction(OrgClockUiAction.StartClock(path))
+        vm.onAction(OrgClockUiAction.StartClock(path))
         runCurrent()
         advanceUntilIdle()
 
@@ -223,8 +227,8 @@ class OrgClockViewModelTest {
         var called = false
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
-            createL2Heading = { fileId, parentLine, title, attachTplTag ->
-                called = fileId == "f1" && parentLine == 0 && title == "Project B" && !attachTplTag
+            createL2Heading = { fileId, parentPath, title, attachTplTag ->
+                called = fileId == "f1" && parentPath == HeadingPath.parse("Work") && title == "Project B" && !attachTplTag
                 Result.success(Unit)
             },
         )
@@ -356,8 +360,8 @@ class OrgClockViewModelTest {
         var called = false
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
-            deleteClosedClock = { fileId, headingLineIndex, clockLineIndex ->
-                called = fileId == "f1" && headingLineIndex == 1 && clockLineIndex == 3
+            deleteClosedClock = { fileId, headingPath, clockLineIndex ->
+                called = fileId == "f1" && headingPath == HeadingPath.parse("Work/Project A") && clockLineIndex == 3
                 Result.success(Unit)
             },
         )
@@ -488,7 +492,7 @@ class OrgClockViewModelTest {
             val start = ZonedDateTime.of(2026, 2, 16, 9, input, 0, 0, zone)
             val end = ZonedDateTime.of(2026, 2, 16, 10, input, 0, 0, zone)
             val entry = ClosedClockEntry(
-                headingLineIndex = 1,
+                headingPath = HeadingPath.parse("Work/Project A"),
                 clockLineIndex = 3,
                 start = start.toKotlinInstantCompat(),
                 end = end.toKotlinInstantCompat(),
@@ -576,13 +580,13 @@ class OrgClockViewModelTest {
         val headings = sampleHeadingsWithOpenClock()
         val vm = testViewModel(
             listHeadings = { Result.success(headings) },
-            stopClock = { _, _, _, _ -> Result.failure(IllegalStateException("stop failed")) },
+            stopClock = { _, _ -> Result.failure(IllegalStateException("stop failed")) },
         )
 
         vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
         advanceUntilIdle()
         val original = vm.uiState.value.headings.first { it.node.lineIndex == 1 }.openClock
-        vm.onAction(OrgClockUiAction.StopClock(vm.uiState.value.headings.first { it.node.lineIndex == 1 }))
+        vm.onAction(OrgClockUiAction.StopClock(vm.uiState.value.headings.first { it.node.lineIndex == 1 }.node.path))
         advanceUntilIdle()
 
         assertEquals(original, vm.uiState.value.headings.first { it.node.lineIndex == 1 }.openClock)
@@ -724,7 +728,7 @@ class OrgClockViewModelTest {
         val start = ZonedDateTime.of(2026, 2, 16, 9, 0, 0, 0, zone)
         val end = ZonedDateTime.of(2026, 2, 16, 9, 30, 0, 0, zone)
         return ClosedClockEntry(
-            headingLineIndex = 1,
+            headingPath = HeadingPath.parse("Work/Project A"),
             clockLineIndex = 3,
             start = start.toKotlinInstantCompat(),
             end = end.toKotlinInstantCompat(),
@@ -770,20 +774,20 @@ class OrgClockViewModelTest {
         listFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },
         listFilesWithOpenClock: suspend () -> Result<Set<String>> = { Result.success(emptySet()) },
         listHeadings: suspend (String) -> Result<List<HeadingViewItem>> = { Result.success(emptyList()) },
-        startClock: suspend (String, String, String, Int) -> Result<ClockMutationResult> = { _, _, _, lineIndex ->
-            Result.success(ClockMutationResult(headingLineIndex = lineIndex))
+        startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult> = { _, headingPath ->
+            Result.success(ClockMutationResult())
         },
-        stopClock: suspend (String, String, String, Int) -> Result<ClockMutationResult> = { _, _, _, lineIndex ->
-            Result.success(ClockMutationResult(headingLineIndex = lineIndex))
+        stopClock: suspend (String, HeadingPath) -> Result<ClockMutationResult> = { _, headingPath ->
+            Result.success(ClockMutationResult())
         },
-        cancelClock: suspend (String, String, String, Int) -> Result<ClockMutationResult> = { _, _, _, lineIndex ->
-            Result.success(ClockMutationResult(headingLineIndex = lineIndex))
+        cancelClock: suspend (String, HeadingPath) -> Result<ClockMutationResult> = { _, headingPath ->
+            Result.success(ClockMutationResult())
         },
-        listClosedClocks: suspend (String, Int) -> Result<List<com.example.orgclock.model.ClosedClockEntry>> = { _, _ -> Result.success(emptyList()) },
-        editClosedClock: suspend (String, Int, Int, java.time.ZonedDateTime, java.time.ZonedDateTime) -> Result<Unit> = { _, _, _, _, _ -> Result.success(Unit) },
-        deleteClosedClock: suspend (String, Int, Int) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
+        listClosedClocks: suspend (String, HeadingPath) -> Result<List<com.example.orgclock.model.ClosedClockEntry>> = { _, _ -> Result.success(emptyList()) },
+        editClosedClock: suspend (String, HeadingPath, Int, java.time.ZonedDateTime, java.time.ZonedDateTime) -> Result<Unit> = { _, _, _, _, _ -> Result.success(Unit) },
+        deleteClosedClock: suspend (String, HeadingPath, Int) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         createL1Heading: suspend (String, String, Boolean) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
-        createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit> = { _, _, _, _ -> Result.success(Unit) },
+        createL2Heading: suspend (String, HeadingPath, String, Boolean) -> Result<Unit> = { _, _, _, _ -> Result.success(Unit) },
         loadNotificationEnabled: () -> Boolean = { true },
         saveNotificationEnabled: (Boolean) -> Unit = {},
         loadNotificationDisplayMode: () -> NotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
