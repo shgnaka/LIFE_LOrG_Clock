@@ -8,10 +8,12 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import com.example.orgclock.BuildConfig
 import com.example.orgclock.data.ClockRepository
+import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.data.RootAccessGateway
 import com.example.orgclock.data.SafOrgRepository
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.domain.ClockService
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.notification.ClockInNotificationService
 import com.example.orgclock.notification.ClockInScanner
 import com.example.orgclock.notification.NotificationDisplayMode
@@ -50,6 +52,11 @@ interface AppGraph {
 
     fun syncIntegrationService(): SyncIntegrationService
 }
+
+internal data class PublishTarget(
+    val fileName: String,
+    val headingPath: String,
+)
 
 class DefaultAppGraph(
     private val appContext: Context,
@@ -143,11 +150,11 @@ class DefaultAppGraph(
                     clockEnvironment.now(),
                     clockEnvironment.currentTimeZone(),
                 )
-                launchPublishIfSaved(
+                publishIfSaved(
                     result = result,
                     kind = ClockCommandKind.Start,
                     fileId = fileId,
-                    headingPath = headingPath.toString(),
+                    headingPath = headingPath,
                     launchPublish = launchClockPublish,
                 )
             },
@@ -158,21 +165,21 @@ class DefaultAppGraph(
                     clockEnvironment.now(),
                     clockEnvironment.currentTimeZone(),
                 )
-                launchPublishIfSaved(
+                publishIfSaved(
                     result = result,
                     kind = ClockCommandKind.Stop,
                     fileId = fileId,
-                    headingPath = headingPath.toString(),
+                    headingPath = headingPath,
                     launchPublish = launchClockPublish,
                 )
             },
             cancelClock = { fileId, headingPath ->
                 val result = clockService.cancelClockInFile(fileId, headingPath)
-                launchPublishIfSaved(
+                publishIfSaved(
                     result = result,
                     kind = ClockCommandKind.Cancel,
                     fileId = fileId,
-                    headingPath = headingPath.toString(),
+                    headingPath = headingPath,
                     launchPublish = launchClockPublish,
                 )
             },
@@ -275,36 +282,36 @@ class DefaultAppGraph(
         return syncIntegrationService
     }
 
-    private suspend fun launchPublishIfSaved(
+    private suspend fun publishIfSaved(
         result: Result<ClockMutationResult>,
         kind: ClockCommandKind,
         fileId: String,
-        headingPath: String,
+        headingPath: HeadingPath,
         launchPublish: (ClockCommandKind, String, String) -> Unit,
     ): Result<ClockMutationResult> {
         if (result.isFailure) {
             return result
         }
-        val fileName = resolveFileNameForPublish(fileId) ?: return result
+        val target = resolvePublishTarget(fileId, headingPath) ?: return result
         return scheduleSyncPublishAfterLocalSave(
             result = result,
             kind = kind,
-            fileName = fileName,
-            headingPath = headingPath,
+            fileName = target.fileName,
+            headingPath = target.headingPath,
             launchPublish = launchPublish,
         )
     }
 
-    private suspend fun resolveFileNameForPublish(fileId: String): String? {
+    private suspend fun resolvePublishTarget(fileId: String, headingPath: HeadingPath): PublishTarget? {
         val files = repository.listOrgFiles().getOrElse {
             syncIntegrationService.markSyncError("file lookup failed: ${it.message ?: "unknown"}")
             return null
         }
-        val fileName = files.firstOrNull { it.fileId == fileId }?.displayName
-        if (fileName == null) {
+        val target = resolvePublishTarget(fileId, headingPath, files)
+        if (target == null) {
             syncIntegrationService.markSyncError("unknown file id: $fileId")
         }
-        return fileName
+        return target
     }
 
     private fun loadSyncCoreClientFactory(): SyncCoreClientFactory {
@@ -331,4 +338,16 @@ internal fun scheduleSyncPublishAfterLocalSave(
         launchPublish(kind, fileName, headingPath)
     }
     return result
+}
+
+internal fun resolvePublishTarget(
+    fileId: String,
+    headingPath: HeadingPath,
+    files: List<OrgFileEntry>,
+): PublishTarget? {
+    val fileName = files.firstOrNull { it.fileId == fileId }?.displayName ?: return null
+    return PublishTarget(
+        fileName = fileName,
+        headingPath = headingPath.toString(),
+    )
 }
