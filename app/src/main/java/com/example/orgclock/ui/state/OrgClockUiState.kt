@@ -6,6 +6,7 @@ import androidx.annotation.StringRes
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.sync.SyncDeliveryState
@@ -57,7 +58,7 @@ data class PeerUiItem(
 @Immutable
 data class CreateHeadingDialogState(
     val mode: CreateHeadingMode,
-    val parentL1LineIndex: Int? = null,
+    val parentL1Path: HeadingPath? = null,
     val parentL1Title: String? = null,
     val canAttachTplTag: Boolean = false,
     val attachTplTag: Boolean = false,
@@ -74,7 +75,8 @@ data class OrgClockUiState(
     val filesWithOpenClock: Set<String> = emptySet(),
     val selectedFile: OrgFileEntry? = null,
     val headings: List<HeadingViewItem> = emptyList(),
-    val pendingClockOps: Set<Int> = emptySet(),
+    val selectedHeadingPath: HeadingPath? = null,
+    val pendingClockOps: Set<HeadingPath> = emptySet(),
     val collapsedL1: Set<String> = emptySet(),
     val historyTarget: HeadingViewItem? = null,
     val historyEntries: List<ClosedClockEntry> = emptyList(),

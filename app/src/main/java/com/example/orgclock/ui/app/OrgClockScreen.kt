@@ -63,6 +63,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
@@ -109,29 +110,28 @@ private enum class RowContentType {
 }
 
 private data class RunningClockUiItem(
-    val lineIndex: Int,
+    val headingPath: HeadingPath,
     val l2Title: String,
     val l1Title: String?,
     val startedAt: Instant,
     val showL1Hint: Boolean,
-    val source: HeadingViewItem,
 )
 
 private sealed interface HeadingListRow {
-    val key: Int
+    val key: String
     val contentType: RowContentType
 
     data class L1Header(
         val item: HeadingViewItem,
     ) : HeadingListRow {
-        override val key: Int = item.node.lineIndex
+        override val key: String = "l1:${item.node.path}"
         override val contentType: RowContentType = RowContentType.L1Header
     }
 
     data class ChildItem(
         val item: HeadingViewItem,
     ) : HeadingListRow {
-        override val key: Int = item.node.lineIndex
+        override val key: String = "child:${item.node.path}"
         override val contentType: RowContentType = if (item.node.level == 2) RowContentType.L2Row else RowContentType.OtherRow
     }
 }
@@ -169,9 +169,11 @@ fun OrgClockScreen(
                 status = state.status,
                 selectedFile = state.selectedFile,
                 headings = state.headings,
+                selectedHeadingPath = state.selectedHeadingPath,
                 pendingClockOps = state.pendingClockOps,
                 collapsedL1 = state.collapsedL1,
                 onToggleL1 = { onAction(OrgClockUiAction.ToggleL1(it)) },
+                onSelectHeading = { onAction(OrgClockUiAction.SelectHeading(it)) },
                 onLongPressL1 = { onAction(OrgClockUiAction.OpenCreateL2Dialog(it)) },
                 onCollapseAll = { onAction(OrgClockUiAction.CollapseAll) },
                 onExpandAll = { onAction(OrgClockUiAction.ExpandAll) },
@@ -390,9 +392,11 @@ private fun HeadingListScreen(
     status: UiStatus,
     selectedFile: OrgFileEntry?,
     headings: List<HeadingViewItem>,
-    pendingClockOps: Set<Int>,
+    selectedHeadingPath: HeadingPath?,
+    pendingClockOps: Set<HeadingPath>,
     collapsedL1: Set<String>,
     onToggleL1: (String) -> Unit,
+    onSelectHeading: (HeadingPath) -> Unit,
     onLongPressL1: (HeadingViewItem) -> Unit,
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
@@ -401,9 +405,9 @@ private fun HeadingListScreen(
     onOpenCreateL1: () -> Unit,
     onOpenFilePicker: () -> Unit,
     onOpenSettings: () -> Unit,
-    onStart: (HeadingViewItem) -> Unit,
-    onStop: (HeadingViewItem) -> Unit,
-    onCancel: (HeadingViewItem) -> Unit,
+    onStart: (HeadingPath) -> Unit,
+    onStop: (HeadingPath) -> Unit,
+    onCancel: (HeadingPath) -> Unit,
     nowProvider: () -> ZonedDateTime,
     performanceMonitor: PerformanceMonitor,
     showPerfOverlay: Boolean,
@@ -420,12 +424,11 @@ private fun HeadingListScreen(
                 .mapNotNull { item ->
                     val startedAt = item.openClock?.startedAt ?: return@mapNotNull null
                     RunningClockUiItem(
-                        lineIndex = item.node.lineIndex,
+                        headingPath = item.node.path,
                         l2Title = item.node.title,
                         l1Title = item.node.parentL1,
                         startedAt = startedAt,
                         showL1Hint = (l2Counts[item.node.title] ?: 0) > 1,
-                        source = item,
                     )
                 }
         }
@@ -510,12 +513,15 @@ private fun HeadingListScreen(
 
                         is HeadingListRow.ChildItem -> {
                             val child = row.item
+                            val isSelected = child.node.path == selectedHeadingPath
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(CalmSurfaceAlt)
+                                    .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else CalmSurfaceAlt)
                                     .combinedClickable(
-                                        onClick = {},
+                                        onClick = {
+                                            if (child.node.level == 2) onSelectHeading(child.node.path)
+                                        },
                                         onLongClick = {
                                             if (child.node.level == 2) onLongPressL2(child)
                                         },
@@ -528,8 +534,8 @@ private fun HeadingListScreen(
                                 if (child.node.level == 2 && child.canStart && child.openClock == null) {
                                     ClockActionIconButton(
                                         actionType = ClockActionType.Start,
-                                        onClick = { onStart(child) },
-                                        enabled = child.node.lineIndex !in pendingClockOps,
+                                        onClick = { onStart(child.node.path) },
+                                        enabled = child.node.path !in pendingClockOps,
                                     )
                                 }
                             }
@@ -540,8 +546,8 @@ private fun HeadingListScreen(
 
             RunningClocksPanel(
                 runningItems = runningItems,
-                onStop = { onStop(it.source) },
-                onCancel = { onCancel(it.source) },
+                onStop = { onStop(it.headingPath) },
+                onCancel = { onCancel(it.headingPath) },
                 pendingClockOps = pendingClockOps,
                 nowProvider = nowProvider,
                 modifier = Modifier
@@ -559,7 +565,7 @@ private fun RunningClocksPanel(
     runningItems: List<RunningClockUiItem>,
     onStop: (RunningClockUiItem) -> Unit,
     onCancel: (RunningClockUiItem) -> Unit,
-    pendingClockOps: Set<Int>,
+    pendingClockOps: Set<HeadingPath>,
     nowProvider: () -> ZonedDateTime,
     modifier: Modifier = Modifier,
 ) {
@@ -590,7 +596,7 @@ private fun RunningClocksPanel(
             Text(stringResource(R.string.running_count, runningItems.size), fontWeight = FontWeight.SemiBold)
             runningItems.forEach { item ->
                 val minutes = maxOf(0L, Duration.between(item.startedAt.toJavaZonedDateTime(now.zone), now).toMinutes())
-                val startedText = remember(item.lineIndex, item.startedAt) {
+                val startedText = remember(item.headingPath, item.startedAt) {
                     item.startedAt.toJavaZonedDateTime(now.zone).format(ClockStartTimeFormatter)
                 }
                 Row(
@@ -623,13 +629,13 @@ private fun RunningClocksPanel(
                             actionType = ClockActionType.Stop,
                             onClick = { onStop(item) },
                             backgroundColor = Color.White.copy(alpha = 0.18f),
-                            enabled = item.lineIndex !in pendingClockOps,
+                            enabled = item.headingPath !in pendingClockOps,
                         )
                         ClockActionIconButton(
                             actionType = ClockActionType.Cancel,
                             onClick = { onCancel(item) },
                             backgroundColor = Color.White.copy(alpha = 0.18f),
-                            enabled = item.lineIndex !in pendingClockOps,
+                            enabled = item.headingPath !in pendingClockOps,
                         )
                     }
                 }

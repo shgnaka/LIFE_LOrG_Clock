@@ -1,7 +1,7 @@
 package com.example.orgclock.sync
 
 import com.example.orgclock.data.ClockRepository
-import com.example.orgclock.domain.ClockService
+import com.example.orgclock.model.HeadingPath
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.buildJsonObject
@@ -15,23 +15,17 @@ data class ResolvedClockTarget(
 
 class ClockTargetResolver(
     private val repository: ClockRepository,
-    private val clockService: ClockService,
 ) {
-    suspend fun resolve(fileId: String, headingLineIndex: Int): Result<ResolvedClockTarget> {
+    suspend fun resolve(fileId: String, headingPath: HeadingPath): Result<ResolvedClockTarget> {
         val fileEntry = repository.listOrgFiles().getOrElse {
             return Result.failure(IllegalStateException("Failed to list org files: ${it.message}"))
         }.firstOrNull { it.fileId == fileId }
             ?: return Result.failure(IllegalArgumentException("Unknown file id: $fileId"))
 
-        val heading = clockService.listHeadings(fileId, kotlinx.datetime.TimeZone.currentSystemDefault()).getOrElse {
-            return Result.failure(IllegalStateException("Failed to list headings: ${it.message}"))
-        }.firstOrNull { it.node.lineIndex == headingLineIndex }
-            ?: return Result.failure(IllegalArgumentException("Unknown heading line index: $headingLineIndex"))
-
         return Result.success(
             ResolvedClockTarget(
                 fileName = fileEntry.displayName,
-                headingPath = heading.node.path.toString(),
+                headingPath = headingPath.toString(),
             ),
         )
     }
@@ -44,9 +38,9 @@ class LocalClockOperationPublisher(
     private val runtimePrefs: SyncRuntimePrefs,
     private val json: Json = Json,
 ) {
-    suspend fun publish(kind: ClockCommandKind, fileId: String, headingLineIndex: Int) {
+    suspend fun publish(kind: ClockCommandKind, fileId: String, headingPath: HeadingPath) {
         val targetPeerId = runtimePrefs.defaultPeerId() ?: return
-        val target = targetResolver.resolve(fileId, headingLineIndex).getOrElse {
+        val target = targetResolver.resolve(fileId, headingPath).getOrElse {
             syncIntegrationService.markSyncError("target resolve failed: ${it.message ?: "unknown"}")
             return
         }

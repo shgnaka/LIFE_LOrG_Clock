@@ -114,7 +114,7 @@ class DefaultAppGraph(
         ClockInNotificationService.clockEnvironmentFactory = { clockEnvironment }
         val localPublisher = LocalClockOperationPublisher(
             syncIntegrationService = syncIntegrationService,
-            targetResolver = ClockTargetResolver(repository, clockService),
+            targetResolver = ClockTargetResolver(repository),
             deviceIdProvider = deviceIdProvider,
             runtimePrefs = runtimePrefs,
         )
@@ -130,58 +130,58 @@ class DefaultAppGraph(
                 }
             },
             listHeadings = { fileId -> clockService.listHeadings(fileId, clockEnvironment.currentTimeZone()) },
-            startClock = { fileId, lineIndex ->
+            startClock = { fileId, headingPath ->
                 val result = clockService.startClockInFile(
                     fileId,
-                    lineIndex,
+                    headingPath,
                     clockEnvironment.now(),
                     clockEnvironment.currentTimeZone(),
                 )
                 if (result.isSuccess) {
-                    localPublisher.publish(ClockCommandKind.Start, fileId, lineIndex)
+                    localPublisher.publish(ClockCommandKind.Start, fileId, headingPath)
                 }
                 result
             },
-            stopClock = { fileId, lineIndex ->
+            stopClock = { fileId, headingPath ->
                 val result = clockService.stopClockInFile(
                     fileId,
-                    lineIndex,
+                    headingPath,
                     clockEnvironment.now(),
                     clockEnvironment.currentTimeZone(),
                 )
                 if (result.isSuccess) {
-                    localPublisher.publish(ClockCommandKind.Stop, fileId, lineIndex)
+                    localPublisher.publish(ClockCommandKind.Stop, fileId, headingPath)
                 }
                 result
             },
-            cancelClock = { fileId, lineIndex ->
-                val result = clockService.cancelClockInFile(fileId, lineIndex)
+            cancelClock = { fileId, headingPath ->
+                val result = clockService.cancelClockInFile(fileId, headingPath)
                 if (result.isSuccess) {
-                    localPublisher.publish(ClockCommandKind.Cancel, fileId, lineIndex)
+                    localPublisher.publish(ClockCommandKind.Cancel, fileId, headingPath)
                 }
                 result
             },
-            listClosedClocks = { fileId, lineIndex ->
-                clockService.listClosedClocksInFile(fileId, lineIndex, clockEnvironment.currentTimeZone())
+            listClosedClocks = { fileId, headingPath ->
+                clockService.listClosedClocksInFile(fileId, headingPath, clockEnvironment.currentTimeZone())
             },
-            editClosedClock = { fileId, headingLineIndex, clockLineIndex, start, end ->
+            editClosedClock = { fileId, headingPath, clockLineIndex, start, end ->
                 clockService.editClosedClockInFile(
                     fileId,
-                    headingLineIndex,
+                    headingPath,
                     clockLineIndex,
                     start.toKotlinInstantCompat(),
                     end.toKotlinInstantCompat(),
                     clockEnvironment.currentTimeZone(),
                 )
             },
-            deleteClosedClock = { fileId, headingLineIndex, clockLineIndex ->
-                clockService.deleteClosedClockInFile(fileId, headingLineIndex, clockLineIndex)
+            deleteClosedClock = { fileId, headingPath, clockLineIndex ->
+                clockService.deleteClosedClockInFile(fileId, headingPath, clockLineIndex)
             },
             createL1Heading = { fileId, title, attachTplTag ->
                 clockService.createL1HeadingInFile(fileId, title, attachTplTag)
             },
-            createL2Heading = { fileId, parentL1LineIndex, title, attachTplTag ->
-                clockService.createL2HeadingInFile(fileId, parentL1LineIndex, title, attachTplTag)
+            createL2Heading = { fileId, parentL1Path, title, attachTplTag ->
+                clockService.createL2HeadingInFile(fileId, parentL1Path, title, attachTplTag)
             },
             loadNotificationEnabled = { prefs.getBoolean(NotificationPrefs.KEY_ENABLED, true) },
             saveNotificationEnabled = { enabled ->

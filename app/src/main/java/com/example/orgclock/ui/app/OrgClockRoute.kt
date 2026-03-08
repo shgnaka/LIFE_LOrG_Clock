@@ -20,6 +20,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.model.ClosedClockEntry
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.sync.PeerProbeResult
@@ -43,14 +44,14 @@ data class OrgClockRouteDependencies(
     val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
-    val startClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    val stopClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    val cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    val listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
-    val editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
-    val deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
+    val startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
+    val stopClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
+    val cancelClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
+    val listClosedClocks: suspend (String, HeadingPath) -> Result<List<ClosedClockEntry>>,
+    val editClosedClock: suspend (String, HeadingPath, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
+    val deleteClosedClock: suspend (String, HeadingPath, Int) -> Result<Unit>,
     val createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
-    val createL2Heading: suspend (String, Int, String, Boolean) -> Result<Unit>,
+    val createL2Heading: suspend (String, HeadingPath, String, Boolean) -> Result<Unit>,
     val loadNotificationEnabled: () -> Boolean,
     val saveNotificationEnabled: (Boolean) -> Unit,
     val loadNotificationDisplayMode: () -> NotificationDisplayMode,
@@ -237,7 +238,7 @@ internal data class NotificationSyncKey(
     val notificationEnabled: Boolean,
     val notificationDisplayMode: NotificationDisplayMode,
     val rootUri: Uri?,
-    val openClockFootprint: Set<Int>,
+    val openClockFootprint: Set<String>,
 )
 
 internal fun buildNotificationSyncKey(state: OrgClockUiState): NotificationSyncKey {
@@ -248,7 +249,7 @@ internal fun buildNotificationSyncKey(state: OrgClockUiState): NotificationSyncK
         openClockFootprint = state.headings
             .asSequence()
             .filter { it.openClock != null }
-            .map { it.node.lineIndex }
+            .map { it.node.path.toString() }
             .toSet(),
     )
 }

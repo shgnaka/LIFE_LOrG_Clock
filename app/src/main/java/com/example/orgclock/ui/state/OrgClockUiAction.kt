@@ -3,6 +3,7 @@ package com.example.orgclock.ui.state
 import android.net.Uri
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
 
@@ -15,11 +16,12 @@ sealed interface OrgClockUiAction {
     data object ExpandAll : OrgClockUiAction
     data object RefreshHeadings : OrgClockUiAction
     data object RefreshFiles : OrgClockUiAction
+    data class SelectHeading(val path: HeadingPath) : OrgClockUiAction
     data class OpenHistory(val item: HeadingViewItem) : OrgClockUiAction
     data object DismissHistory : OrgClockUiAction
-    data class StartClock(val item: HeadingViewItem) : OrgClockUiAction
-    data class StopClock(val item: HeadingViewItem) : OrgClockUiAction
-    data class CancelClock(val item: HeadingViewItem) : OrgClockUiAction
+    data class StartClock(val path: HeadingPath) : OrgClockUiAction
+    data class StopClock(val path: HeadingPath) : OrgClockUiAction
+    data class CancelClock(val path: HeadingPath) : OrgClockUiAction
     data class BeginEdit(val entry: ClosedClockEntry) : OrgClockUiAction
     data object CancelEdit : OrgClockUiAction
     data class BeginDelete(val entry: ClosedClockEntry) : OrgClockUiAction
