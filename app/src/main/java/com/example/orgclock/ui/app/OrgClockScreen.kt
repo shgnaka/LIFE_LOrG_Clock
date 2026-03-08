@@ -143,6 +143,8 @@ private sealed interface HeadingListRow {
 private val ClockStartTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private const val HeadingListTag = "heading_list"
 private const val RunningClocksPanelTag = "running_clocks_panel"
+private val RunningPanelFallbackPadding = 152.dp
+private val RunningPanelPerItemPadding = 54.dp
 
 @Composable
 fun OrgClockScreen(
@@ -422,13 +424,6 @@ private fun HeadingListScreen(
     val rows by remember(headings, collapsedL1) {
         derivedStateOf { buildVisibleRows(headings, collapsedL1) }
     }
-    var runningPanelHeightPx by remember { mutableStateOf(0) }
-    val density = LocalDensity.current
-    val runningPanelBottomPadding = if (runningPanelHeightPx > 0) {
-        with(density) { runningPanelHeightPx.toDp() } + 12.dp
-    } else {
-        0.dp
-    }
     val runningItems by remember(headings) {
         derivedStateOf {
             val active = headings.filter { it.node.level == 2 && it.openClock != null }
@@ -446,6 +441,15 @@ private fun HeadingListScreen(
                     )
                 }
         }
+    }
+    var runningPanelHeightPx by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+    val runningPanelBottomPadding = if (runningPanelHeightPx > 0) {
+        with(density) { runningPanelHeightPx.toDp() } + 12.dp
+    } else if (runningItems.isNotEmpty()) {
+        RunningPanelFallbackPadding + (RunningPanelPerItemPadding * runningItems.size)
+    } else {
+        0.dp
     }
     Column(modifier = Modifier.fillMaxSize()) {
         HeadingListTopBar(

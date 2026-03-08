@@ -4,6 +4,7 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -130,7 +131,7 @@ class OrgClockScreenTest {
         }
 
         composeRule.onNodeWithTag("running_clocks_panel").assertIsDisplayed()
-        composeRule.onNodeWithText("Stop").performClick()
+        composeRule.onNodeWithContentDescription("Stop").performClick()
 
         assertEquals(listOf(OrgClockUiAction.StopClock(runningPath)), actions)
     }
@@ -172,8 +173,19 @@ class OrgClockScreenTest {
             )
         }
 
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("heading_list")
             .performScrollToNode(hasText("Task 12"))
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("heading_list")
+            .performScrollToNode(hasText("Task 12"))
+        composeRule.waitUntil(timeoutMillis = 5_000) {
+            val panelBounds = composeRule.onNodeWithTag("running_clocks_panel")
+                .fetchSemanticsNode().boundsInRoot
+            val lastHeadingBounds = composeRule.onNodeWithText("Task 12")
+                .fetchSemanticsNode().boundsInRoot
+            lastHeadingBounds.bottom <= panelBounds.top
+        }
 
         val panelBounds = composeRule.onNodeWithTag("running_clocks_panel")
             .fetchSemanticsNode().boundsInRoot
