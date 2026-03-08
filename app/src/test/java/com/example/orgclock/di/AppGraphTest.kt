@@ -1,8 +1,11 @@
 package com.example.orgclock.di
 
+import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.domain.ClockMutationResult
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.sync.ClockCommandKind
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -47,5 +50,31 @@ class AppGraphTest {
 
         assertTrue(returned.isFailure)
         assertTrue(!called)
+    }
+
+    @Test
+    fun resolvePublishTarget_returnsFileNameAndHeadingPathString() {
+        val target = resolvePublishTarget(
+            fileId = "f1",
+            headingPath = HeadingPath.parse("Work/Project A"),
+            files = listOf(
+                OrgFileEntry("f1", "2026-02-16.org", null),
+            ),
+        )
+
+        assertEquals(PublishTarget("2026-02-16.org", "Work/Project A"), target)
+    }
+
+    @Test
+    fun resolvePublishTarget_returnsNullWhenFileIdIsUnknown() {
+        val target = resolvePublishTarget(
+            fileId = "missing",
+            headingPath = HeadingPath.parse("Work/Project A"),
+            files = listOf(
+                OrgFileEntry("f1", "2026-02-16.org", null),
+            ),
+        )
+
+        assertNull(target)
     }
 }
