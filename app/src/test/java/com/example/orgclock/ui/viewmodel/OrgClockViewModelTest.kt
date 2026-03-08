@@ -199,6 +199,30 @@ class OrgClockViewModelTest {
     }
 
     @Test
+    fun startClock_whenTriggeredTwiceBeforeCoroutineRuns_executesOnlyOnce() = runTest {
+        var calls = 0
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            startClock = { _, _ ->
+                calls += 1
+                kotlinx.coroutines.delay(1_000)
+                Result.success(ClockMutationResult())
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+
+        val path = vm.uiState.value.headings.first { it.node.lineIndex == 1 }.node.path
+        vm.onAction(OrgClockUiAction.StartClock(path))
+        vm.onAction(OrgClockUiAction.StartClock(path))
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(1, calls)
+    }
+
+    @Test
     fun submitCreateL2Heading_callsUseCaseAndClosesDialog() = runTest {
         var called = false
         val vm = testViewModel(
@@ -293,6 +317,30 @@ class OrgClockViewModelTest {
     }
 
     @Test
+    fun submitCreateHeading_whenTriggeredTwiceBeforeCoroutineRuns_executesOnlyOnce() = runTest {
+        var calls = 0
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            createL1Heading = { _, _, _ ->
+                calls += 1
+                kotlinx.coroutines.delay(1_000)
+                Result.success(Unit)
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.OpenCreateL1Dialog)
+        vm.onAction(OrgClockUiAction.UpdateCreateHeadingTitle("Work"))
+        vm.onAction(OrgClockUiAction.SubmitCreateHeading)
+        vm.onAction(OrgClockUiAction.SubmitCreateHeading)
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(1, calls)
+    }
+
+    @Test
     fun beginDelete_setsDeletingEntry() = runTest {
         val vm = testViewModel(
             listHeadings = { Result.success(sampleHeadings()) },
@@ -348,6 +396,31 @@ class OrgClockViewModelTest {
         assertEquals(entry, vm.uiState.value.deletingEntry)
         assertFalse(vm.uiState.value.deletingInProgress)
         assertEquals(StatusTone.Error, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun saveEdit_whenTriggeredTwiceBeforeCoroutineRuns_executesOnlyOnce() = runTest {
+        var calls = 0
+        val entry = sampleClosedEntry()
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            editClosedClock = { _, _, _, _, _ ->
+                calls += 1
+                kotlinx.coroutines.delay(1_000)
+                Result.success(Unit)
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.BeginEdit(entry))
+        vm.onAction(OrgClockUiAction.SaveEdit)
+        vm.onAction(OrgClockUiAction.SaveEdit)
+        runCurrent()
+        advanceUntilIdle()
+
+        assertEquals(1, calls)
+        assertFalse(vm.uiState.value.editingInProgress)
     }
 
     @Test

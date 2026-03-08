@@ -10,6 +10,7 @@ import com.example.orgclock.BuildConfig
 import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.data.RootAccessGateway
 import com.example.orgclock.data.SafOrgRepository
+import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.domain.ClockService
 import com.example.orgclock.notification.ClockInNotificationService
 import com.example.orgclock.notification.ClockInScanner
@@ -19,18 +20,18 @@ import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.notification.NotificationServiceConfig
 import com.example.orgclock.sync.BuildConfigSyncIntegrationFeatureFlag
 import com.example.orgclock.sync.ClockCommandKind
-import com.example.orgclock.sync.ClockTargetResolver
 import com.example.orgclock.sync.DefaultClockCommandExecutor
 import com.example.orgclock.sync.LocalClockOperationPublisher
-import com.example.orgclock.sync.SharedPreferencesPeerTrustStore
 import com.example.orgclock.sync.RuntimeSyncIntegrationFeatureFlag
-import com.example.orgclock.sync.SharedPreferencesDeviceIdProvider
 import com.example.orgclock.sync.RoomCommandIdStore
+import com.example.orgclock.sync.SharedPreferencesDeviceIdProvider
+import com.example.orgclock.sync.SharedPreferencesPeerTrustStore
+import com.example.orgclock.sync.SharedPreferencesSyncRuntimePrefs
 import com.example.orgclock.sync.SyncCoreClientFactory
 import com.example.orgclock.sync.SyncIntegrationService
 import com.example.orgclock.sync.SyncRuntimeEntryPoint
 import com.example.orgclock.sync.SyncRuntimeManager
-import com.example.orgclock.sync.SharedPreferencesSyncRuntimePrefs
+import androidx.lifecycle.lifecycleScope
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
 import com.example.orgclock.time.toJavaLocalDateCompat
@@ -39,6 +40,7 @@ import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.time.today
 import kotlinx.datetime.toJavaZoneId
 import com.example.orgclock.ui.app.OrgClockRouteDependencies
+import kotlinx.coroutines.launch
 
 interface AppGraph {
     fun routeDependencies(
@@ -114,10 +116,14 @@ class DefaultAppGraph(
         ClockInNotificationService.clockEnvironmentFactory = { clockEnvironment }
         val localPublisher = LocalClockOperationPublisher(
             syncIntegrationService = syncIntegrationService,
-            targetResolver = ClockTargetResolver(repository),
             deviceIdProvider = deviceIdProvider,
             runtimePrefs = runtimePrefs,
         )
+        val launchClockPublish: (ClockCommandKind, String, String) -> Unit = { kind, fileName, headingPath ->
+            activity.lifecycleScope.launch {
+                localPublisher.publish(kind, fileName, headingPath)
+            }
+        }
 
         return OrgClockRouteDependencies(
             loadSavedUri = { prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)?.let(Uri::parse) },
@@ -137,10 +143,13 @@ class DefaultAppGraph(
                     clockEnvironment.now(),
                     clockEnvironment.currentTimeZone(),
                 )
-                if (result.isSuccess) {
-                    localPublisher.publish(ClockCommandKind.Start, fileId, headingPath)
-                }
-                result
+                launchPublishIfSaved(
+                    result = result,
+                    kind = ClockCommandKind.Start,
+                    fileId = fileId,
+                    headingPath = headingPath.toString(),
+                    launchPublish = launchClockPublish,
+                )
             },
             stopClock = { fileId, headingPath ->
                 val result = clockService.stopClockInFile(
@@ -149,17 +158,23 @@ class DefaultAppGraph(
                     clockEnvironment.now(),
                     clockEnvironment.currentTimeZone(),
                 )
-                if (result.isSuccess) {
-                    localPublisher.publish(ClockCommandKind.Stop, fileId, headingPath)
-                }
-                result
+                launchPublishIfSaved(
+                    result = result,
+                    kind = ClockCommandKind.Stop,
+                    fileId = fileId,
+                    headingPath = headingPath.toString(),
+                    launchPublish = launchClockPublish,
+                )
             },
             cancelClock = { fileId, headingPath ->
                 val result = clockService.cancelClockInFile(fileId, headingPath)
-                if (result.isSuccess) {
-                    localPublisher.publish(ClockCommandKind.Cancel, fileId, headingPath)
-                }
-                result
+                launchPublishIfSaved(
+                    result = result,
+                    kind = ClockCommandKind.Cancel,
+                    fileId = fileId,
+                    headingPath = headingPath.toString(),
+                    launchPublish = launchClockPublish,
+                )
             },
             listClosedClocks = { fileId, headingPath ->
                 clockService.listClosedClocksInFile(fileId, headingPath, clockEnvironment.currentTimeZone())
@@ -260,6 +275,38 @@ class DefaultAppGraph(
         return syncIntegrationService
     }
 
+    private suspend fun launchPublishIfSaved(
+        result: Result<ClockMutationResult>,
+        kind: ClockCommandKind,
+        fileId: String,
+        headingPath: String,
+        launchPublish: (ClockCommandKind, String, String) -> Unit,
+    ): Result<ClockMutationResult> {
+        if (result.isFailure) {
+            return result
+        }
+        val fileName = resolveFileNameForPublish(fileId) ?: return result
+        return scheduleSyncPublishAfterLocalSave(
+            result = result,
+            kind = kind,
+            fileName = fileName,
+            headingPath = headingPath,
+            launchPublish = launchPublish,
+        )
+    }
+
+    private suspend fun resolveFileNameForPublish(fileId: String): String? {
+        val files = repository.listOrgFiles().getOrElse {
+            syncIntegrationService.markSyncError("file lookup failed: ${it.message ?: "unknown"}")
+            return null
+        }
+        val fileName = files.firstOrNull { it.fileId == fileId }?.displayName
+        if (fileName == null) {
+            syncIntegrationService.markSyncError("unknown file id: $fileId")
+        }
+        return fileName
+    }
+
     private fun loadSyncCoreClientFactory(): SyncCoreClientFactory {
         if (!BuildConfig.SYNC_CORE_INCLUDED) {
             return com.example.orgclock.sync.NoOpSyncCoreClientFactory()
@@ -271,4 +318,17 @@ class DefaultAppGraph(
             com.example.orgclock.sync.NoOpSyncCoreClientFactory()
         }
     }
+}
+
+internal fun scheduleSyncPublishAfterLocalSave(
+    result: Result<ClockMutationResult>,
+    kind: ClockCommandKind,
+    fileName: String,
+    headingPath: String,
+    launchPublish: (ClockCommandKind, String, String) -> Unit,
+): Result<ClockMutationResult> {
+    if (result.isSuccess) {
+        launchPublish(kind, fileName, headingPath)
+    }
+    return result
 }

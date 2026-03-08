@@ -257,6 +257,7 @@ fun OrgClockScreen(
             EditClockEntryDialog(
                 entry = state.editingEntry,
                 draft = state.editingDraft,
+                editingInProgress = state.editingInProgress,
                 onCancel = { onAction(OrgClockUiAction.CancelEdit) },
                 onSelectStartHour = { onAction(OrgClockUiAction.SelectStartHour(it)) },
                 onSelectStartMinute = { onAction(OrgClockUiAction.SelectStartMinute(it)) },
