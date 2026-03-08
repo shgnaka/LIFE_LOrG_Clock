@@ -4,6 +4,7 @@ import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.data.SaveResult
 import com.example.orgclock.data.FileWriteIntent
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.OrgDocument
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -43,7 +44,9 @@ class ClockInScannerTest {
         val entries = scanResult.entries
         assertEquals(2, entries.size)
         assertEquals("B", entries[0].headingTitle)
+        assertEquals(HeadingPath.parse("Work/B"), entries[0].headingPath)
         assertEquals("A", entries[1].headingTitle)
+        assertEquals(HeadingPath.parse("Work/A"), entries[1].headingPath)
         assertTrue(scanResult.failedFiles.isEmpty())
     }
 

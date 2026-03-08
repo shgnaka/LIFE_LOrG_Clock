@@ -1,6 +1,9 @@
 package com.example.orgclock.notification
 
+import com.example.orgclock.model.HeadingPath
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneId
@@ -37,14 +40,32 @@ class ClockInNotificationServiceDecisionTest {
         assertFalse(shouldStopForActiveOnly(NotificationDisplayMode.Always, failed))
     }
 
+    @Test
+    fun clockNotificationId_staysStableAcrossLineMoves() {
+        val headingPath = HeadingPath.parse("Work/A")
+
+        assertEquals(
+            clockNotificationId("f1", headingPath),
+            clockNotificationId("f1", headingPath),
+        )
+    }
+
+    @Test
+    fun clockNotificationId_changesWhenHeadingPathChanges() {
+        assertNotEquals(
+            clockNotificationId("f1", HeadingPath.parse("Work/A")),
+            clockNotificationId("f1", HeadingPath.parse("Work/B")),
+        )
+    }
+
     private fun sampleEntry(): ClockInEntry {
         return ClockInEntry(
             fileId = "f1",
             fileName = "a.org",
             headingTitle = "A",
             l1Title = "Work",
+            headingPath = HeadingPath.parse("Work/A"),
             startedAt = ZonedDateTime.of(2026, 2, 22, 9, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
-            headingLineIndex = 1,
         )
     }
 }

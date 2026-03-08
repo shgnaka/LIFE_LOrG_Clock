@@ -17,6 +17,7 @@ import com.example.orgclock.MainActivity
 import com.example.orgclock.R
 import com.example.orgclock.data.SafOrgRepository
 import com.example.orgclock.domain.ClockService
+import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.parser.OrgParser
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
@@ -62,10 +63,16 @@ class ClockInNotificationService : Service() {
 
             ACTION_STOP_CLOCK -> {
                 val fileId = intent.getStringExtra(EXTRA_FILE_ID) ?: return START_STICKY
-                val lineIndex = intent.getIntExtra(EXTRA_LINE_INDEX, -1)
-                if (lineIndex < 0) return START_STICKY
+                val headingPath = intent.getStringExtra(EXTRA_HEADING_PATH)
+                    ?.let { raw -> runCatching { HeadingPath.parse(raw) }.getOrNull() }
+                    ?: return START_STICKY
                 scope.launch {
-                    clockService.stopClockInFile(fileId, lineIndex, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                    clockService.stopClockInFile(
+                        fileId,
+                        headingPath,
+                        clockEnvironment.now(),
+                        clockEnvironment.currentTimeZone(),
+                    )
                     refreshOnce()
                 }
                 return START_STICKY
@@ -195,7 +202,7 @@ class ClockInNotificationService : Service() {
             currentIds.add(CLOCK_NOTIFICATION_BASE)
         } else {
             entries.forEach { entry ->
-                val notificationId = getNotificationId(entry.fileId, entry.headingLineIndex)
+                val notificationId = getNotificationId(entry.fileId, entry.headingPath)
                 val notification = buildIndividualClockNotification(entry)
                 manager.notify(notificationId, notification)
                 currentIds.add(notificationId)
@@ -209,17 +216,17 @@ class ClockInNotificationService : Service() {
         }
     }
 
-    private fun getNotificationId(fileId: String, lineIndex: Int): Int {
-        return CLOCK_NOTIFICATION_BASE + Math.abs((fileId.hashCode() + lineIndex) % CLOCK_NOTIFICATION_RANGE)
+    private fun getNotificationId(fileId: String, headingPath: HeadingPath): Int {
+        return clockNotificationId(fileId, headingPath)
     }
 
     private fun buildIndividualClockNotification(entry: ClockInEntry): Notification {
         val stopIntent = Intent(this, ClockInNotificationService::class.java).apply {
             action = ACTION_STOP_CLOCK
             putExtra(EXTRA_FILE_ID, entry.fileId)
-            putExtra(EXTRA_LINE_INDEX, entry.headingLineIndex)
+            putExtra(EXTRA_HEADING_PATH, entry.headingPath.toString())
         }
-        val notificationId = getNotificationId(entry.fileId, entry.headingLineIndex)
+        val notificationId = getNotificationId(entry.fileId, entry.headingPath)
         val stopPendingIntent = PendingIntent.getService(
             this,
             notificationId,
@@ -389,7 +396,7 @@ class ClockInNotificationService : Service() {
         private const val EXTRA_SCAN_INTERVAL_MS = "scan_interval_ms"
         private const val EXTRA_MAX_LINES = "max_lines"
         private const val EXTRA_FILE_ID = "file_id"
-        private const val EXTRA_LINE_INDEX = "line_index"
+        private const val EXTRA_HEADING_PATH = "heading_path"
 
         private val TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
         @Volatile
@@ -422,6 +429,10 @@ class ClockInNotificationService : Service() {
             context.startService(intent)
         }
     }
+}
+
+internal fun clockNotificationId(fileId: String, headingPath: HeadingPath): Int {
+    return 2000 + Math.abs((fileId.hashCode() + headingPath.toString().hashCode()) % 100)
 }
 
 internal fun shouldStopForActiveOnly(

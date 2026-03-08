@@ -38,15 +38,7 @@ class OrgParser {
     )
 
     fun parseHeadings(lines: List<String>): List<HeadingNode> {
-        return parseHeadingsWithRanges(lines).map {
-            HeadingNode(
-                lineIndex = it.lineIndex,
-                level = it.level,
-                title = it.title,
-                path = it.path,
-                parentL1 = it.parentL1,
-            )
-        }
+        return parseHeadingsWithRanges(lines).map(::toHeadingNode)
     }
 
     fun parseHeadingsWithOpenClock(lines: List<String>, timeZone: TimeZone): List<HeadingWithOpenClock> {
@@ -75,16 +67,21 @@ class OrgParser {
 
         return headings.map { heading ->
             HeadingWithOpenClock(
-                node = HeadingNode(
-                    lineIndex = heading.lineIndex,
-                    level = heading.level,
-                    title = heading.title,
-                    path = heading.path,
-                    parentL1 = heading.parentL1,
-                ),
+                node = toHeadingNode(heading),
                 openClock = openByLine[heading.lineIndex],
             )
         }
+    }
+
+    fun findHeadingNode(lines: List<String>, headingPath: HeadingPath): HeadingNode? {
+        return parseHeadingsWithRanges(lines)
+            .firstOrNull { it.path == headingPath }
+            ?.let(::toHeadingNode)
+    }
+
+    fun findLevel2HeadingNode(lines: List<String>, headingPath: HeadingPath): HeadingNode? {
+        val heading = findHeadingNode(lines, headingPath) ?: return null
+        return heading.takeIf { it.level == 2 }
     }
 
     private fun parseHeadingsWithRanges(lines: List<String>): List<ParsedHeading> {
@@ -129,6 +126,16 @@ class OrgParser {
         }
 
         return result
+    }
+
+    private fun toHeadingNode(heading: ParsedHeading): HeadingNode {
+        return HeadingNode(
+            lineIndex = heading.lineIndex,
+            level = heading.level,
+            title = heading.title,
+            path = heading.path,
+            parentL1 = heading.parentL1,
+        )
     }
 
     fun headingLevelAtLine(lines: List<String>, lineIndex: Int): Int? {
@@ -349,7 +356,6 @@ class OrgParser {
             }.getOrDefault(0L)
             results += ClosedClockEntry(
                 headingPath = headingPath,
-                headingLineIndex = heading.start,
                 clockLineIndex = i,
                 start = start,
                 end = end,
@@ -373,7 +379,6 @@ class OrgParser {
             }.getOrDefault(0L)
             results += ClosedClockEntry(
                 headingPath = headingPath,
-                headingLineIndex = headingLineIndex,
                 clockLineIndex = i,
                 start = start,
                 end = end,

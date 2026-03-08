@@ -178,7 +178,6 @@ class OrgClockViewModelTest {
                 kotlinx.coroutines.delay(1_000)
                 Result.success(
                     ClockMutationResult(
-                        headingLineIndex = if (headingPath.segments.size > 1) 1 else 0,
                         startedAt = startedAt.toKotlinInstantCompat(),
                     ),
                 )
@@ -421,7 +420,6 @@ class OrgClockViewModelTest {
             val end = ZonedDateTime.of(2026, 2, 16, 10, input, 0, 0, zone)
             val entry = ClosedClockEntry(
                 headingPath = HeadingPath.parse("Work/Project A"),
-                headingLineIndex = 1,
                 clockLineIndex = 3,
                 start = start.toKotlinInstantCompat(),
                 end = end.toKotlinInstantCompat(),
@@ -658,7 +656,6 @@ class OrgClockViewModelTest {
         val end = ZonedDateTime.of(2026, 2, 16, 9, 30, 0, 0, zone)
         return ClosedClockEntry(
             headingPath = HeadingPath.parse("Work/Project A"),
-            headingLineIndex = 1,
             clockLineIndex = 3,
             start = start.toKotlinInstantCompat(),
             end = end.toKotlinInstantCompat(),
@@ -705,13 +702,13 @@ class OrgClockViewModelTest {
         listFilesWithOpenClock: suspend () -> Result<Set<String>> = { Result.success(emptySet()) },
         listHeadings: suspend (String) -> Result<List<HeadingViewItem>> = { Result.success(emptyList()) },
         startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult> = { _, headingPath ->
-            Result.success(ClockMutationResult(headingLineIndex = if (headingPath.segments.size > 1) 1 else 0))
+            Result.success(ClockMutationResult())
         },
         stopClock: suspend (String, HeadingPath) -> Result<ClockMutationResult> = { _, headingPath ->
-            Result.success(ClockMutationResult(headingLineIndex = if (headingPath.segments.size > 1) 1 else 0))
+            Result.success(ClockMutationResult())
         },
         cancelClock: suspend (String, HeadingPath) -> Result<ClockMutationResult> = { _, headingPath ->
-            Result.success(ClockMutationResult(headingLineIndex = if (headingPath.segments.size > 1) 1 else 0))
+            Result.success(ClockMutationResult())
         },
         listClosedClocks: suspend (String, HeadingPath) -> Result<List<com.example.orgclock.model.ClosedClockEntry>> = { _, _ -> Result.success(emptyList()) },
         editClosedClock: suspend (String, HeadingPath, Int, java.time.ZonedDateTime, java.time.ZonedDateTime) -> Result<Unit> = { _, _, _, _, _ -> Result.success(Unit) },

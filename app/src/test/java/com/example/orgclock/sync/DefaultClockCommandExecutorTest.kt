@@ -227,6 +227,31 @@ class DefaultClockCommandExecutorTest {
     }
 
     @Test
+    fun execute_start_retargetsByHeadingPathAfterLineShiftConflict() = runBlocking {
+        val repo = FakeClockRepository(
+            mutableMapOf(
+                "2026-03-01.org" to baseFile(),
+            ),
+        )
+        repo.beforeFirstSaveFile = {
+            repo.files["2026-03-01.org"] = listOf(
+                "* Inbox",
+                "** Triage",
+                "* Work",
+                "** Project A",
+                ":LOGBOOK:",
+                ":END:",
+            )
+        }
+        repo.conflictCountByFileId["2026-03-01.org"] = 1
+
+        val result = newExecutor(repo).execute(validCommand(kind = "clock.start"))
+
+        assertEquals(ClockResultStatus.Applied, result.status)
+        assertEquals("CLOCK: [2026-03-01 Sun 13:00:00]", repo.files["2026-03-01.org"]!![5])
+    }
+
+    @Test
     fun execute_listOrgFilesIoFailure_returnsIoFailure() = runBlocking {
         val repo = FakeClockRepository(
             mutableMapOf("2026-03-01.org" to baseFile()),
@@ -532,6 +557,8 @@ private class FakeClockRepository(
     private val listFilesError: Throwable? = null,
 ) : ClockRepository {
     var saveFileCallCount: Int = 0
+    var beforeFirstSaveFile: (() -> Unit)? = null
+    val conflictCountByFileId: MutableMap<String, Int> = mutableMapOf()
 
     override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> {
         listFilesError?.let { return Result.failure(it) }
@@ -564,8 +591,17 @@ private class FakeClockRepository(
         writeIntent: FileWriteIntent,
     ): SaveResult {
         saveFileCallCount += 1
+        if (saveFileCallCount == 1) {
+            beforeFirstSaveFile?.invoke()
+            beforeFirstSaveFile = null
+        }
         val current = files[fileId] ?: return SaveResult.IoError("missing file")
         if (alwaysConflictOnSaveFile) {
+            return SaveResult.Conflict("forced conflict")
+        }
+        val remainingConflicts = conflictCountByFileId[fileId] ?: 0
+        if (remainingConflicts > 0) {
+            conflictCountByFileId[fileId] = remainingConflicts - 1
             return SaveResult.Conflict("forced conflict")
         }
         if (hash(current) != expectedHash) {

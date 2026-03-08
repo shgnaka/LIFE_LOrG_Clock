@@ -270,7 +270,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.deleteClosedClockInFile("f1", 0, 3)
+        val result = service.deleteClosedClockInFile("f1", HeadingPath.parse("Work"), 3)
 
         assertTrue(result.isFailure)
     }
@@ -518,7 +518,7 @@ class ClockServiceTest {
 
         val result = service.startClockInFile(
             fileId = "f1",
-            headingLineIndex = 1,
+            headingPath = HeadingPath.parse("Work/Project A"),
             now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
         )
 
@@ -608,7 +608,7 @@ class ClockServiceTest {
 
         val result = service.stopClockInFile(
             fileId = "f1",
-            headingLineIndex = 0,
+            headingPath = HeadingPath.parse("Work"),
             now = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
         )
 
@@ -633,7 +633,7 @@ class ClockServiceTest {
         )
         val service = ClockService(repo)
 
-        val result = service.cancelClockInFile(fileId = "f1", headingLineIndex = 0)
+        val result = service.cancelClockInFile(fileId = "f1", headingPath = HeadingPath.parse("Work"))
 
         assertTrue(result.isFailure)
         val ex = result.exceptionOrNull()
@@ -652,7 +652,7 @@ class ClockServiceTest {
         val start = ZonedDateTime.of(2026, 2, 15, 11, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
         val end = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
 
-        val result = service.editClosedClockInFile("f1", 1, 3, start, end)
+        val result = service.editClosedClockInFile("f1", HeadingPath.parse("Work/Project A"), 3, start, end)
 
         assertTrue(result.isFailure)
         assertTrue(result.exceptionOrNull() is IllegalArgumentException)
@@ -876,35 +876,17 @@ private suspend fun ClockService.startClockInFile(
     now: ZonedDateTime,
 ): Result<ClockMutationResult> = startClockInFile(fileId, headingPath, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
 
-private suspend fun ClockService.startClockInFile(
-    fileId: String,
-    headingLineIndex: Int,
-    now: ZonedDateTime,
-): Result<ClockMutationResult> = startClockInFile(fileId, headingLineIndex, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
-
 private suspend fun ClockService.stopClockInFile(
     fileId: String,
     headingPath: HeadingPath,
     now: ZonedDateTime,
 ): Result<ClockMutationResult> = stopClockInFile(fileId, headingPath, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
 
-private suspend fun ClockService.stopClockInFile(
-    fileId: String,
-    headingLineIndex: Int,
-    now: ZonedDateTime,
-): Result<ClockMutationResult> = stopClockInFile(fileId, headingLineIndex, now.toKotlinInstantCompat(), now.zone.toKotlinTimeZone())
-
 private suspend fun ClockService.listClosedClocksInFile(
     fileId: String,
     headingPath: HeadingPath,
     now: ZonedDateTime,
 ) = listClosedClocksInFile(fileId, headingPath, now.zone.toKotlinTimeZone())
-
-private suspend fun ClockService.listClosedClocksInFile(
-    fileId: String,
-    headingLineIndex: Int,
-    now: ZonedDateTime,
-) = listClosedClocksInFile(fileId, headingLineIndex, now.zone.toKotlinTimeZone())
 
 private suspend fun ClockService.editClosedClockInFile(
     fileId: String,
@@ -915,21 +897,6 @@ private suspend fun ClockService.editClosedClockInFile(
 ) = editClosedClockInFile(
     fileId,
     headingPath,
-    clockLineIndex,
-    newStart.toKotlinInstantCompat(),
-    newEnd.toKotlinInstantCompat(),
-    newEnd.zone.toKotlinTimeZone(),
-)
-
-private suspend fun ClockService.editClosedClockInFile(
-    fileId: String,
-    headingLineIndex: Int,
-    clockLineIndex: Int,
-    newStart: ZonedDateTime,
-    newEnd: ZonedDateTime,
-) = editClosedClockInFile(
-    fileId,
-    headingLineIndex,
     clockLineIndex,
     newStart.toKotlinInstantCompat(),
     newEnd.toKotlinInstantCompat(),
