@@ -5,7 +5,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -605,7 +604,6 @@ private fun RunningClocksPanel(
     }
 
     var now by remember { mutableStateOf(nowProvider()) }
-    val interactionSource = remember { MutableInteractionSource() }
     LaunchedEffect(runningItems.isNotEmpty()) {
         if (!runningItems.isNotEmpty()) return@LaunchedEffect
         while (true) {
@@ -623,12 +621,7 @@ private fun RunningClocksPanel(
         tonalElevation = 8.dp,
         modifier = modifier
             .testTag(RunningClocksPanelTag)
-            .onSizeChanged { onPanelHeightChanged(it.height) }
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = {},
-            ),
+            .onSizeChanged { onPanelHeightChanged(it.height) },
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
