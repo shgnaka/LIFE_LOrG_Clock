@@ -5,6 +5,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,6 +51,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -61,6 +64,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.zIndex
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.HeadingPath
@@ -137,6 +142,8 @@ private sealed interface HeadingListRow {
 }
 
 private val ClockStartTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+private const val HeadingListTag = "heading_list"
+private const val RunningClocksPanelTag = "running_clocks_panel"
 
 @Composable
 fun OrgClockScreen(
@@ -416,6 +423,13 @@ private fun HeadingListScreen(
     val rows by remember(headings, collapsedL1) {
         derivedStateOf { buildVisibleRows(headings, collapsedL1) }
     }
+    var runningPanelHeightPx by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+    val runningPanelBottomPadding = if (runningPanelHeightPx > 0) {
+        with(density) { runningPanelHeightPx.toDp() } + 12.dp
+    } else {
+        0.dp
+    }
     val runningItems by remember(headings) {
         derivedStateOf {
             val active = headings.filter { it.node.level == 2 && it.openClock != null }
@@ -450,8 +464,14 @@ private fun HeadingListScreen(
 
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 170.dp),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag(HeadingListTag),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    bottom = runningPanelBottomPadding,
+                ),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (rows.isEmpty()) {
@@ -551,11 +571,17 @@ private fun HeadingListScreen(
                 onCancel = { onCancel(it.headingPath) },
                 pendingClockOps = pendingClockOps,
                 nowProvider = nowProvider,
+                onPanelHeightChanged = { heightPx ->
+                    if (runningPanelHeightPx != heightPx) {
+                        runningPanelHeightPx = heightPx
+                    }
+                },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .navigationBarsPadding()
-                    .padding(12.dp),
+                    .padding(12.dp)
+                    .zIndex(1f),
             )
         }
     }
@@ -568,11 +594,18 @@ private fun RunningClocksPanel(
     onCancel: (RunningClockUiItem) -> Unit,
     pendingClockOps: Set<HeadingPath>,
     nowProvider: () -> ZonedDateTime,
+    onPanelHeightChanged: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (runningItems.isEmpty()) return
+    if (runningItems.isEmpty()) {
+        LaunchedEffect(Unit) {
+            onPanelHeightChanged(0)
+        }
+        return
+    }
 
     var now by remember { mutableStateOf(nowProvider()) }
+    val interactionSource = remember { MutableInteractionSource() }
     LaunchedEffect(runningItems.isNotEmpty()) {
         if (!runningItems.isNotEmpty()) return@LaunchedEffect
         while (true) {
@@ -588,7 +621,14 @@ private fun RunningClocksPanel(
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
         tonalElevation = 8.dp,
-        modifier = modifier,
+        modifier = modifier
+            .testTag(RunningClocksPanelTag)
+            .onSizeChanged { onPanelHeightChanged(it.height) }
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = {},
+            ),
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
