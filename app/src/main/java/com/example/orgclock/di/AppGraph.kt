@@ -10,6 +10,7 @@ import com.example.orgclock.BuildConfig
 import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.data.RootAccessGateway
 import com.example.orgclock.data.SafOrgRepository
+import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.domain.ClockService
 import com.example.orgclock.notification.ClockInNotificationService
 import com.example.orgclock.notification.ClockInScanner
@@ -19,7 +20,6 @@ import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.notification.NotificationServiceConfig
 import com.example.orgclock.sync.BuildConfigSyncIntegrationFeatureFlag
 import com.example.orgclock.sync.ClockCommandKind
-import com.example.orgclock.sync.ClockTargetResolver
 import com.example.orgclock.sync.DefaultClockCommandExecutor
 import com.example.orgclock.sync.LocalClockOperationPublisher
 import com.example.orgclock.sync.SharedPreferencesPeerTrustStore
@@ -31,6 +31,7 @@ import com.example.orgclock.sync.SyncIntegrationService
 import com.example.orgclock.sync.SyncRuntimeEntryPoint
 import com.example.orgclock.sync.SyncRuntimeManager
 import com.example.orgclock.sync.SharedPreferencesSyncRuntimePrefs
+import androidx.lifecycle.lifecycleScope
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
 import com.example.orgclock.time.toJavaLocalDateCompat
@@ -39,6 +40,7 @@ import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.time.today
 import kotlinx.datetime.toJavaZoneId
 import com.example.orgclock.ui.app.OrgClockRouteDependencies
+import kotlinx.coroutines.launch
 
 interface AppGraph {
     fun routeDependencies(
@@ -114,10 +116,14 @@ class DefaultAppGraph(
         ClockInNotificationService.clockEnvironmentFactory = { clockEnvironment }
         val localPublisher = LocalClockOperationPublisher(
             syncIntegrationService = syncIntegrationService,
-            targetResolver = ClockTargetResolver(repository, clockService),
             deviceIdProvider = deviceIdProvider,
             runtimePrefs = runtimePrefs,
         )
+        val launchClockPublish: (ClockCommandKind, String, String) -> Unit = { kind, fileName, headingPath ->
+            activity.lifecycleScope.launch {
+                localPublisher.publish(kind, fileName, headingPath)
+            }
+        }
 
         return OrgClockRouteDependencies(
             loadSavedUri = { prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)?.let(Uri::parse) },
@@ -130,36 +136,42 @@ class DefaultAppGraph(
                 }
             },
             listHeadings = { fileId -> clockService.listHeadings(fileId, clockEnvironment.currentTimeZone()) },
-            startClock = { fileId, lineIndex ->
-                val result = clockService.startClockInFile(
-                    fileId,
-                    lineIndex,
-                    clockEnvironment.now(),
-                    clockEnvironment.currentTimeZone(),
+            startClock = { fileId, fileName, headingPath, lineIndex ->
+                scheduleSyncPublishAfterLocalSave(
+                    result = clockService.startClockInFile(
+                        fileId,
+                        lineIndex,
+                        clockEnvironment.now(),
+                        clockEnvironment.currentTimeZone(),
+                    ),
+                    kind = ClockCommandKind.Start,
+                    fileName = fileName,
+                    headingPath = headingPath,
+                    launchPublish = launchClockPublish,
                 )
-                if (result.isSuccess) {
-                    localPublisher.publish(ClockCommandKind.Start, fileId, lineIndex)
-                }
-                result
             },
-            stopClock = { fileId, lineIndex ->
-                val result = clockService.stopClockInFile(
-                    fileId,
-                    lineIndex,
-                    clockEnvironment.now(),
-                    clockEnvironment.currentTimeZone(),
+            stopClock = { fileId, fileName, headingPath, lineIndex ->
+                scheduleSyncPublishAfterLocalSave(
+                    result = clockService.stopClockInFile(
+                        fileId,
+                        lineIndex,
+                        clockEnvironment.now(),
+                        clockEnvironment.currentTimeZone(),
+                    ),
+                    kind = ClockCommandKind.Stop,
+                    fileName = fileName,
+                    headingPath = headingPath,
+                    launchPublish = launchClockPublish,
                 )
-                if (result.isSuccess) {
-                    localPublisher.publish(ClockCommandKind.Stop, fileId, lineIndex)
-                }
-                result
             },
-            cancelClock = { fileId, lineIndex ->
-                val result = clockService.cancelClockInFile(fileId, lineIndex)
-                if (result.isSuccess) {
-                    localPublisher.publish(ClockCommandKind.Cancel, fileId, lineIndex)
-                }
-                result
+            cancelClock = { fileId, fileName, headingPath, lineIndex ->
+                scheduleSyncPublishAfterLocalSave(
+                    result = clockService.cancelClockInFile(fileId, lineIndex),
+                    kind = ClockCommandKind.Cancel,
+                    fileName = fileName,
+                    headingPath = headingPath,
+                    launchPublish = launchClockPublish,
+                )
             },
             listClosedClocks = { fileId, lineIndex ->
                 clockService.listClosedClocksInFile(fileId, lineIndex, clockEnvironment.currentTimeZone())
@@ -271,4 +283,17 @@ class DefaultAppGraph(
             com.example.orgclock.sync.NoOpSyncCoreClientFactory()
         }
     }
+}
+
+internal fun scheduleSyncPublishAfterLocalSave(
+    result: Result<ClockMutationResult>,
+    kind: ClockCommandKind,
+    fileName: String,
+    headingPath: String,
+    launchPublish: (ClockCommandKind, String, String) -> Unit,
+): Result<ClockMutationResult> {
+    if (result.isSuccess) {
+        launchPublish(kind, fileName, headingPath)
+    }
+    return result
 }
