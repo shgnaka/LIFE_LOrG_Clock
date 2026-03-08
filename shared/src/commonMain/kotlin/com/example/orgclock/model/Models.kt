@@ -49,6 +49,7 @@ data class OpenClockState(
 )
 
 data class ClosedClockEntry(
+    val headingPath: HeadingPath,
     val headingLineIndex: Int,
     val clockLineIndex: Int,
     val start: Instant,
