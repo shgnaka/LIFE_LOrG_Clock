@@ -34,6 +34,7 @@ import java.time.ZoneId
 internal fun EditClockEntryDialog(
     entry: ClosedClockEntry,
     draft: ClockEditDraft,
+    editingInProgress: Boolean,
     onCancel: () -> Unit,
     onSelectStartHour: (Int) -> Unit,
     onSelectStartMinute: (Int) -> Unit,
@@ -42,7 +43,11 @@ internal fun EditClockEntryDialog(
     onSave: () -> Unit,
 ) {
     AlertDialog(
-        onDismissRequest = onCancel,
+        onDismissRequest = {
+            if (!editingInProgress) {
+                onCancel()
+            }
+        },
         title = { Text(stringResource(R.string.clock_time_edit_title)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -63,6 +68,7 @@ internal fun EditClockEntryDialog(
                     minuteContentDescription = stringResource(R.string.start_minute_picker_content_description),
                     onHourSelected = onSelectStartHour,
                     onMinuteSelected = onSelectStartMinute,
+                    enabled = !editingInProgress,
                 )
                 TimeFieldEditor(
                     label = stringResource(R.string.end_label),
@@ -72,16 +78,23 @@ internal fun EditClockEntryDialog(
                     minuteContentDescription = stringResource(R.string.end_minute_picker_content_description),
                     onHourSelected = onSelectEndHour,
                     onMinuteSelected = onSelectEndMinute,
+                    enabled = !editingInProgress,
                 )
             }
         },
         dismissButton = {
-            TextButton(onClick = onCancel) {
+            TextButton(
+                onClick = onCancel,
+                enabled = !editingInProgress,
+            ) {
                 Text(stringResource(R.string.cancel))
             }
         },
         confirmButton = {
-            TextButton(onClick = onSave) {
+            TextButton(
+                onClick = onSave,
+                enabled = !editingInProgress,
+            ) {
                 Text(stringResource(R.string.save))
             }
         },
@@ -97,6 +110,7 @@ private fun TimeFieldEditor(
     minuteContentDescription: String,
     onHourSelected: (Int) -> Unit,
     onMinuteSelected: (Int) -> Unit,
+    enabled: Boolean = true,
 ) {
     var hourExpanded by remember { mutableStateOf(false) }
     var minuteExpanded by remember { mutableStateOf(false) }
@@ -108,6 +122,7 @@ private fun TimeFieldEditor(
             Box {
                 Button(
                     onClick = { hourExpanded = true },
+                    enabled = enabled,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                     modifier = Modifier.semantics {
                         contentDescription = hourContentDescription
@@ -131,6 +146,7 @@ private fun TimeFieldEditor(
             Box {
                 Button(
                     onClick = { minuteExpanded = true },
+                    enabled = enabled,
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
                     modifier = Modifier.semantics {
                         contentDescription = minuteContentDescription

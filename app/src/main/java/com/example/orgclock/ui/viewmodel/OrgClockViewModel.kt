@@ -46,9 +46,9 @@ class OrgClockViewModel(
     private val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     private val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     private val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
-    private val startClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    private val stopClock: suspend (String, Int) -> Result<ClockMutationResult>,
-    private val cancelClock: suspend (String, Int) -> Result<ClockMutationResult>,
+    private val startClock: suspend (String, String, String, Int) -> Result<ClockMutationResult>,
+    private val stopClock: suspend (String, String, String, Int) -> Result<ClockMutationResult>,
+    private val cancelClock: suspend (String, String, String, Int) -> Result<ClockMutationResult>,
     private val listClosedClocks: suspend (String, Int) -> Result<List<ClosedClockEntry>>,
     private val editClosedClock: suspend (String, Int, Int, ZonedDateTime, ZonedDateTime) -> Result<Unit>,
     private val deleteClosedClock: suspend (String, Int, Int) -> Result<Unit>,
@@ -91,6 +91,10 @@ class OrgClockViewModel(
 
     private var initialized = false
     private var headingsSyncJob: Job? = null
+    private val inFlightClockOps = mutableSetOf<Int>()
+    private var editSaveInFlight = false
+    private var createHeadingSubmitInFlight = false
+    private var deleteInFlight = false
 
     init {
         if (syncFeatureEnabled) {
@@ -199,17 +203,23 @@ class OrgClockViewModel(
     private fun handleClockMutationAction(action: OrgClockUiAction): Boolean {
         return when (action) {
             is OrgClockUiAction.StartClock -> {
-                viewModelScope.launch { startClock(action.item) }
+                if (beginClockMutation(action.item.node.lineIndex)) {
+                    viewModelScope.launch { startClock(action.item) }
+                }
                 true
             }
 
             is OrgClockUiAction.StopClock -> {
-                viewModelScope.launch { stopClock(action.item) }
+                if (beginClockMutation(action.item.node.lineIndex)) {
+                    viewModelScope.launch { stopClock(action.item) }
+                }
                 true
             }
 
             is OrgClockUiAction.CancelClock -> {
-                viewModelScope.launch { cancelClock(action.item) }
+                if (beginClockMutation(action.item.node.lineIndex)) {
+                    viewModelScope.launch { cancelClock(action.item) }
+                }
                 true
             }
 
@@ -225,11 +235,16 @@ class OrgClockViewModel(
             }
 
             OrgClockUiAction.DismissHistory -> {
+                finishEditSave()
+                finishDelete()
                 _uiState.update {
                     it.copy(
                         historyTarget = null,
                         historyEntries = emptyList(),
                         historyLoading = false,
+                        editingEntry = null,
+                        editingDraft = null,
+                        editingInProgress = false,
                         deletingEntry = null,
                         deletingInProgress = false,
                     )
@@ -238,6 +253,7 @@ class OrgClockViewModel(
             }
 
             is OrgClockUiAction.BeginEdit -> {
+                finishEditSave()
                 _uiState.update {
                     it.copy(
                         editingEntry = action.entry,
@@ -253,11 +269,13 @@ class OrgClockViewModel(
             }
 
             OrgClockUiAction.CancelEdit -> {
-                _uiState.update { it.copy(editingEntry = null, editingDraft = null) }
+                finishEditSave()
+                _uiState.update { it.copy(editingEntry = null, editingDraft = null, editingInProgress = false) }
                 true
             }
 
             is OrgClockUiAction.BeginDelete -> {
+                finishDelete()
                 _uiState.update {
                     it.copy(
                         deletingEntry = action.entry,
@@ -268,12 +286,15 @@ class OrgClockViewModel(
             }
 
             OrgClockUiAction.CancelDelete -> {
+                finishDelete()
                 _uiState.update { it.copy(deletingEntry = null, deletingInProgress = false) }
                 true
             }
 
             OrgClockUiAction.ConfirmDelete -> {
-                viewModelScope.launch { confirmDelete() }
+                if (beginDelete()) {
+                    viewModelScope.launch { confirmDelete() }
+                }
                 true
             }
 
@@ -310,7 +331,9 @@ class OrgClockViewModel(
             }
 
             OrgClockUiAction.SaveEdit -> {
-                viewModelScope.launch { saveEdit() }
+                if (beginEditSave()) {
+                    viewModelScope.launch { saveEdit() }
+                }
                 true
             }
 
@@ -321,6 +344,7 @@ class OrgClockViewModel(
     private fun handleCreateHeadingAction(action: OrgClockUiAction): Boolean {
         return when (action) {
             OrgClockUiAction.OpenCreateL1Dialog -> {
+                finishCreateHeadingSubmit()
                 _uiState.update {
                     it.copy(
                         createHeadingDialog = CreateHeadingDialogState(
@@ -334,6 +358,7 @@ class OrgClockViewModel(
 
             is OrgClockUiAction.OpenCreateL2Dialog -> {
                 if (action.parent.node.level == 1) {
+                    finishCreateHeadingSubmit()
                     _uiState.update {
                         it.copy(
                             createHeadingDialog = CreateHeadingDialogState(
@@ -368,11 +393,14 @@ class OrgClockViewModel(
             }
 
             OrgClockUiAction.SubmitCreateHeading -> {
-                viewModelScope.launch { submitCreateHeading() }
+                if (beginCreateHeadingSubmit()) {
+                    viewModelScope.launch { submitCreateHeading() }
+                }
                 true
             }
 
             OrgClockUiAction.DismissCreateHeadingDialog -> {
+                finishCreateHeadingSubmit()
                 _uiState.update { it.copy(createHeadingDialog = null) }
                 true
             }
@@ -525,6 +553,7 @@ class OrgClockViewModel(
                     historyLoading = false,
                     editingEntry = null,
                     editingDraft = null,
+                    editingInProgress = false,
                     deletingEntry = null,
                     deletingInProgress = false,
                     createHeadingDialog = null,
@@ -662,10 +691,13 @@ class OrgClockViewModel(
         val file = uiState.value.selectedFile ?: return
         val lineIndex = item.node.lineIndex
         val optimisticStartedAt = nowProvider()
-        updatePendingClock(lineIndex, true)
         updateHeadingOpenClock(lineIndex, OpenClockState(optimisticStartedAt.toKotlinInstantCompat()))
 
-        val result = startClock(file.fileId, lineIndex)
+        val result = try {
+            startClock(file.fileId, file.displayName, item.node.path.toString(), lineIndex)
+        } finally {
+            finishClockMutation(lineIndex)
+        }
         val status = if (result.isSuccess) {
             status(R.string.status_clock_started, StatusTone.Success)
         } else {
@@ -680,12 +712,10 @@ class OrgClockViewModel(
         if (result.isSuccess) {
             val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt.toKotlinInstantCompat()
             updateHeadingOpenClock(lineIndex, OpenClockState(startedAt))
-            updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()
         } else {
             updateHeadingOpenClock(lineIndex, item.openClock)
-            updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
         }
     }
@@ -693,10 +723,13 @@ class OrgClockViewModel(
     private suspend fun stopClock(item: HeadingViewItem) {
         val file = uiState.value.selectedFile ?: return
         val lineIndex = item.node.lineIndex
-        updatePendingClock(lineIndex, true)
         updateHeadingOpenClock(lineIndex, null)
 
-        val result = stopClock(file.fileId, lineIndex)
+        val result = try {
+            stopClock(file.fileId, file.displayName, item.node.path.toString(), lineIndex)
+        } finally {
+            finishClockMutation(lineIndex)
+        }
         val status = if (result.isSuccess) {
             status(R.string.status_clock_stopped, StatusTone.Success)
         } else {
@@ -704,12 +737,10 @@ class OrgClockViewModel(
             status(R.string.status_stop_failed, StatusTone.Error, reason)
         }
         if (result.isSuccess) {
-            updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()
         } else {
             updateHeadingOpenClock(lineIndex, item.openClock)
-            updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
         }
     }
@@ -717,10 +748,13 @@ class OrgClockViewModel(
     private suspend fun cancelClock(item: HeadingViewItem) {
         val file = uiState.value.selectedFile ?: return
         val lineIndex = item.node.lineIndex
-        updatePendingClock(lineIndex, true)
         updateHeadingOpenClock(lineIndex, null)
 
-        val result = cancelClock(file.fileId, lineIndex)
+        val result = try {
+            cancelClock(file.fileId, file.displayName, item.node.path.toString(), lineIndex)
+        } finally {
+            finishClockMutation(lineIndex)
+        }
         val status = if (result.isSuccess) {
             status(R.string.status_clock_cancelled, StatusTone.Warning)
         } else {
@@ -728,12 +762,10 @@ class OrgClockViewModel(
             status(R.string.status_cancel_failed, StatusTone.Error, reason)
         }
         if (result.isSuccess) {
-            updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
             refreshFilesWithOpenClock()
         } else {
             updateHeadingOpenClock(lineIndex, item.openClock)
-            updatePendingClock(lineIndex, false)
             _uiState.update { it.copy(status = status) }
         }
     }
@@ -757,18 +789,25 @@ class OrgClockViewModel(
 
         if (updatedEnd.isBefore(updatedStart)) {
             _uiState.update {
-                it.copy(status = status(R.string.status_end_time_must_be_after_start, StatusTone.Warning))
+                it.copy(
+                    status = status(R.string.status_end_time_must_be_after_start, StatusTone.Warning),
+                )
             }
+            finishEditSave()
             return
         }
 
-        val result = editClosedClock(
-            file.fileId,
-            entry.headingLineIndex,
-            entry.clockLineIndex,
-            updatedStart,
-            updatedEnd,
-        )
+        val result = try {
+            editClosedClock(
+                file.fileId,
+                entry.headingLineIndex,
+                entry.clockLineIndex,
+                updatedStart,
+                updatedEnd,
+            )
+        } finally {
+            finishEditSave()
+        }
 
         if (result.isSuccess) {
             _uiState.update {
@@ -783,35 +822,8 @@ class OrgClockViewModel(
         } else {
             val reason = result.exceptionOrNull()?.message ?: ""
             _uiState.update {
-                it.copy(status = status(R.string.status_update_failed, StatusTone.Error, reason))
-            }
-        }
-    }
-
-    private suspend fun confirmDelete() {
-        val state = uiState.value
-        if (state.deletingInProgress) return
-        val file = state.selectedFile ?: return
-        val entry = state.deletingEntry ?: return
-
-        _uiState.update { it.copy(deletingInProgress = true) }
-        val result = deleteClosedClock(file.fileId, entry.headingLineIndex, entry.clockLineIndex)
-        if (result.isSuccess) {
-            _uiState.update {
                 it.copy(
-                    deletingEntry = null,
-                    deletingInProgress = false,
-                    status = status(R.string.status_clock_history_deleted, StatusTone.Success),
-                )
-            }
-            reloadHistoryIfNeeded()
-            refreshSelectedFileHeadings()
-        } else {
-            val reason = result.exceptionOrNull()?.message ?: ""
-            _uiState.update {
-                it.copy(
-                    deletingInProgress = false,
-                    status = status(R.string.status_delete_failed, StatusTone.Error, reason),
+                    status = status(R.string.status_update_failed, StatusTone.Error, reason),
                 )
             }
         }
@@ -821,36 +833,35 @@ class OrgClockViewModel(
         val state = uiState.value
         val file = state.selectedFile ?: return
         val dialog = state.createHeadingDialog ?: return
-        if (dialog.submitting) return
 
         val title = dialog.titleInput.trim()
         if (title.isEmpty()) {
             _uiState.update {
                 it.copy(status = status(R.string.status_heading_title_empty, StatusTone.Warning))
             }
+            finishCreateHeadingSubmit()
             return
         }
 
-        _uiState.update { current ->
-            val currentDialog = current.createHeadingDialog ?: return@update current
-            current.copy(createHeadingDialog = currentDialog.copy(submitting = true))
-        }
-
-        val result = when (dialog.mode) {
-            CreateHeadingMode.L1 -> createL1Heading(file.fileId, title, dialog.attachTplTag)
-            CreateHeadingMode.L2 -> {
-                val parentIndex = dialog.parentL1LineIndex
-                if (parentIndex == null) {
-                    _uiState.update {
-                        it.copy(
-                            createHeadingDialog = it.createHeadingDialog?.copy(submitting = false),
-                            status = status(R.string.status_parent_l1_missing, StatusTone.Error),
-                        )
+        val result = try {
+            when (dialog.mode) {
+                CreateHeadingMode.L1 -> createL1Heading(file.fileId, title, dialog.attachTplTag)
+                CreateHeadingMode.L2 -> {
+                    val parentIndex = dialog.parentL1LineIndex
+                    if (parentIndex == null) {
+                        _uiState.update {
+                            it.copy(
+                                status = status(R.string.status_parent_l1_missing, StatusTone.Error),
+                            )
+                        }
+                        finishCreateHeadingSubmit()
+                        return
                     }
-                    return
+                    createL2Heading(file.fileId, parentIndex, title, dialog.attachTplTag)
                 }
-                createL2Heading(file.fileId, parentIndex, title, dialog.attachTplTag)
             }
+        } finally {
+            finishCreateHeadingSubmit(success = false)
         }
 
         if (result.isSuccess) {
@@ -876,6 +887,37 @@ class OrgClockViewModel(
                 createHeadingDialog = currentDialog?.copy(submitting = false),
                 status = status(R.string.status_create_heading_failed, tone, message),
             )
+        }
+    }
+
+    private suspend fun confirmDelete() {
+        val state = uiState.value
+        val file = state.selectedFile ?: return
+        val entry = state.deletingEntry ?: return
+
+        val result = try {
+            deleteClosedClock(file.fileId, entry.headingLineIndex, entry.clockLineIndex)
+        } finally {
+            finishDelete()
+        }
+        if (result.isSuccess) {
+            _uiState.update {
+                it.copy(
+                    deletingEntry = null,
+                    deletingInProgress = false,
+                    status = status(R.string.status_clock_history_deleted, StatusTone.Success),
+                )
+            }
+            reloadHistoryIfNeeded()
+            refreshSelectedFileHeadings()
+        } else {
+            val reason = result.exceptionOrNull()?.message ?: ""
+            _uiState.update {
+                it.copy(
+                    deletingInProgress = false,
+                    status = status(R.string.status_delete_failed, StatusTone.Error, reason),
+                )
+            }
         }
     }
 
@@ -983,6 +1025,79 @@ class OrgClockViewModel(
             }
             state.copy(pendingClockOps = next)
         }
+    }
+
+    private fun beginClockMutation(lineIndex: Int): Boolean {
+        synchronized(inFlightClockOps) {
+            if (!inFlightClockOps.add(lineIndex)) return false
+        }
+        updatePendingClock(lineIndex, true)
+        return true
+    }
+
+    private fun finishClockMutation(lineIndex: Int) {
+        synchronized(inFlightClockOps) {
+            inFlightClockOps.remove(lineIndex)
+        }
+        updatePendingClock(lineIndex, false)
+    }
+
+    private fun beginEditSave(): Boolean {
+        if (uiState.value.editingEntry == null || uiState.value.editingDraft == null) return false
+        synchronized(this) {
+            if (editSaveInFlight) return false
+            editSaveInFlight = true
+        }
+        _uiState.update { it.copy(editingInProgress = true) }
+        return true
+    }
+
+    private fun finishEditSave() {
+        synchronized(this) {
+            editSaveInFlight = false
+        }
+        _uiState.update { it.copy(editingInProgress = false) }
+    }
+
+    private fun beginCreateHeadingSubmit(): Boolean {
+        if (uiState.value.createHeadingDialog == null) return false
+        synchronized(this) {
+            if (createHeadingSubmitInFlight) return false
+            createHeadingSubmitInFlight = true
+        }
+        _uiState.update { current ->
+            val currentDialog = current.createHeadingDialog ?: return@update current
+            current.copy(createHeadingDialog = currentDialog.copy(submitting = true))
+        }
+        return true
+    }
+
+    private fun finishCreateHeadingSubmit(success: Boolean = false) {
+        synchronized(this) {
+            createHeadingSubmitInFlight = false
+        }
+        if (success) return
+        _uiState.update { current ->
+            val currentDialog = current.createHeadingDialog ?: return@update current
+            current.copy(createHeadingDialog = currentDialog.copy(submitting = false))
+        }
+    }
+
+    private fun beginDelete(): Boolean {
+        if (uiState.value.deletingEntry == null) return false
+        synchronized(this) {
+            if (deleteInFlight) return false
+            deleteInFlight = true
+        }
+        _uiState.update { it.copy(deletingInProgress = true) }
+        return true
+    }
+
+    private fun finishDelete() {
+        synchronized(this) {
+            deleteInFlight = false
+        }
+        _uiState.update { it.copy(deletingInProgress = false) }
     }
 
     private fun updateHeadingOpenClock(lineIndex: Int, openClock: OpenClockState?) {
