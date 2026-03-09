@@ -47,15 +47,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -66,8 +63,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.zIndex
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.HeadingPath
@@ -146,8 +141,7 @@ private sealed interface HeadingListRow {
 private val ClockStartTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private const val HeadingListTag = "heading_list"
 private const val RunningClocksPanelTag = "running_clocks_panel"
-private val RunningPanelFallbackPadding = 152.dp
-private val RunningPanelPerItemPadding = 54.dp
+private const val HeadingRowTagPrefix = "heading_row:"
 
 @Composable
 fun OrgClockScreen(
@@ -445,18 +439,6 @@ private fun HeadingListScreen(
                 }
         }
     }
-    var runningPanelHeightPx by remember { mutableStateOf(0) }
-    val density = LocalDensity.current
-    val navigationBarBottomPadding = WindowInsets.navigationBars
-        .asPaddingValues()
-        .calculateBottomPadding()
-    val runningPanelBottomPadding = if (runningPanelHeightPx > 0) {
-        with(density) { runningPanelHeightPx.toDp() } + 12.dp + navigationBarBottomPadding
-    } else if (runningItems.isNotEmpty()) {
-        RunningPanelFallbackPadding + (RunningPanelPerItemPadding * runningItems.size) + navigationBarBottomPadding
-    } else {
-        0.dp
-    }
     Column(modifier = Modifier.fillMaxSize()) {
         HeadingListTopBar(
             status = status,
@@ -468,130 +450,207 @@ private fun HeadingListScreen(
             onExpandAll = onExpandAll,
             onRefresh = onRefresh,
             performanceMonitor = performanceMonitor,
-            showPerfOverlay = showPerfOverlay,
+                showPerfOverlay = showPerfOverlay,
         )
 
-        Box(modifier = Modifier.weight(1f)) {
-            LazyColumn(
+        HeadingListWithRunningPanel(
+            modifier = Modifier.weight(1f),
+            rows = rows,
+            collapsedL1 = collapsedL1,
+            selectedHeadingPath = selectedHeadingPath,
+            pendingClockOps = pendingClockOps,
+            runningItems = runningItems,
+            onToggleL1 = onToggleL1,
+            onLongPressL1 = onLongPressL1,
+            onSelectHeading = onSelectHeading,
+            onLongPressL2 = onLongPressL2,
+            onStart = onStart,
+            onStop = onStop,
+            onCancel = onCancel,
+            nowProvider = nowProvider,
+        )
+    }
+}
+
+@Composable
+private fun HeadingListWithRunningPanel(
+    modifier: Modifier = Modifier,
+    rows: List<HeadingListRow>,
+    collapsedL1: Set<String>,
+    selectedHeadingPath: HeadingPath?,
+    pendingClockOps: Set<HeadingPath>,
+    runningItems: List<RunningClockUiItem>,
+    onToggleL1: (String) -> Unit,
+    onLongPressL1: (HeadingViewItem) -> Unit,
+    onSelectHeading: (HeadingPath) -> Unit,
+    onLongPressL2: (HeadingViewItem) -> Unit,
+    onStart: (HeadingPath) -> Unit,
+    onStop: (HeadingPath) -> Unit,
+    onCancel: (HeadingPath) -> Unit,
+    nowProvider: () -> ZonedDateTime,
+) {
+    SubcomposeLayout(modifier = modifier) { constraints ->
+        val panelPlaceables = subcompose("panel") {
+            Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .testTag(HeadingListTag),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    bottom = runningPanelBottomPadding,
-                ),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(12.dp),
             ) {
-                if (rows.isEmpty()) {
-                    item {
-                        Text(
-                            text = stringResource(R.string.empty_headings_message),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 12.dp),
+                RunningClocksPanel(
+                    runningItems = runningItems,
+                    onStop = { onStop(it.headingPath) },
+                    onCancel = { onCancel(it.headingPath) },
+                    pendingClockOps = pendingClockOps,
+                    nowProvider = nowProvider,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .testTag(RunningClocksPanelTag),
+                )
+            }
+        }.map { measurable ->
+            measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
+        }
+        val panelHeight = panelPlaceables.maxOfOrNull { it.height } ?: 0
+        val listPlaceables = subcompose("list") {
+            HeadingListContent(
+                rows = rows,
+                collapsedL1 = collapsedL1,
+                selectedHeadingPath = selectedHeadingPath,
+                pendingClockOps = pendingClockOps,
+                reservedBottomPadding = panelHeight.toDp(),
+                onToggleL1 = onToggleL1,
+                onLongPressL1 = onLongPressL1,
+                onSelectHeading = onSelectHeading,
+                onLongPressL2 = onLongPressL2,
+                onStart = onStart,
+            )
+        }.map { measurable ->
+            measurable.measure(constraints)
+        }
+
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            listPlaceables.forEach { it.placeRelative(0, 0) }
+            panelPlaceables.forEach { it.placeRelative(0, constraints.maxHeight - it.height) }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalFoundationApi::class)
+private fun HeadingListContent(
+    rows: List<HeadingListRow>,
+    collapsedL1: Set<String>,
+    selectedHeadingPath: HeadingPath?,
+    pendingClockOps: Set<HeadingPath>,
+    reservedBottomPadding: Dp,
+    onToggleL1: (String) -> Unit,
+    onLongPressL1: (HeadingViewItem) -> Unit,
+    onSelectHeading: (HeadingPath) -> Unit,
+    onLongPressL2: (HeadingViewItem) -> Unit,
+    onStart: (HeadingPath) -> Unit,
+) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag(HeadingListTag),
+        contentPadding = PaddingValues(
+            start = 16.dp,
+            end = 16.dp,
+            bottom = reservedBottomPadding,
+        ),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (rows.isEmpty()) {
+            item {
+                Text(
+                    text = stringResource(R.string.empty_headings_message),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(vertical = 12.dp),
+                )
+            }
+        }
+        items(
+            items = rows,
+            key = { it.key },
+            contentType = { it.contentType },
+        ) { row ->
+            when (row) {
+                is HeadingListRow.L1Header -> {
+                    val title = row.item.node.title
+                    val collapsed = title in collapsedL1
+                    val headingStateDescription = if (collapsed) {
+                        stringResource(R.string.heading_state_collapsed)
+                    } else {
+                        stringResource(R.string.heading_state_expanded)
+                    }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surface),
+                    ) {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.85f),
+                            thickness = 1.dp,
                         )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .semantics {
+                                    heading()
+                                    role = Role.Button
+                                    stateDescription = headingStateDescription
+                                }
+                                .combinedClickable(
+                                    onClick = { onToggleL1(title) },
+                                    onLongClick = { onLongPressL1(row.item) },
+                                )
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(title, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (collapsed) "+" else "-",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
-                items(
-                    items = rows,
-                    key = { it.key },
-                    contentType = { it.contentType },
-                ) { row ->
-                    when (row) {
-                        is HeadingListRow.L1Header -> {
-                            val title = row.item.node.title
-                            val collapsed = title in collapsedL1
-                            val headingStateDescription = if (collapsed) {
-                                stringResource(R.string.heading_state_collapsed)
-                            } else {
-                                stringResource(R.string.heading_state_expanded)
-                            }
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(MaterialTheme.colorScheme.surface),
-                            ) {
-                                HorizontalDivider(
-                                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.85f),
-                                    thickness = 1.dp,
-                                )
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .semantics {
-                                            heading()
-                                            role = Role.Button
-                                            stateDescription = headingStateDescription
-                                        }
-                                        .combinedClickable(
-                                            onClick = { onToggleL1(title) },
-                                            onLongClick = { onLongPressL1(row.item) },
-                                        )
-                                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(title, fontWeight = FontWeight.Bold)
-                                    Text(
-                                        if (collapsed) "+" else "-",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                            }
-                        }
 
-                        is HeadingListRow.ChildItem -> {
-                            val child = row.item
-                            val isSelected = child.node.path == selectedHeadingPath
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else CalmSurfaceAlt)
-                                    .combinedClickable(
-                                        onClick = {
-                                            if (child.node.level == 2) onSelectHeading(child.node.path)
-                                        },
-                                        onLongClick = {
-                                            if (child.node.level == 2) onLongPressL2(child)
-                                        },
-                                    )
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(child.node.title, modifier = Modifier.weight(1f))
-                                if (child.node.level == 2 && child.canStart && child.openClock == null) {
-                                    ClockActionIconButton(
-                                        actionType = ClockActionType.Start,
-                                        onClick = { onStart(child.node.path) },
-                                        enabled = child.node.path !in pendingClockOps,
-                                    )
-                                }
-                            }
+                is HeadingListRow.ChildItem -> {
+                    val child = row.item
+                    val isSelected = child.node.path == selectedHeadingPath
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag(headingRowTag(child.node.path))
+                            .background(if (isSelected) MaterialTheme.colorScheme.secondaryContainer else CalmSurfaceAlt)
+                            .combinedClickable(
+                                onClick = {
+                                    if (child.node.level == 2) onSelectHeading(child.node.path)
+                                },
+                                onLongClick = {
+                                    if (child.node.level == 2) onLongPressL2(child)
+                                },
+                            )
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(child.node.title, modifier = Modifier.weight(1f))
+                        if (child.node.level == 2 && child.canStart && child.openClock == null) {
+                            ClockActionIconButton(
+                                actionType = ClockActionType.Start,
+                                onClick = { onStart(child.node.path) },
+                                enabled = child.node.path !in pendingClockOps,
+                            )
                         }
                     }
                 }
             }
-
-            RunningClocksPanel(
-                runningItems = runningItems,
-                onStop = { onStop(it.headingPath) },
-                onCancel = { onCancel(it.headingPath) },
-                pendingClockOps = pendingClockOps,
-                nowProvider = nowProvider,
-                onPanelHeightChanged = { heightPx ->
-                    if (runningPanelHeightPx != heightPx) {
-                        runningPanelHeightPx = heightPx
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(12.dp)
-                    .zIndex(1f),
-            )
         }
     }
 }
@@ -603,15 +662,9 @@ private fun RunningClocksPanel(
     onCancel: (RunningClockUiItem) -> Unit,
     pendingClockOps: Set<HeadingPath>,
     nowProvider: () -> ZonedDateTime,
-    onPanelHeightChanged: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    if (runningItems.isEmpty()) {
-        LaunchedEffect(Unit) {
-            onPanelHeightChanged(0)
-        }
-        return
-    }
+    if (runningItems.isEmpty()) return
 
     var now by remember { mutableStateOf(nowProvider()) }
     LaunchedEffect(runningItems.isNotEmpty()) {
@@ -629,9 +682,7 @@ private fun RunningClocksPanel(
         color = MaterialTheme.colorScheme.primary,
         contentColor = MaterialTheme.colorScheme.onPrimary,
         tonalElevation = 8.dp,
-        modifier = modifier
-            .testTag(RunningClocksPanelTag)
-            .onSizeChanged { onPanelHeightChanged(it.height) },
+        modifier = modifier,
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -687,6 +738,8 @@ private fun RunningClocksPanel(
         }
     }
 }
+
+private fun headingRowTag(path: HeadingPath): String = "$HeadingRowTagPrefix${path}"
 
 @Composable
 private fun HeadingListTopBar(
