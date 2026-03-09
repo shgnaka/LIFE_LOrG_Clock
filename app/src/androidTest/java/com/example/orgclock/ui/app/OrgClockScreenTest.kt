@@ -3,6 +3,7 @@ package com.example.orgclock.ui.app
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -173,23 +174,24 @@ class OrgClockScreenTest {
             )
         }
 
+        val taskRowTag = headingRowTag("Work/Task 12")
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("heading_list")
-            .performScrollToNode(hasText("Task 12"))
+            .performScrollToNode(hasTestTag(taskRowTag))
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("heading_list")
-            .performScrollToNode(hasText("Task 12"))
+            .performScrollToNode(hasTestTag(taskRowTag))
         composeRule.waitUntil(timeoutMillis = 5_000) {
             val panelBounds = composeRule.onNodeWithTag("running_clocks_panel")
                 .fetchSemanticsNode().boundsInRoot
-            val lastHeadingBounds = composeRule.onNodeWithText("Task 12")
+            val lastHeadingBounds = composeRule.onNodeWithTag(taskRowTag)
                 .fetchSemanticsNode().boundsInRoot
             lastHeadingBounds.bottom <= panelBounds.top
         }
 
         val panelBounds = composeRule.onNodeWithTag("running_clocks_panel")
             .fetchSemanticsNode().boundsInRoot
-        val lastHeadingBounds = composeRule.onNodeWithText("Task 12")
+        val lastHeadingBounds = composeRule.onNodeWithTag(taskRowTag)
             .fetchSemanticsNode().boundsInRoot
 
         assertTrue(lastHeadingBounds.bottom <= panelBounds.top)
@@ -211,5 +213,7 @@ class OrgClockScreenTest {
         ),
         canStart = level == 2,
         openClock = openClock,
-    )
+        )
 }
+
+private fun headingRowTag(path: String): String = "heading_row:$path"
