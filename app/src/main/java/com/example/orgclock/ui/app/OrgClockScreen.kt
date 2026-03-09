@@ -39,6 +39,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +48,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -142,6 +144,10 @@ private val ClockStartTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPat
 private const val HeadingListTag = "heading_list"
 private const val RunningClocksPanelTag = "running_clocks_panel"
 private const val HeadingRowTagPrefix = "heading_row:"
+private const val RunningPanelRowTagPrefix = "running_panel_row:"
+private const val RunningPanelToggleTag = "running_panel_toggle"
+private const val RunningPanelCompactTag = "running_panel_compact"
+private const val RunningPanelCollapseThreshold = 5
 
 @Composable
 fun OrgClockScreen(
@@ -450,7 +456,7 @@ private fun HeadingListScreen(
             onExpandAll = onExpandAll,
             onRefresh = onRefresh,
             performanceMonitor = performanceMonitor,
-                showPerfOverlay = showPerfOverlay,
+            showPerfOverlay = showPerfOverlay,
         )
 
         HeadingListWithRunningPanel(
@@ -666,6 +672,13 @@ private fun RunningClocksPanel(
 ) {
     if (runningItems.isEmpty()) return
 
+    val shouldAutoCollapse = runningItems.size >= RunningPanelCollapseThreshold
+    var expandedByUser by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(shouldAutoCollapse) {
+        if (!shouldAutoCollapse) expandedByUser = false
+    }
+    val isExpanded = !shouldAutoCollapse || expandedByUser
+
     var now by remember { mutableStateOf(nowProvider()) }
     LaunchedEffect(runningItems.isNotEmpty()) {
         if (!runningItems.isNotEmpty()) return@LaunchedEffect
@@ -685,53 +698,85 @@ private fun RunningClocksPanel(
         modifier = modifier,
     ) {
         Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text(stringResource(R.string.running_count, runningItems.size), fontWeight = FontWeight.SemiBold)
-            runningItems.forEach { item ->
-                val minutes = maxOf(0L, Duration.between(item.startedAt.toJavaZonedDateTime(now.zone), now).toMinutes())
-                val startedText = remember(item.headingPath, item.startedAt) {
-                    item.startedAt.toJavaZonedDateTime(now.zone).format(ClockStartTimeFormatter)
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(stringResource(R.string.running_count, runningItems.size), fontWeight = FontWeight.SemiBold)
+                if (shouldAutoCollapse) {
+                    TextButton(
+                        onClick = { expandedByUser = !isExpanded },
+                        modifier = Modifier.testTag(RunningPanelToggleTag),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                     ) {
-                        val title = if (item.showL1Hint && !item.l1Title.isNullOrBlank()) {
-                            "${item.l2Title} (${item.l1Title})"
-                        } else {
-                            item.l2Title
-                        }
                         Text(
-                            text = title,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            text = stringResource(R.string.started_elapsed, startedText, minutes),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f),
+                            text = stringResource(
+                                if (isExpanded) R.string.running_panel_collapse else R.string.running_panel_expand,
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimary,
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ClockActionIconButton(
-                            actionType = ClockActionType.Stop,
-                            onClick = { onStop(item) },
-                            backgroundColor = Color.White.copy(alpha = 0.18f),
-                            enabled = item.headingPath !in pendingClockOps,
-                        )
-                        ClockActionIconButton(
-                            actionType = ClockActionType.Cancel,
-                            onClick = { onCancel(item) },
-                            backgroundColor = Color.White.copy(alpha = 0.18f),
-                            enabled = item.headingPath !in pendingClockOps,
-                        )
+                }
+            }
+
+            if (!isExpanded) {
+                Text(
+                    text = stringResource(R.string.running_panel_expand),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f),
+                    modifier = Modifier.testTag(RunningPanelCompactTag),
+                )
+            } else {
+                runningItems.forEach { item ->
+                    val minutes = maxOf(0L, Duration.between(item.startedAt.toJavaZonedDateTime(now.zone), now).toMinutes())
+                    val startedText = remember(item.headingPath, item.startedAt) {
+                        item.startedAt.toJavaZonedDateTime(now.zone).format(ClockStartTimeFormatter)
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag(runningPanelRowTag(item.headingPath)),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            val title = if (item.showL1Hint && !item.l1Title.isNullOrBlank()) {
+                                "${item.l2Title} (${item.l1Title})"
+                            } else {
+                                item.l2Title
+                            }
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                text = stringResource(R.string.started_elapsed, startedText, minutes),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.82f),
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            ClockActionIconButton(
+                                actionType = ClockActionType.Stop,
+                                onClick = { onStop(item) },
+                                backgroundColor = Color.White.copy(alpha = 0.18f),
+                                enabled = item.headingPath !in pendingClockOps,
+                            )
+                            ClockActionIconButton(
+                                actionType = ClockActionType.Cancel,
+                                onClick = { onCancel(item) },
+                                backgroundColor = Color.White.copy(alpha = 0.18f),
+                                enabled = item.headingPath !in pendingClockOps,
+                            )
+                        }
                     }
                 }
             }
@@ -740,6 +785,7 @@ private fun RunningClocksPanel(
 }
 
 private fun headingRowTag(path: HeadingPath): String = "$HeadingRowTagPrefix${path}"
+private fun runningPanelRowTag(path: HeadingPath): String = "$RunningPanelRowTagPrefix${path}"
 
 @Composable
 private fun HeadingListTopBar(

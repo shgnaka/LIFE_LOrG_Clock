@@ -29,6 +29,8 @@
     <string name="empty_files_message">orgファイルが見つかりません。ルートを変更するか更新してください。</string>
     <string name="empty_headings_message">見出しがありません。L1を追加するか更新してください。</string>
     <string name="running_count">記録中 %1$d件</string>
+    <string name="running_panel_expand">詳細を表示</string>
+    <string name="running_panel_collapse">折りたたむ</string>
     <string name="started_elapsed">%1$s 開始 / %2$d分経過</string>
     <string name="current_root">Current root</string>
     <string name="none">(none)</string>
