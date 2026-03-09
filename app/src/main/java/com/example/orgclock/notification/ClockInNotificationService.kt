@@ -14,11 +14,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.example.orgclock.MainActivity
+import com.example.orgclock.OrgClockApplication
 import com.example.orgclock.R
-import com.example.orgclock.data.SafOrgRepository
-import com.example.orgclock.domain.ClockService
 import com.example.orgclock.model.HeadingPath
-import com.example.orgclock.parser.OrgParser
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
 import com.example.orgclock.time.toZonedDateTime
@@ -37,9 +35,7 @@ import kotlinx.datetime.toJavaZoneId
 
 class ClockInNotificationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val repository by lazy { SafOrgRepository(this) }
-    private val scanner by lazy { ClockInScanner(repository) }
-    private val clockService by lazy { ClockService(repository, OrgParser()) }
+    private val dependencies by lazy { (application as OrgClockApplication).appGraph.notificationServiceDependencies() }
     private val notificationPermissionChecker: NotificationPermissionChecker =
         DefaultNotificationPermissionChecker()
     private val clockEnvironment: ClockEnvironment by lazy { clockEnvironmentFactory() }
@@ -67,11 +63,9 @@ class ClockInNotificationService : Service() {
                     ?.let { raw -> runCatching { HeadingPath.parse(raw) }.getOrNull() }
                     ?: return START_STICKY
                 scope.launch {
-                    clockService.stopClockInFile(
+                    dependencies.stopClock(
                         fileId,
                         headingPath,
-                        clockEnvironment.now(),
-                        clockEnvironment.currentTimeZone(),
                     )
                     refreshOnce()
                 }
@@ -140,7 +134,7 @@ class ClockInNotificationService : Service() {
             return true
         }
 
-        val opened = repository.openRoot(rootUri)
+        val opened = dependencies.openRoot(rootUri)
         if (opened.isFailure) {
             val reason = opened.exceptionOrNull()?.message ?: getString(R.string.unknown_reason)
             val notification = buildForegroundStatusNotification(
@@ -151,7 +145,7 @@ class ClockInNotificationService : Service() {
             return true
         }
 
-        val result = scanner.scan(clockEnvironment.currentTimeZone())
+        val result = dependencies.scan()
         if (result.isFailure) {
             val reason = result.exceptionOrNull()?.message ?: getString(R.string.unknown_reason)
             val notification = buildForegroundStatusNotification(
