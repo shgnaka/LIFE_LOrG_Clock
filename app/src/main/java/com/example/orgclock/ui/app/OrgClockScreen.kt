@@ -53,6 +53,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -444,10 +447,13 @@ private fun HeadingListScreen(
     }
     var runningPanelHeightPx by remember { mutableStateOf(0) }
     val density = LocalDensity.current
+    val navigationBarBottomPadding = WindowInsets.navigationBars
+        .asPaddingValues()
+        .calculateBottomPadding()
     val runningPanelBottomPadding = if (runningPanelHeightPx > 0) {
-        with(density) { runningPanelHeightPx.toDp() } + 12.dp
+        with(density) { runningPanelHeightPx.toDp() } + 12.dp + navigationBarBottomPadding
     } else if (runningItems.isNotEmpty()) {
-        RunningPanelFallbackPadding + (RunningPanelPerItemPadding * runningItems.size)
+        RunningPanelFallbackPadding + (RunningPanelPerItemPadding * runningItems.size) + navigationBarBottomPadding
     } else {
         0.dp
     }
