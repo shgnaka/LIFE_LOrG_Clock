@@ -37,4 +37,5 @@ if (syncCoreDir != null) {
 rootProject.name = "org-clock-android"
 include(":app")
 include(":benchmark")
+include(":desktopApp")
 include(":shared")

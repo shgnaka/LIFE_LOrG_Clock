@@ -1,6 +1,6 @@
-# Org Clock Android
+# Org Clock
 
-Android 端末上で org ファイルの見出しに対して clock 記録を行うアプリです。
+Android 端末と Linux デスクトップ上で org ファイルの見出しに対して clock 記録を行うアプリです。
 
 ## Docs
 
@@ -10,6 +10,8 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
   `docs/firebase-app-distribution-guide.md`
 - 手動スモークテスト手順  
   `docs/manual-smoke-test.md`
+- Desktop MVP 手動スモークテスト手順  
+  `docs/desktop-manual-smoke-test.md`
 - CI android-test ログ管理  
   `docs/ci-android-test-log-management.md`
 - パフォーマンス計測手順  
@@ -39,6 +41,53 @@ Android 端末上で org ファイルの見出しに対して clock 記録を行
 ```
 
 `installDebug` の詳細は `docs/install-debug-guide.md` を参照してください。
+
+## Linux Desktop MVP
+
+Desktop MVP は Compose Desktop ベースの Linux first 検証ホストです。Android と同じ org repository / clock domain を段階的に共有していく前段として、まずは Linux 上で起動・配布・手動検証できる状態を維持します。
+
+前提:
+
+- Linux x86_64 環境
+- JDK 17
+- Compose Desktop / JBR が取得できるネットワーク接続
+- パッケージング確認を行う場合は `jpackage` を含む JDK 17
+
+起動:
+
+```bash
+./gradlew runDesktop
+```
+
+高速な compile 検証:
+
+```bash
+./gradlew verifyDesktopCompile
+```
+
+Linux パッケージ出力の検証:
+
+```bash
+./gradlew packageDesktopLinux
+```
+
+想定される出力先:
+
+- unpackaged app: `desktopApp/build/compose/binaries/main/app/`
+- Linux installer/distribution: `desktopApp/build/compose/binaries/main/`
+
+Desktop MVP の手動確認観点は `docs/desktop-manual-smoke-test.md` を参照してください。
+
+### Desktop MVP limitations
+
+現時点の desktop host は MVP 段階です。以下は未対応、または Android 専用です。
+
+- Android の Storage Access Framework に依存する root picker / 永続 URI 権限
+- Android 通知、Foreground Service、WorkManager、App Widget
+- ADB / Firebase App Distribution を使った Android 配布フロー
+- sync-core の端末常駐運用やモバイル前提のバックグラウンド制御
+
+Linux desktop ではまず「起動できること」「将来の共有 UI / domain の受け皿になること」「配布物を生成できること」を優先しています。
 
 ## Kotlin Multiplatform Bootstrap
 
