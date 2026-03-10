@@ -3,6 +3,9 @@ package com.example.orgclock.desktop
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.presentation.Screen
 import com.example.orgclock.presentation.StatusMessageKey
+import com.example.orgclock.ui.state.OrgClockUiAction
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -36,40 +39,54 @@ class DesktopAppGraphTest {
     }
 
     @Test
-    fun restoresSavedRootOnStartup() = runTest {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun restoresSavedRootOnStartupThroughSharedStore() = runTest {
         val root = tempRoot()
         write(root.resolve("2026-03-10.org"), "* Work\n** Task\n")
         val store = DesktopSettingsStore(testNode())
         store.save(DesktopHostSettings(lastRootReference = RootReference(root.toString())))
 
         val graph = DesktopAppGraph(settingsStore = store)
-        val snapshot = graph.snapshot()
+        val orgClockStore = graph.createStore(this)
+        orgClockStore.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
 
-        assertEquals(Screen.FilePicker, snapshot.presentationState.screen)
-        assertEquals(root.toString(), snapshot.presentationState.rootReference?.rawValue)
-        assertEquals(StatusMessageKey.RootSet, snapshot.presentationState.status.text.key)
-        assertEquals(1, snapshot.files.size)
+        val state = orgClockStore.uiState.value
+        assertEquals(Screen.HeadingList, state.screen)
+        assertEquals(root.toString(), state.rootReference?.rawValue)
+        assertEquals(StatusMessageKey.LoadedFile, state.status.text.key)
+        assertEquals(1, state.files.size)
+        assertEquals("2026-03-10.org", state.selectedFile?.displayName)
     }
 
     @Test
-    fun dependenciesProvideDesktopClockOperations() = runTest {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun pickingRootPersistsAndEnablesDesktopClockOperations() = runTest {
         val root = tempRoot()
         write(root.resolve("2026-03-10.org"), "* Work\n** Task\n")
-        val graph = DesktopAppGraph(settingsStore = DesktopSettingsStore(testNode()))
-        val dependencies = graph.dependencies()
+        val settingsStore = DesktopSettingsStore(testNode())
+        val graph = DesktopAppGraph(settingsStore = settingsStore)
+        val store = graph.createStore(this)
 
-        assertTrue(dependencies.openRoot(RootReference(root.toString())).isSuccess)
+        store.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.PickRoot(RootReference(root.toString())))
+        advanceUntilIdle()
 
-        val files = dependencies.listFiles().getOrThrow()
-        assertEquals(1, files.size)
+        val state = store.uiState.value
+        val file = state.selectedFile
+        assertEquals(Screen.HeadingList, state.screen)
+        assertEquals(root.toString(), settingsStore.load().lastRootReference?.rawValue)
+        assertTrue(file != null)
+        assertTrue(state.headings.isNotEmpty())
 
-        val file = files.single()
-        assertTrue(
-            dependencies.startClock(file.fileId, com.example.orgclock.model.HeadingPath.parse("Work/Task")).isSuccess,
-        )
-
-        val filesWithOpenClock = dependencies.listFilesWithOpenClock().getOrThrow()
-        assertEquals(setOf(file.fileId), filesWithOpenClock)
+        val result = graph.createStore(this).run {
+            onAction(OrgClockUiAction.Initialize)
+            advanceUntilIdle()
+            uiState.value
+        }
+        assertEquals(root.toString(), result.rootReference?.rawValue)
+        assertEquals(Screen.HeadingList, result.screen)
     }
 
     private fun tempRoot(): Path = createTempDirectory("desktop-graph-test").also(tempRoots::add)

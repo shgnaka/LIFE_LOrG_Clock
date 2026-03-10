@@ -2,59 +2,25 @@ package com.example.orgclock.desktop
 
 import com.example.orgclock.data.ClockRepository
 import com.example.orgclock.data.DesktopFileOrgRepository
-import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.domain.ClockService
 import com.example.orgclock.domain.FileOperationCoordinator
 import com.example.orgclock.domain.InMemoryFileOperationCoordinator
-import com.example.orgclock.model.ClosedClockEntry
-import com.example.orgclock.model.HeadingPath
-import com.example.orgclock.model.HeadingViewItem
-import com.example.orgclock.presentation.OrgClockPresentationState
+import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
-import com.example.orgclock.presentation.Screen
-import com.example.orgclock.presentation.StatusMessageKey
-import com.example.orgclock.presentation.StatusText
-import com.example.orgclock.presentation.StatusTone
-import com.example.orgclock.presentation.UiStatus
+import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.today
+import com.example.orgclock.ui.store.OrgClockStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.datetime.Clock
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
-import kotlinx.datetime.Clock
-import kotlinx.datetime.toJavaInstant
-import kotlinx.datetime.toJavaZoneId
 import java.nio.file.Path
 import kotlin.io.path.absolute
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
-
-data class DesktopMvpDependencies(
-    val loadSavedRootReference: () -> RootReference?,
-    val saveRootReference: (RootReference) -> Unit,
-    val openRoot: suspend (RootReference) -> Result<Unit>,
-    val listFiles: suspend () -> Result<List<com.example.orgclock.data.OrgFileEntry>>,
-    val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
-    val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
-    val startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
-    val stopClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
-    val cancelClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
-    val listClosedClocks: suspend (String, HeadingPath) -> Result<List<ClosedClockEntry>>,
-    val editClosedClock: suspend (String, HeadingPath, Int, java.time.ZonedDateTime, java.time.ZonedDateTime) -> Result<Unit>,
-    val deleteClosedClock: suspend (String, HeadingPath, Int) -> Result<Unit>,
-    val createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
-    val createL2Heading: suspend (String, HeadingPath, String, Boolean) -> Result<Unit>,
-    val nowProvider: () -> java.time.ZonedDateTime,
-    val todayProvider: () -> java.time.LocalDate,
-    val zoneIdProvider: () -> java.time.ZoneId,
-)
-
-data class DesktopHostSnapshot(
-    val presentationState: OrgClockPresentationState,
-    val files: List<com.example.orgclock.data.OrgFileEntry> = emptyList(),
-    val filesWithOpenClock: Set<String> = emptySet(),
-    val openClockCount: Int = 0,
-    val fileFailureCount: Int = 0,
-)
 
 class DesktopAppGraph(
     private val settingsStore: DesktopSettingsStore = DesktopSettingsStore(),
@@ -62,18 +28,14 @@ class DesktopAppGraph(
     private val repositoryFactory: (Path) -> ClockRepository = ::DesktopFileOrgRepository,
     private val coordinatorFactory: () -> FileOperationCoordinator = ::InMemoryFileOperationCoordinator,
 ) {
-    private var currentRootReference: RootReference? = null
+    private var currentRootPath: Path? = null
     private var repository: ClockRepository? = null
     private var clockService: ClockService? = null
     private var openClockScanner: DesktopOpenClockScanner? = null
-    private var status: UiStatus = defaultStatus()
 
-    init {
-        restoreSavedRoot()
-    }
-
-    fun dependencies(): DesktopMvpDependencies {
-        return DesktopMvpDependencies(
+    fun createStore(scope: CoroutineScope): OrgClockStore {
+        return OrgClockStore(
+            scope = scope,
             loadSavedRootReference = { settingsStore.load().lastRootReference },
             saveRootReference = { settingsStore.save(DesktopHostSettings(lastRootReference = it)) },
             openRoot = ::openRoot,
@@ -109,8 +71,8 @@ class DesktopAppGraph(
                     fileId = fileId,
                     headingPath = headingPath,
                     clockLineIndex = lineIndex,
-                    newStart = Instant.fromEpochMilliseconds(start.toInstant().toEpochMilli()),
-                    newEnd = Instant.fromEpochMilliseconds(end.toInstant().toEpochMilli()),
+                    newStart = start,
+                    newEnd = end,
                     timeZone = clockEnvironment.currentTimeZone(),
                 ) ?: Result.failure(missingRootError())
             },
@@ -126,73 +88,33 @@ class DesktopAppGraph(
                 clockService?.createL2HeadingInFile(fileId, parent, title, attachTplTag)
                     ?: Result.failure(missingRootError())
             },
-            nowProvider = { clockEnvironment.now().toJavaInstant().atZone(clockEnvironment.currentTimeZone().toJavaZoneId()) },
-            todayProvider = {
-                val today = clockEnvironment.today()
-                java.time.LocalDate.of(today.year, today.monthNumber, today.dayOfMonth)
-            },
-            zoneIdProvider = { clockEnvironment.currentTimeZone().toJavaZoneId() },
+            loadNotificationEnabled = { false },
+            saveNotificationEnabled = { },
+            loadNotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
+            saveNotificationDisplayMode = { },
+            notificationPermissionGrantedProvider = { false },
+            syncSnapshotFlow = disabledSyncSnapshotFlow,
+            nowProvider = { clockEnvironment.now() },
+            todayProvider = { clockEnvironment.today() },
+            timeZoneProvider = { clockEnvironment.currentTimeZone() },
+            showPerfOverlay = false,
         )
     }
 
-    suspend fun openRoot(rootReference: RootReference): Result<Unit> = runCatching {
-        attachRoot(rootReference, persist = true)
+    fun currentRootReference(): RootReference? = currentRootPath?.let { RootReference(it.toString()) }
+
+    private suspend fun openRoot(rootReference: RootReference): Result<Unit> = runCatching {
+        attachRoot(rootReference)
     }
 
-    suspend fun snapshot(): DesktopHostSnapshot {
-        val presentationState = OrgClockPresentationState(
-            screen = if (currentRootReference == null) Screen.RootSetup else Screen.FilePicker,
-            rootReference = currentRootReference,
-            status = status,
-        )
-        val currentRepository = repository ?: return DesktopHostSnapshot(presentationState = presentationState)
-        val files = currentRepository.listOrgFiles().getOrElse {
-            return DesktopHostSnapshot(
-                presentationState = presentationState.copy(
-                    status = failureStatus(StatusMessageKey.FailedListingFiles, it.message ?: "unknown error"),
-                ),
-            )
-        }
-        val scanResult = openClockScanner?.scan(clockEnvironment.currentTimeZone())
-        val openEntries = scanResult?.getOrNull()
-        return DesktopHostSnapshot(
-            presentationState = presentationState,
-            files = files,
-            filesWithOpenClock = openEntries?.entries?.asSequence()?.map { it.fileId }?.toSet().orEmpty(),
-            openClockCount = openEntries?.entries?.size ?: 0,
-            fileFailureCount = openEntries?.failedFiles?.size ?: 0,
-        )
-    }
-
-    private fun restoreSavedRoot() {
-        val savedRoot = settingsStore.load().lastRootReference ?: return
-        runCatching {
-            attachRoot(savedRoot, persist = false)
-        }.onFailure { error ->
-            settingsStore.clear()
-            currentRootReference = null
-            repository = null
-            clockService = null
-            openClockScanner = null
-            status = failureStatus(StatusMessageKey.FailedOpenRoot, error.message ?: "unknown error")
-        }
-    }
-
-    private fun attachRoot(rootReference: RootReference, persist: Boolean) {
+    private fun attachRoot(rootReference: RootReference) {
         val normalized = normalizeRoot(rootReference)
         val repository = repositoryFactory(normalized)
         val clockService = ClockService(repository, fileOperationCoordinator = coordinatorFactory())
-        currentRootReference = RootReference(normalized.toString())
+        currentRootPath = normalized
         this.repository = repository
         this.clockService = clockService
         this.openClockScanner = DesktopOpenClockScanner(repository)
-        status = UiStatus(
-            text = StatusText(StatusMessageKey.RootSet),
-            tone = StatusTone.Success,
-        )
-        if (persist) {
-            settingsStore.save(DesktopHostSettings(lastRootReference = currentRootReference))
-        }
     }
 
     private fun normalizeRoot(rootReference: RootReference): Path {
@@ -204,18 +126,9 @@ class DesktopAppGraph(
     private fun missingRootError(): IllegalStateException =
         IllegalStateException("Desktop root is not opened")
 
-    private fun failureStatus(key: StatusMessageKey, reason: String): UiStatus {
-        return UiStatus(
-            text = StatusText(key, listOf(reason)),
-            tone = StatusTone.Error,
-        )
-    }
-
-    private fun defaultStatus(): UiStatus {
-        return UiStatus(
-            text = StatusText(StatusMessageKey.SelectOrgDirectory),
-            tone = StatusTone.Info,
-        )
+    private companion object {
+        val disabledSyncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> =
+            MutableStateFlow(SyncIntegrationSnapshot())
     }
 }
 
