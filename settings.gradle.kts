@@ -11,6 +11,7 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     }
 }
 
@@ -37,4 +38,5 @@ if (syncCoreDir != null) {
 rootProject.name = "org-clock-android"
 include(":app")
 include(":benchmark")
+include(":desktopApp")
 include(":shared")
