@@ -3,24 +3,33 @@ name: Verify iOS Host Skeleton
 on:
   pull_request:
     paths:
+      - ".github/workflows/verify-kmp-ios.yml"
       - ".github/workflows/verify-ios-host-skeleton.yml"
       - "iosApp/**"
-      - "shared/**"
+      - "shared/build.gradle.kts"
+      - "shared/src/iosMain/**"
+      - "shared/src/iosTest/**"
+      - "shared/src/commonMain/kotlin/com/example/orgclock/shared/**"
+      - "shared/src/commonTest/kotlin/com/example/orgclock/shared/**"
       - "gradle/**"
       - "gradlew"
       - "gradlew.bat"
-      - "*.gradle.kts"
   push:
     branches:
       - main
     paths:
+      - ".github/workflows/verify-kmp-ios.yml"
       - ".github/workflows/verify-ios-host-skeleton.yml"
       - "iosApp/**"
-      - "shared/**"
+      - "shared/build.gradle.kts"
+      - "shared/src/iosMain/**"
+      - "shared/src/iosTest/**"
+      - "shared/src/commonMain/kotlin/com/example/orgclock/shared/**"
+      - "shared/src/commonTest/kotlin/com/example/orgclock/shared/**"
       - "gradle/**"
       - "gradlew"
       - "gradlew.bat"
-      - "*.gradle.kts"
+  workflow_dispatch:
 
 permissions:
   contents: read
