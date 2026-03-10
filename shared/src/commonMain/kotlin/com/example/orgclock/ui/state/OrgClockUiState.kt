@@ -1,6 +1,5 @@
 package com.example.orgclock.ui.state
 
-import androidx.compose.runtime.Immutable
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingPath
@@ -16,12 +15,6 @@ import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncMetricsSnapshot
 import com.example.orgclock.sync.SyncRuntimeMode
 
-enum class CreateHeadingMode {
-    L1,
-    L2,
-}
-
-@Immutable
 data class ClockEditDraft(
     val startHour: Int,
     val startMinute: Int,
@@ -29,7 +22,11 @@ data class ClockEditDraft(
     val endMinute: Int,
 )
 
-@Immutable
+enum class CreateHeadingMode {
+    L1,
+    L2,
+}
+
 data class PeerUiItem(
     val peerId: String,
     val reachable: Boolean? = null,
@@ -37,7 +34,6 @@ data class PeerUiItem(
     val lastSyncedAtEpochMs: Long? = null,
 )
 
-@Immutable
 data class CreateHeadingDialogState(
     val mode: CreateHeadingMode,
     val parentL1Path: HeadingPath? = null,
@@ -48,7 +44,6 @@ data class CreateHeadingDialogState(
     val submitting: Boolean = false,
 )
 
-@Immutable
 data class OrgClockUiState(
     val screen: Screen = Screen.RootSetup,
     val rootReference: RootReference? = null,

@@ -1,11 +1,5 @@
 package com.example.orgclock.sync
 
-enum class SyncRuntimeMode {
-    Off,
-    Standard,
-    Active,
-}
-
 interface SyncRuntimeController {
     suspend fun enableStandardMode()
     suspend fun enableActiveMode()

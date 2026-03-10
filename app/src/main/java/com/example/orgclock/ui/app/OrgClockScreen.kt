@@ -263,10 +263,12 @@ fun OrgClockScreen(
             )
         }
 
-        if (state.editingEntry != null && state.editingDraft != null) {
+        val editingEntry = state.editingEntry
+        val editingDraft = state.editingDraft
+        if (editingEntry != null && editingDraft != null) {
             EditClockEntryDialog(
-                entry = state.editingEntry,
-                draft = state.editingDraft,
+                entry = editingEntry,
+                draft = editingDraft,
                 editingInProgress = state.editingInProgress,
                 onCancel = { onAction(OrgClockUiAction.CancelEdit) },
                 onSelectStartHour = { onAction(OrgClockUiAction.SelectStartHour(it)) },
