@@ -7,9 +7,13 @@ import com.example.orgclock.data.FileWriteIntent
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.OrgDocument
 import com.example.orgclock.time.toKotlinInstantCompat
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.datetime.toKotlinTimeZone
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.security.MessageDigest
@@ -273,6 +277,45 @@ class ClockServiceTest {
         val result = service.deleteClosedClockInFile("f1", HeadingPath.parse("Work"), 3)
 
         assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun stopClockInFile_parallelStopsOnSameFile_closesAllEntriesWithoutConflictRetries() = runBlocking {
+        val repo = FileRepo(
+            mutableMapOf(
+                "f1" to listOf(
+                    "* Work",
+                    "** Project A",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:00:00]",
+                    ":END:",
+                    "** Project B",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:10:00]",
+                    ":END:",
+                    "** Project C",
+                    ":LOGBOOK:",
+                    "CLOCK: [2026-02-15 Sun 09:20:00]",
+                    ":END:",
+                ),
+            ),
+            beforeSaveFile = { delay(25) },
+        )
+        val service = ClockService(repo, fileOperationCoordinator = InMemoryFileOperationCoordinator())
+        val stoppedAt = ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo"))
+
+        val results = listOf(
+            async { service.stopClockInFile("f1", HeadingPath.parse("Work/Project A"), stoppedAt) },
+            async { service.stopClockInFile("f1", HeadingPath.parse("Work/Project B"), stoppedAt) },
+            async { service.stopClockInFile("f1", HeadingPath.parse("Work/Project C"), stoppedAt) },
+        ).awaitAll()
+
+        assertTrue(results.all { it.isSuccess })
+        assertEquals(3, repo.saveAttempts["f1"])
+        assertFalse(repo.files["f1"]!!.any { it == "CLOCK: [2026-02-15 Sun 09:00:00]" })
+        assertFalse(repo.files["f1"]!!.any { it == "CLOCK: [2026-02-15 Sun 09:10:00]" })
+        assertFalse(repo.files["f1"]!!.any { it == "CLOCK: [2026-02-15 Sun 09:20:00]" })
+        assertEquals(3, repo.files["f1"]!!.count { it.contains("--[2026-02-15 Sun 10:00:00]") })
     }
 
     @Test
@@ -821,6 +864,7 @@ class ClockServiceTest {
     private class FileRepo(
         val files: MutableMap<String, List<String>>,
         private val conflictCountByFileId: MutableMap<String, Int> = mutableMapOf(),
+        private val beforeSaveFile: suspend (String) -> Unit = {},
     ) : ClockRepository {
         val saveAttempts: MutableMap<String, Int> = mutableMapOf()
 
@@ -839,6 +883,7 @@ class ClockServiceTest {
             expectedHash: String,
             writeIntent: FileWriteIntent,
         ): SaveResult {
+            beforeSaveFile(fileId)
             saveAttempts[fileId] = (saveAttempts[fileId] ?: 0) + 1
             val remainingConflicts = conflictCountByFileId[fileId] ?: 0
             if (remainingConflicts > 0) {

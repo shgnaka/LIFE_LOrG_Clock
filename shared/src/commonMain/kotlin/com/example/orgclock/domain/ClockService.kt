@@ -44,6 +44,7 @@ class ClockOperationException(
 class ClockService(
     private val repository: ClockRepository,
     private val parser: OrgParser = OrgParser(),
+    private val fileOperationCoordinator: FileOperationCoordinator = NoOpFileOperationCoordinator,
 ) {
 
     data class ClockSession(
@@ -105,58 +106,60 @@ class ClockService(
         now: Instant,
         timeZone: TimeZone = TimeZone.currentSystemDefault(),
     ): Result<ClockMutationResult> {
-        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
-            return Result.failure(
-                ClockOperationException(
-                    code = ClockOperationCode.InvalidHeadingLevel,
-                    message = "Clock operation is only allowed on level-2 headings",
-                ),
-            )
-        }
-        if (parser.findOpenClock(doc.lines, headingPath, timeZone) != null) {
-            return Result.failure(
-                ClockOperationException(
-                    code = ClockOperationCode.AlreadyRunning,
-                    message = "Clock already running for this heading",
-                ),
-            )
-        }
+        return fileOperationCoordinator.runExclusive(fileId) {
+            val doc = repository.loadFile(fileId).getOrElse { return@runExclusive Result.failure(it) }
+            if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
+                return@runExclusive Result.failure(
+                    ClockOperationException(
+                        code = ClockOperationCode.InvalidHeadingLevel,
+                        message = "Clock operation is only allowed on level-2 headings",
+                    ),
+                )
+            }
+            if (parser.findOpenClock(doc.lines, headingPath, timeZone) != null) {
+                return@runExclusive Result.failure(
+                    ClockOperationException(
+                        code = ClockOperationCode.AlreadyRunning,
+                        message = "Clock already running for this heading",
+                    ),
+                )
+            }
 
-        val firstLines = runCatching { parser.appendOpenClock(doc.lines, headingPath, now, timeZone) }
-            .getOrElse { return Result.failure(it) }
-        val firstSave = repository.saveFile(fileId, firstLines, doc.hash, FileWriteIntent.ClockMutation)
-        if (firstSave is SaveResult.Success) {
-            return Result.success(ClockMutationResult(startedAt = now))
-        }
-        if (firstSave !is SaveResult.Conflict) {
-            return Result.failure(firstSave.toClockOperationException())
-        }
+            val firstLines = runCatching { parser.appendOpenClock(doc.lines, headingPath, now, timeZone) }
+                .getOrElse { return@runExclusive Result.failure(it) }
+            val firstSave = repository.saveFile(fileId, firstLines, doc.hash, FileWriteIntent.ClockMutation)
+            if (firstSave is SaveResult.Success) {
+                return@runExclusive Result.success(ClockMutationResult(startedAt = now))
+            }
+            if (firstSave !is SaveResult.Conflict) {
+                return@runExclusive Result.failure(firstSave.toClockOperationException())
+            }
 
-        val latestDoc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        if (resolveLevel2HeadingNode(latestDoc.lines, headingPath) == null) {
-            return Result.failure(
-                ClockOperationException(
-                    code = ClockOperationCode.InvalidHeadingLevel,
-                    message = "Clock operation is only allowed on level-2 headings",
-                ),
-            )
-        }
-        if (parser.findOpenClock(latestDoc.lines, headingPath, timeZone) != null) {
-            return Result.failure(
-                ClockOperationException(
-                    code = ClockOperationCode.AlreadyRunning,
-                    message = "Clock already running for this heading",
-                ),
-            )
-        }
-        val secondLines = runCatching { parser.appendOpenClock(latestDoc.lines, headingPath, now, timeZone) }
-            .getOrElse { return Result.failure(it) }
-        val secondSave = repository.saveFile(fileId, secondLines, latestDoc.hash, FileWriteIntent.ClockMutation)
-        return if (secondSave is SaveResult.Success) {
-            Result.success(ClockMutationResult(startedAt = now))
-        } else {
-            Result.failure(secondSave.toClockOperationException())
+            val latestDoc = repository.loadFile(fileId).getOrElse { return@runExclusive Result.failure(it) }
+            if (resolveLevel2HeadingNode(latestDoc.lines, headingPath) == null) {
+                return@runExclusive Result.failure(
+                    ClockOperationException(
+                        code = ClockOperationCode.InvalidHeadingLevel,
+                        message = "Clock operation is only allowed on level-2 headings",
+                    ),
+                )
+            }
+            if (parser.findOpenClock(latestDoc.lines, headingPath, timeZone) != null) {
+                return@runExclusive Result.failure(
+                    ClockOperationException(
+                        code = ClockOperationCode.AlreadyRunning,
+                        message = "Clock already running for this heading",
+                    ),
+                )
+            }
+            val secondLines = runCatching { parser.appendOpenClock(latestDoc.lines, headingPath, now, timeZone) }
+                .getOrElse { return@runExclusive Result.failure(it) }
+            val secondSave = repository.saveFile(fileId, secondLines, latestDoc.hash, FileWriteIntent.ClockMutation)
+            if (secondSave is SaveResult.Success) {
+                Result.success(ClockMutationResult(startedAt = now))
+            } else {
+                Result.failure(secondSave.toClockOperationException())
+            }
         }
     }
 
@@ -166,46 +169,50 @@ class ClockService(
         now: Instant,
         timeZone: TimeZone = TimeZone.currentSystemDefault(),
     ): Result<ClockMutationResult> {
-        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
-            return Result.failure(
-                ClockOperationException(
-                    code = ClockOperationCode.InvalidHeadingLevel,
-                    message = "Clock operation is only allowed on level-2 headings",
-                ),
-            )
-        }
-        val closeResult = runCatching { parser.closeLatestOpenClock(doc.lines, headingPath, now, timeZone) }
-            .getOrElse { return Result.failure(it) }
-        val save = saveFileWithRetry(fileId, doc.hash, closeResult.lines, FileWriteIntent.ClockMutation) {
-            parser.closeLatestOpenClock(it, headingPath, now, timeZone).lines
-        }
-        return if (save is SaveResult.Success) {
-            Result.success(ClockMutationResult())
-        } else {
-            Result.failure(save.toClockOperationException())
+        return fileOperationCoordinator.runExclusive(fileId) {
+            val doc = repository.loadFile(fileId).getOrElse { return@runExclusive Result.failure(it) }
+            if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
+                return@runExclusive Result.failure(
+                    ClockOperationException(
+                        code = ClockOperationCode.InvalidHeadingLevel,
+                        message = "Clock operation is only allowed on level-2 headings",
+                    ),
+                )
+            }
+            val closeResult = runCatching { parser.closeLatestOpenClock(doc.lines, headingPath, now, timeZone) }
+                .getOrElse { return@runExclusive Result.failure(it) }
+            val save = saveFileWithRetry(fileId, doc.hash, closeResult.lines, FileWriteIntent.ClockMutation) {
+                parser.closeLatestOpenClock(it, headingPath, now, timeZone).lines
+            }
+            if (save is SaveResult.Success) {
+                Result.success(ClockMutationResult())
+            } else {
+                Result.failure(save.toClockOperationException())
+            }
         }
     }
 
     suspend fun cancelClockInFile(fileId: String, headingPath: HeadingPath): Result<ClockMutationResult> {
-        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
-            return Result.failure(
-                ClockOperationException(
-                    code = ClockOperationCode.InvalidHeadingLevel,
-                    message = "Clock operation is only allowed on level-2 headings",
-                ),
-            )
-        }
-        val cancelled = runCatching { parser.cancelLatestOpenClock(doc.lines, headingPath) }
-            .getOrElse { return Result.failure(it) }
-        val save = saveFileWithRetry(fileId, doc.hash, cancelled, FileWriteIntent.ClockMutation) {
-            parser.cancelLatestOpenClock(it, headingPath)
-        }
-        return if (save is SaveResult.Success) {
-            Result.success(ClockMutationResult())
-        } else {
-            Result.failure(save.toClockOperationException())
+        return fileOperationCoordinator.runExclusive(fileId) {
+            val doc = repository.loadFile(fileId).getOrElse { return@runExclusive Result.failure(it) }
+            if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
+                return@runExclusive Result.failure(
+                    ClockOperationException(
+                        code = ClockOperationCode.InvalidHeadingLevel,
+                        message = "Clock operation is only allowed on level-2 headings",
+                    ),
+                )
+            }
+            val cancelled = runCatching { parser.cancelLatestOpenClock(doc.lines, headingPath) }
+                .getOrElse { return@runExclusive Result.failure(it) }
+            val save = saveFileWithRetry(fileId, doc.hash, cancelled, FileWriteIntent.ClockMutation) {
+                parser.cancelLatestOpenClock(it, headingPath)
+            }
+            if (save is SaveResult.Success) {
+                Result.success(ClockMutationResult())
+            } else {
+                Result.failure(save.toClockOperationException())
+            }
         }
     }
 
@@ -229,23 +236,27 @@ class ClockService(
         newEnd: Instant,
         timeZone: TimeZone = TimeZone.currentSystemDefault(),
     ): Result<Unit> {
-        if (newEnd < newStart) {
-            return Result.failure(IllegalArgumentException("End time must be after start time"))
-        }
-        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
-            return Result.failure(IllegalArgumentException("Clock operation is only allowed on level-2 headings"))
-        }
-        val firstLines = runCatching {
-            parser.replaceClosedClock(doc.lines, headingPath, clockLineIndex, newStart, newEnd, timeZone)
-        }.getOrElse { return Result.failure(it) }
-        val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
-            parser.replaceClosedClock(it, headingPath, clockLineIndex, newStart, newEnd, timeZone)
-        }
-        return if (save is SaveResult.Success) {
-            Result.success(Unit)
-        } else {
-            Result.failure(IllegalStateException(save.asMessage()))
+        return fileOperationCoordinator.runExclusive(fileId) {
+            if (newEnd < newStart) {
+                return@runExclusive Result.failure(IllegalArgumentException("End time must be after start time"))
+            }
+            val doc = repository.loadFile(fileId).getOrElse { return@runExclusive Result.failure(it) }
+            if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
+                return@runExclusive Result.failure(
+                    IllegalArgumentException("Clock operation is only allowed on level-2 headings"),
+                )
+            }
+            val firstLines = runCatching {
+                parser.replaceClosedClock(doc.lines, headingPath, clockLineIndex, newStart, newEnd, timeZone)
+            }.getOrElse { return@runExclusive Result.failure(it) }
+            val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
+                parser.replaceClosedClock(it, headingPath, clockLineIndex, newStart, newEnd, timeZone)
+            }
+            if (save is SaveResult.Success) {
+                Result.success(Unit)
+            } else {
+                Result.failure(IllegalStateException(save.asMessage()))
+            }
         }
     }
 
@@ -254,35 +265,41 @@ class ClockService(
         headingPath: HeadingPath,
         clockLineIndex: Int,
     ): Result<Unit> {
-        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
-            return Result.failure(IllegalArgumentException("Clock operation is only allowed on level-2 headings"))
-        }
-        val firstLines = runCatching {
-            parser.deleteClosedClock(doc.lines, headingPath, clockLineIndex)
-        }.getOrElse { return Result.failure(it) }
-        val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
-            parser.deleteClosedClock(it, headingPath, clockLineIndex)
-        }
-        return if (save is SaveResult.Success) {
-            Result.success(Unit)
-        } else {
-            Result.failure(IllegalStateException(save.asMessage()))
+        return fileOperationCoordinator.runExclusive(fileId) {
+            val doc = repository.loadFile(fileId).getOrElse { return@runExclusive Result.failure(it) }
+            if (resolveLevel2HeadingNode(doc.lines, headingPath) == null) {
+                return@runExclusive Result.failure(
+                    IllegalArgumentException("Clock operation is only allowed on level-2 headings"),
+                )
+            }
+            val firstLines = runCatching {
+                parser.deleteClosedClock(doc.lines, headingPath, clockLineIndex)
+            }.getOrElse { return@runExclusive Result.failure(it) }
+            val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
+                parser.deleteClosedClock(it, headingPath, clockLineIndex)
+            }
+            if (save is SaveResult.Success) {
+                Result.success(Unit)
+            } else {
+                Result.failure(IllegalStateException(save.asMessage()))
+            }
         }
     }
 
     suspend fun createL1HeadingInFile(fileId: String, title: String, attachTplTag: Boolean = false): Result<Unit> {
-        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        val firstLines = runCatching {
-            parser.appendL1Heading(doc.lines, title, attachTplTag)
-        }.getOrElse { return Result.failure(it) }
-        val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
-            parser.appendL1Heading(it, title, attachTplTag)
-        }
-        return if (save is SaveResult.Success) {
-            Result.success(Unit)
-        } else {
-            Result.failure(IllegalStateException(save.asMessage()))
+        return fileOperationCoordinator.runExclusive(fileId) {
+            val doc = repository.loadFile(fileId).getOrElse { return@runExclusive Result.failure(it) }
+            val firstLines = runCatching {
+                parser.appendL1Heading(doc.lines, title, attachTplTag)
+            }.getOrElse { return@runExclusive Result.failure(it) }
+            val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
+                parser.appendL1Heading(it, title, attachTplTag)
+            }
+            if (save is SaveResult.Success) {
+                Result.success(Unit)
+            } else {
+                Result.failure(IllegalStateException(save.asMessage()))
+            }
         }
     }
 
@@ -292,17 +309,19 @@ class ClockService(
         title: String,
         attachTplTag: Boolean = false,
     ): Result<Unit> {
-        val doc = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        val firstLines = runCatching {
-            parser.appendL2HeadingUnderL1(doc.lines, parentPath, title, attachTplTag)
-        }.getOrElse { return Result.failure(it) }
-        val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
-            parser.appendL2HeadingUnderL1(it, parentPath, title, attachTplTag)
-        }
-        return if (save is SaveResult.Success) {
-            Result.success(Unit)
-        } else {
-            Result.failure(IllegalStateException(save.asMessage()))
+        return fileOperationCoordinator.runExclusive(fileId) {
+            val doc = repository.loadFile(fileId).getOrElse { return@runExclusive Result.failure(it) }
+            val firstLines = runCatching {
+                parser.appendL2HeadingUnderL1(doc.lines, parentPath, title, attachTplTag)
+            }.getOrElse { return@runExclusive Result.failure(it) }
+            val save = saveFileWithRetry(fileId, doc.hash, firstLines, FileWriteIntent.UserEdit) {
+                parser.appendL2HeadingUnderL1(it, parentPath, title, attachTplTag)
+            }
+            if (save is SaveResult.Success) {
+                Result.success(Unit)
+            } else {
+                Result.failure(IllegalStateException(save.asMessage()))
+            }
         }
     }
 

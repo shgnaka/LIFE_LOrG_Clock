@@ -13,8 +13,10 @@ import com.example.orgclock.data.RootAccessGateway
 import com.example.orgclock.data.SafOrgRepository
 import com.example.orgclock.domain.ClockMutationResult
 import com.example.orgclock.domain.ClockService
+import com.example.orgclock.domain.InMemoryFileOperationCoordinator
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.notification.ClockInNotificationService
+import com.example.orgclock.notification.ClockInScanResult
 import com.example.orgclock.notification.ClockInScanner
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.notification.NotificationPermissionChecker
@@ -50,12 +52,20 @@ interface AppGraph {
         notificationPermissionChecker: NotificationPermissionChecker,
     ): OrgClockRouteDependencies
 
+    fun notificationServiceDependencies(): NotificationServiceDependencies
+
     fun syncIntegrationService(): SyncIntegrationService
 }
 
 internal data class PublishTarget(
     val fileName: String,
     val headingPath: String,
+)
+
+data class NotificationServiceDependencies(
+    val openRoot: suspend (Uri) -> Result<Unit>,
+    val scan: suspend () -> Result<ClockInScanResult>,
+    val stopClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
 )
 
 class DefaultAppGraph(
@@ -65,7 +75,8 @@ class DefaultAppGraph(
     private val safRepository by lazy { SafOrgRepository(appContext) }
     private val repository: ClockRepository by lazy { safRepository }
     private val rootAccessGateway: RootAccessGateway by lazy { safRepository }
-    private val clockService by lazy { ClockService(repository) }
+    private val fileOperationCoordinator by lazy { InMemoryFileOperationCoordinator() }
+    private val clockService by lazy { ClockService(repository, fileOperationCoordinator = fileOperationCoordinator) }
     private val clockInScanner by lazy { ClockInScanner(repository) }
     private val notificationServiceConfig: NotificationServiceConfig = NotificationServiceConfig()
     private val syncCoreClientFactory: SyncCoreClientFactory by lazy {
@@ -280,6 +291,22 @@ class DefaultAppGraph(
     override fun syncIntegrationService(): SyncIntegrationService {
         SyncRuntimeEntryPoint.syncIntegrationService = syncIntegrationService
         return syncIntegrationService
+    }
+
+    override fun notificationServiceDependencies(): NotificationServiceDependencies {
+        ClockInNotificationService.clockEnvironmentFactory = { clockEnvironment }
+        return NotificationServiceDependencies(
+            openRoot = { uri -> rootAccessGateway.openRoot(uri) },
+            scan = { clockInScanner.scan(clockEnvironment.currentTimeZone()) },
+            stopClock = { fileId, headingPath ->
+                clockService.stopClockInFile(
+                    fileId,
+                    headingPath,
+                    clockEnvironment.now(),
+                    clockEnvironment.currentTimeZone(),
+                )
+            },
+        )
     }
 
     private suspend fun publishIfSaved(
