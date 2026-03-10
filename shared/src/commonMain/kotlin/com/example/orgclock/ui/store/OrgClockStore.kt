@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.LocalDateTime
@@ -93,9 +94,13 @@ class OrgClockStore(
     private var initialized = false
     private var headingsSyncJob: Job? = null
     private val inFlightClockOps = mutableSetOf<HeadingPath>()
+    private val inFlightClockOpsMutex = Mutex()
     private var editSaveInFlight = false
+    private val editSaveMutex = Mutex()
     private var createHeadingSubmitInFlight = false
+    private val createHeadingSubmitMutex = Mutex()
     private var deleteInFlight = false
+    private val deleteMutex = Mutex()
 
     init {
         if (syncFeatureEnabled) {
@@ -668,40 +673,65 @@ class OrgClockStore(
         _uiState.update { state -> state.copy(headings = state.headings.map { if (it.node.path == path) it.copy(openClock = openClock) else it }) }
     }
 
+    // These guards are touched from commonMain code, so we avoid JVM-only synchronized blocks.
+    private inline fun <T> withGuard(mutex: Mutex, block: () -> T): T {
+        while (!mutex.tryLock()) {
+            // Busy-wait only around tiny in-memory flag updates.
+        }
+        try {
+            return block()
+        } finally {
+            mutex.unlock()
+        }
+    }
+
     private fun beginClockMutation(path: HeadingPath): Boolean {
-        synchronized(inFlightClockOps) {
-            if (!inFlightClockOps.add(path)) return false
+        val added = withGuard(inFlightClockOpsMutex) {
+            inFlightClockOps.add(path)
+        }
+        if (!added) {
+            return false
         }
         updatePendingClock(path, true)
         return true
     }
 
     private fun finishClockMutation(path: HeadingPath) {
-        synchronized(inFlightClockOps) { inFlightClockOps.remove(path) }
+        withGuard(inFlightClockOpsMutex) {
+            inFlightClockOps.remove(path)
+        }
         updatePendingClock(path, false)
     }
 
     private fun beginEditSave(): Boolean {
         if (uiState.value.editingEntry == null || uiState.value.editingDraft == null) return false
-        synchronized(this) {
-            if (editSaveInFlight) return false
+        val started = withGuard(editSaveMutex) {
+            if (editSaveInFlight) {
+                return@withGuard false
+            }
             editSaveInFlight = true
+            true
         }
+        if (!started) return false
         _uiState.update { it.copy(editingInProgress = true) }
         return true
     }
 
     private fun finishEditSave() {
-        synchronized(this) { editSaveInFlight = false }
+        withGuard(editSaveMutex) { editSaveInFlight = false }
         _uiState.update { it.copy(editingInProgress = false) }
     }
 
     private fun beginCreateHeadingSubmit(): Boolean {
         if (uiState.value.createHeadingDialog == null) return false
-        synchronized(this) {
-            if (createHeadingSubmitInFlight) return false
+        val started = withGuard(createHeadingSubmitMutex) {
+            if (createHeadingSubmitInFlight) {
+                return@withGuard false
+            }
             createHeadingSubmitInFlight = true
+            true
         }
+        if (!started) return false
         _uiState.update { current ->
             val dialog = current.createHeadingDialog ?: return@update current
             current.copy(createHeadingDialog = dialog.copy(submitting = true))
@@ -710,7 +740,7 @@ class OrgClockStore(
     }
 
     private fun finishCreateHeadingSubmit(success: Boolean = false) {
-        synchronized(this) { createHeadingSubmitInFlight = false }
+        withGuard(createHeadingSubmitMutex) { createHeadingSubmitInFlight = false }
         if (success) return
         _uiState.update { current ->
             val dialog = current.createHeadingDialog ?: return@update current
@@ -720,16 +750,20 @@ class OrgClockStore(
 
     private fun beginDelete(): Boolean {
         if (uiState.value.deletingEntry == null) return false
-        synchronized(this) {
-            if (deleteInFlight) return false
+        val started = withGuard(deleteMutex) {
+            if (deleteInFlight) {
+                return@withGuard false
+            }
             deleteInFlight = true
+            true
         }
+        if (!started) return false
         _uiState.update { it.copy(deletingInProgress = true) }
         return true
     }
 
     private fun finishDelete() {
-        synchronized(this) { deleteInFlight = false }
+        withGuard(deleteMutex) { deleteInFlight = false }
         _uiState.update { it.copy(deletingInProgress = false) }
     }
 
