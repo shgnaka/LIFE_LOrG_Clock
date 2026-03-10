@@ -15,3 +15,14 @@ tasks.register("runDesktop") {
     description = "Runs the Compose Desktop host."
     dependsOn(":desktopApp:run")
 }
+tasks.register("verifyDesktopCompile") {
+    group = "verification"
+    description = "Compiles the Linux desktop MVP host."
+    dependsOn(":desktopApp:compileKotlin")
+}
+
+tasks.register("packageDesktopLinux") {
+    group = "distribution"
+    description = "Builds Linux desktop distribution artifacts for the MVP host."
+    dependsOn(":desktopApp:packageDistributionForCurrentOS")
+}
