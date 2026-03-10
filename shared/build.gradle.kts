@@ -13,6 +13,11 @@ kotlin {
             jvmTarget.set(JvmTarget.JVM_17)
         }
     }
+    jvm {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_17)
+        }
+    }
     val iosTargets = listOf(
         iosArm64(),
         iosSimulatorArm64(),
@@ -46,6 +51,11 @@ kotlin {
             dependencies {
                 implementation(kotlin("test"))
                 implementation("junit:junit:4.13.2")
+            }
+        }
+        val jvmTest by getting {
+            dependencies {
+                implementation(kotlin("test"))
             }
         }
         val iosArm64Main by getting
