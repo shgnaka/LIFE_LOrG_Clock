@@ -1,18 +1,5 @@
 package com.example.orgclock.sync
 
-data class SyncDeliveryState(
-    val commandId: String,
-    val state: String,
-    val detail: String? = null,
-)
-
-data class SyncMetricsSnapshot(
-    val commandsSubmittedTotal: Long = 0L,
-    val commandsAppliedTotal: Long = 0L,
-    val retryAttemptsTotal: Long = 0L,
-    val queueDepth: Long = 0L,
-)
-
 data class OutgoingClockCommand(
     val commandId: String,
     val payloadJson: String,

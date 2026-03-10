@@ -10,25 +10,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.logging.Logger
 
-data class SyncPeerState(
-    val peerId: String,
-    val reachable: Boolean? = null,
-    val lastCheckedAtEpochMs: Long? = null,
-    val lastSyncedAtEpochMs: Long? = null,
-)
-
-data class SyncIntegrationSnapshot(
-    val lastResult: ClockResultPayload? = null,
-    val lastError: String? = null,
-    val lastDeliveryStates: List<SyncDeliveryState> = emptyList(),
-    val metrics: SyncMetricsSnapshot = SyncMetricsSnapshot(),
-    val runtimeMode: SyncRuntimeMode = SyncRuntimeMode.Off,
-    val runtimeEnabled: Boolean = false,
-    val defaultPeerId: String? = null,
-    val trustedPeers: List<String> = emptyList(),
-    val peerStates: List<SyncPeerState> = emptyList(),
-)
-
 class SyncIntegrationService(
     private val featureFlag: SyncIntegrationFeatureFlag,
     private val syncCoreClient: OrgSyncCoreClient,
