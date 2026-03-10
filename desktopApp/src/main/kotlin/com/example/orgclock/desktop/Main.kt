@@ -19,6 +19,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.orgclock.presentation.OrgClockPresentationState
+import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.presentation.Screen
+import com.example.orgclock.presentation.StatusMessageKey
+import com.example.orgclock.presentation.StatusText
+import com.example.orgclock.presentation.StatusTone
+import com.example.orgclock.presentation.UiStatus
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 
@@ -33,6 +40,14 @@ fun main() = application {
 
 @Composable
 private fun DesktopApp() {
+    val state = OrgClockPresentationState(
+        screen = Screen.RootSetup,
+        rootReference = RootReference("/home/demo/org"),
+        status = UiStatus(
+            text = StatusText(StatusMessageKey.SelectOrgDirectory),
+            tone = StatusTone.Info,
+        ),
+    )
     MaterialTheme {
         Surface(modifier = Modifier.fillMaxSize()) {
             Box(
@@ -68,11 +83,11 @@ private fun DesktopApp() {
                             fontWeight = FontWeight.SemiBold,
                         )
                         Text(
-                            text = "Linux-first desktop host is wired for startup, compile checks, and package verification.",
+                            text = "Shared presentation contract loads on desktop without Android framework types.",
                             style = MaterialTheme.typography.bodyLarge,
                         )
                         Text(
-                            text = "Next steps: shared repository access, file browsing, and clock workflows.",
+                            text = "screen=${state.screen} | root=${state.rootReference?.rawValue}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = Color(0xFFD3E6D6),
                         )

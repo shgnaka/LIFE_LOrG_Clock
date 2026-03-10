@@ -16,6 +16,8 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.StatusMessageKey
+import com.example.orgclock.presentation.StatusText
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
@@ -40,7 +42,7 @@ class OrgClockScreenTest {
             OrgClockScreen(
                 state = OrgClockUiState(
                     screen = Screen.RootSetup,
-                    status = UiStatus(messageResId = R.string.status_select_org_directory, tone = StatusTone.Info),
+                    status = UiStatus(text = StatusText(StatusMessageKey.SelectOrgDirectory), tone = StatusTone.Info),
                 ),
                 performanceMonitor = PerformanceMonitor(composeRule.activity.window),
                 zoneIdProvider = { ZoneId.systemDefault() },
@@ -61,7 +63,10 @@ class OrgClockScreenTest {
                 state = OrgClockUiState(
                     screen = Screen.FilePicker,
                     files = listOf(OrgFileEntry("f1", "2026-02-16.org", null)),
-                    status = UiStatus(messageResId = R.string.status_loaded_file, messageArgs = listOf("2026-02-16.org"), tone = StatusTone.Success),
+                    status = UiStatus(
+                        text = StatusText(StatusMessageKey.LoadedFile, listOf("2026-02-16.org")),
+                        tone = StatusTone.Success,
+                    ),
                 ),
                 performanceMonitor = PerformanceMonitor(composeRule.activity.window),
                 zoneIdProvider = { ZoneId.systemDefault() },
@@ -84,7 +89,7 @@ class OrgClockScreenTest {
                     notificationEnabled = true,
                     notificationPermissionGranted = false,
                     notificationDisplayMode = NotificationDisplayMode.ActiveOnly,
-                    status = UiStatus(messageResId = R.string.status_notification_enabled, tone = StatusTone.Info),
+                    status = UiStatus(text = StatusText(StatusMessageKey.NotificationEnabled), tone = StatusTone.Info),
                 ),
                 performanceMonitor = PerformanceMonitor(composeRule.activity.window),
                 zoneIdProvider = { ZoneId.systemDefault() },

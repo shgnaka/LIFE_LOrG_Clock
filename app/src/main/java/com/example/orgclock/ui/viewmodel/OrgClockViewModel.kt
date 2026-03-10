@@ -1,10 +1,7 @@
 package com.example.orgclock.ui.viewmodel
 
-import android.net.Uri
-import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.domain.ClockOperationCode
 import com.example.orgclock.domain.ClockOperationException
@@ -14,6 +11,9 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.presentation.StatusMessageKey
+import com.example.orgclock.presentation.StatusText
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.sync.SyncRuntimeMode
@@ -41,9 +41,9 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 class OrgClockViewModel(
-    private val loadSavedUri: () -> Uri?,
-    private val saveUri: (Uri) -> Unit,
-    private val openRoot: suspend (Uri) -> Result<Unit>,
+    private val loadSavedRootReference: () -> RootReference?,
+    private val saveRootReference: (RootReference) -> Unit,
+    private val openRoot: suspend (RootReference) -> Result<Unit>,
     private val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     private val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     private val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
@@ -81,8 +81,8 @@ class OrgClockViewModel(
     private val todayProvider: () -> LocalDate = { LocalDate.now() },
     showPerfOverlay: Boolean,
 ) : ViewModel() {
-    private fun status(@StringRes messageResId: Int, tone: StatusTone, vararg messageArgs: Any): UiStatus {
-        return UiStatus(messageResId = messageResId, messageArgs = messageArgs.toList(), tone = tone)
+    private fun status(messageKey: StatusMessageKey, tone: StatusTone, vararg messageArgs: String): UiStatus {
+        return UiStatus(text = StatusText(messageKey, messageArgs.toList()), tone = tone)
     }
 
     private val _uiState = MutableStateFlow(
@@ -129,7 +129,7 @@ class OrgClockViewModel(
             }
 
             is OrgClockUiAction.PickRoot -> {
-                viewModelScope.launch { applyRoot(action.uri) }
+                viewModelScope.launch { applyRoot(action.rootReference) }
                 true
             }
 
@@ -536,7 +536,7 @@ class OrgClockViewModel(
             )
         }
         applySyncSnapshot(syncSnapshotFlow.value)
-        val saved = loadSavedUri()
+        val saved = loadSavedRootReference()
         if (saved == null) {
             _uiState.update { it.copy(screen = Screen.RootSetup) }
             return
@@ -578,7 +578,7 @@ class OrgClockViewModel(
                     createHeadingDialog = null,
                     screen = Screen.HeadingList,
                     status = if (updateStatus) {
-                        status(R.string.status_loaded_file, StatusTone.Success, file.displayName)
+                        status(StatusMessageKey.LoadedFile, StatusTone.Success, file.displayName)
                     } else {
                         it.status
                     },
@@ -587,7 +587,7 @@ class OrgClockViewModel(
         } else {
             val reason = loaded.exceptionOrNull()?.message ?: ""
             _uiState.update {
-                it.copy(status = status(R.string.status_failed_loading_headings, StatusTone.Error, reason))
+                it.copy(status = status(StatusMessageKey.FailedLoadingHeadings, StatusTone.Error, reason))
             }
         }
     }
@@ -598,7 +598,7 @@ class OrgClockViewModel(
             val reason = result.exceptionOrNull()?.message ?: ""
             _uiState.update {
                 it.copy(
-                    status = status(R.string.status_failed_listing_files, StatusTone.Error, reason),
+                    status = status(StatusMessageKey.FailedListingFiles, StatusTone.Error, reason),
                     screen = Screen.FilePicker,
                 )
             }
@@ -619,7 +619,7 @@ class OrgClockViewModel(
                     headings = emptyList(),
                     selectedHeadingPath = null,
                     screen = Screen.FilePicker,
-                    status = status(R.string.status_today_file_not_found, StatusTone.Warning),
+                    status = status(StatusMessageKey.TodayFileNotFound, StatusTone.Warning),
                 )
             }
         }
@@ -633,23 +633,23 @@ class OrgClockViewModel(
         }
     }
 
-    private suspend fun applyRoot(uri: Uri) {
-        val opened = openRoot(uri)
+    private suspend fun applyRoot(rootReference: RootReference) {
+        val opened = openRoot(rootReference)
         if (opened.isFailure) {
             val reason = opened.exceptionOrNull()?.message ?: ""
             _uiState.update {
                 it.copy(
-                    status = status(R.string.status_failed_open_root, StatusTone.Error, reason),
+                    status = status(StatusMessageKey.FailedOpenRoot, StatusTone.Error, reason),
                     screen = Screen.RootSetup,
                 )
             }
             return
         }
-        saveUri(uri)
+        saveRootReference(rootReference)
         _uiState.update {
             it.copy(
-                rootUri = uri,
-                status = status(R.string.status_root_set, StatusTone.Success),
+                rootReference = rootReference,
+                status = status(StatusMessageKey.RootSet, StatusTone.Success),
             )
         }
         refreshFilesAndRoute()
@@ -684,7 +684,7 @@ class OrgClockViewModel(
                 it.copy(
                     historyEntries = emptyList(),
                     historyLoading = false,
-                    status = status(R.string.status_failed_loading_history, StatusTone.Error, reason),
+                    status = status(StatusMessageKey.FailedLoadingHistory, StatusTone.Error, reason),
                 )
             }
         }
@@ -702,7 +702,7 @@ class OrgClockViewModel(
             _uiState.update {
                 it.copy(
                     historyEntries = emptyList(),
-                    status = status(R.string.status_failed_loading_history, StatusTone.Error, reason),
+                    status = status(StatusMessageKey.FailedLoadingHistory, StatusTone.Error, reason),
                 )
             }
         }
@@ -726,7 +726,7 @@ class OrgClockViewModel(
             finishClockMutation(path)
         }
         val status = if (result.isSuccess) {
-            status(R.string.status_clock_started, StatusTone.Success)
+            status(StatusMessageKey.ClockStarted, StatusTone.Success)
         } else {
             val error = result.exceptionOrNull()
             val msg = error?.message ?: ""
@@ -734,7 +734,7 @@ class OrgClockViewModel(
                 ClockOperationCode.AlreadyRunning -> StatusTone.Warning
                 else -> StatusTone.Error
             }
-            status(R.string.status_start_failed, tone, msg)
+            status(StatusMessageKey.StartFailed, tone, msg)
         }
         if (result.isSuccess) {
             val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt.toKotlinInstantCompat()
@@ -763,10 +763,10 @@ class OrgClockViewModel(
             finishClockMutation(path)
         }
         val status = if (result.isSuccess) {
-            status(R.string.status_clock_stopped, StatusTone.Success)
+            status(StatusMessageKey.ClockStopped, StatusTone.Success)
         } else {
             val reason = result.exceptionOrNull()?.message ?: ""
-            status(R.string.status_stop_failed, StatusTone.Error, reason)
+            status(StatusMessageKey.StopFailed, StatusTone.Error, reason)
         }
         if (result.isSuccess) {
             _uiState.update { it.copy(status = status) }
@@ -793,10 +793,10 @@ class OrgClockViewModel(
             finishClockMutation(path)
         }
         val status = if (result.isSuccess) {
-            status(R.string.status_clock_cancelled, StatusTone.Warning)
+            status(StatusMessageKey.ClockCancelled, StatusTone.Warning)
         } else {
             val reason = result.exceptionOrNull()?.message ?: ""
-            status(R.string.status_cancel_failed, StatusTone.Error, reason)
+            status(StatusMessageKey.CancelFailed, StatusTone.Error, reason)
         }
         if (result.isSuccess) {
             _uiState.update { it.copy(status = status) }
@@ -827,7 +827,7 @@ class OrgClockViewModel(
         if (updatedEnd.isBefore(updatedStart)) {
             _uiState.update {
                 it.copy(
-                    status = status(R.string.status_end_time_must_be_after_start, StatusTone.Warning),
+                    status = status(StatusMessageKey.EndTimeMustBeAfterStart, StatusTone.Warning),
                 )
             }
             finishEditSave()
@@ -849,7 +849,7 @@ class OrgClockViewModel(
         if (result.isSuccess) {
             _uiState.update {
                 it.copy(
-                    status = status(R.string.status_clock_history_updated, StatusTone.Success),
+                    status = status(StatusMessageKey.ClockHistoryDeleted, StatusTone.Success),
                     editingEntry = null,
                     editingDraft = null,
                 )
@@ -860,7 +860,7 @@ class OrgClockViewModel(
             val reason = result.exceptionOrNull()?.message ?: ""
             _uiState.update {
                 it.copy(
-                    status = status(R.string.status_update_failed, StatusTone.Error, reason),
+                    status = status(StatusMessageKey.DeleteFailed, StatusTone.Error, reason),
                 )
             }
         }
@@ -874,7 +874,7 @@ class OrgClockViewModel(
         val title = dialog.titleInput.trim()
         if (title.isEmpty()) {
             _uiState.update {
-                it.copy(status = status(R.string.status_heading_title_empty, StatusTone.Warning))
+                it.copy(status = status(StatusMessageKey.HeadingTitleEmpty, StatusTone.Warning))
             }
             finishCreateHeadingSubmit()
             return
@@ -888,7 +888,7 @@ class OrgClockViewModel(
                     if (parentPath == null) {
                         _uiState.update {
                             it.copy(
-                                status = status(R.string.status_parent_l1_missing, StatusTone.Error),
+                                status = status(StatusMessageKey.ParentL1Missing, StatusTone.Error),
                             )
                         }
                         finishCreateHeadingSubmit()
@@ -905,7 +905,7 @@ class OrgClockViewModel(
             _uiState.update {
                 it.copy(
                     createHeadingDialog = null,
-                    status = status(R.string.status_heading_created, StatusTone.Success),
+                    status = status(StatusMessageKey.HeadingCreated, StatusTone.Success),
                 )
             }
             synchronizeHeadings(file)
@@ -922,7 +922,7 @@ class OrgClockViewModel(
             val currentDialog = current.createHeadingDialog
             current.copy(
                 createHeadingDialog = currentDialog?.copy(submitting = false),
-                status = status(R.string.status_create_heading_failed, tone, message),
+                status = status(StatusMessageKey.CreateHeadingFailed, tone, message),
             )
         }
     }
@@ -942,7 +942,7 @@ class OrgClockViewModel(
                 it.copy(
                     deletingEntry = null,
                     deletingInProgress = false,
-                    status = status(R.string.status_clock_history_deleted, StatusTone.Success),
+                    status = status(StatusMessageKey.ClockHistoryUpdated, StatusTone.Success),
                 )
             }
             reloadHistoryIfNeeded()
@@ -952,7 +952,7 @@ class OrgClockViewModel(
             _uiState.update {
                 it.copy(
                     deletingInProgress = false,
-                    status = status(R.string.status_delete_failed, StatusTone.Error, reason),
+                    status = status(StatusMessageKey.UpdateFailed, StatusTone.Error, reason),
                 )
             }
         }
@@ -981,7 +981,7 @@ class OrgClockViewModel(
                     notificationPermissionGranted = true,
                     pendingEnableNotificationAfterPermission = false,
                     notificationPermissionRequestPending = false,
-                    status = status(R.string.status_notification_enabled, StatusTone.Success),
+                    status = status(StatusMessageKey.NotificationEnabled, StatusTone.Success),
                 )
             }
         } else {
@@ -990,7 +990,7 @@ class OrgClockViewModel(
                     notificationPermissionGranted = false,
                     pendingEnableNotificationAfterPermission = true,
                     notificationPermissionRequestPending = true,
-                    status = status(R.string.status_notification_permission_required, StatusTone.Warning),
+                    status = status(StatusMessageKey.NotificationPermissionRequired, StatusTone.Warning),
                 )
             }
         }
@@ -1001,7 +1001,7 @@ class OrgClockViewModel(
         _uiState.update {
             it.copy(
                 notificationDisplayMode = mode,
-                status = status(R.string.status_notification_display_mode_updated, StatusTone.Success),
+                status = status(StatusMessageKey.NotificationDisplayModeUpdated, StatusTone.Success),
             )
         }
     }
@@ -1016,7 +1016,7 @@ class OrgClockViewModel(
                     notificationPermissionGranted = true,
                     notificationPermissionRequestPending = false,
                     pendingEnableNotificationAfterPermission = false,
-                    status = status(R.string.status_notification_permission_granted, StatusTone.Success),
+                    status = status(StatusMessageKey.NotificationPermissionGranted, StatusTone.Success),
                 )
             } else {
                 if (state.pendingEnableNotificationAfterPermission) {
@@ -1028,7 +1028,7 @@ class OrgClockViewModel(
                     notificationPermissionRequestPending = false,
                     pendingEnableNotificationAfterPermission = false,
                     status = if (!granted && state.pendingEnableNotificationAfterPermission) {
-                        status(R.string.status_notification_permission_denied, StatusTone.Warning)
+                        status(StatusMessageKey.NotificationPermissionDenied, StatusTone.Warning)
                     } else {
                         state.status
                     },
@@ -1182,7 +1182,7 @@ class OrgClockViewModel(
         } else {
             val reason = loaded.exceptionOrNull()?.message ?: ""
             _uiState.update {
-                it.copy(status = status(R.string.status_failed_loading_headings, StatusTone.Error, reason))
+                it.copy(status = status(StatusMessageKey.FailedLoadingHeadings, StatusTone.Error, reason))
             }
         }
     }
@@ -1201,7 +1201,7 @@ class OrgClockViewModel(
             _uiState.update {
                 it.copy(
                     syncPeerInputError = probe.reason ?: "failed to reach peer",
-                    status = status(R.string.status_sync_peer_add_failed, StatusTone.Warning, probe.reason ?: "unknown"),
+                    status = status(StatusMessageKey.SyncPeerAddFailed, StatusTone.Warning, probe.reason ?: "unknown"),
                 )
             }
             return
@@ -1210,7 +1210,7 @@ class OrgClockViewModel(
             it.copy(
                 syncPeerInput = "",
                 syncPeerInputError = null,
-                status = status(R.string.status_sync_peer_added, StatusTone.Success, input),
+                status = status(StatusMessageKey.SyncPeerAdded, StatusTone.Success, input),
             )
         }
     }
@@ -1221,7 +1221,7 @@ class OrgClockViewModel(
         _uiState.update {
             it.copy(
                 syncPeerBusy = false,
-                status = status(R.string.status_sync_peer_removed, StatusTone.Success, peerId),
+                status = status(StatusMessageKey.SyncPeerRemoved, StatusTone.Success, peerId),
             )
         }
     }
@@ -1233,10 +1233,10 @@ class OrgClockViewModel(
             it.copy(
                 syncPeerBusy = false,
                 status = if (probe.reachable) {
-                    status(R.string.status_sync_peer_probe_ok, StatusTone.Success, peerId)
+                    status(StatusMessageKey.SyncPeerProbeOk, StatusTone.Success, peerId)
                 } else {
                     status(
-                        R.string.status_sync_peer_probe_failed,
+                        StatusMessageKey.SyncPeerProbeFailed,
                         StatusTone.Warning,
                         peerId,
                         probe.reason ?: "unknown",

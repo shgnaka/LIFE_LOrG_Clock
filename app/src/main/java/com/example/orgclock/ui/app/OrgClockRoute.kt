@@ -23,6 +23,7 @@ import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.ui.perf.PerformanceMonitor
@@ -38,9 +39,9 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 data class OrgClockRouteDependencies(
-    val loadSavedUri: () -> Uri?,
-    val saveUri: (Uri) -> Unit,
-    val openRoot: suspend (Uri) -> Result<Unit>,
+    val loadSavedRootReference: () -> RootReference?,
+    val saveSavedRootReference: (RootReference) -> Unit,
+    val openRoot: suspend (RootReference) -> Result<Unit>,
     val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
@@ -108,7 +109,7 @@ fun OrgClockRoute(
 
     val rootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
-            viewModel.onAction(OrgClockUiAction.PickRoot(uri))
+            viewModel.onAction(OrgClockUiAction.PickRoot(uri.toRootReference()))
         }
     }
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -152,7 +153,7 @@ fun OrgClockRoute(
     }
     val notificationSyncKey = remember(state) { buildNotificationSyncKey(state) }
     LaunchedEffect(notificationSyncKey) {
-        if (!state.notificationEnabled || state.rootUri == null) {
+        if (!state.notificationEnabled || state.rootReference == null) {
             dependencies.stopNotificationService()
             return@LaunchedEffect
         }
@@ -192,8 +193,8 @@ private fun orgClockViewModelFactory(
                 throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
             }
             val viewModel = OrgClockViewModel(
-                loadSavedUri = dependencies.loadSavedUri,
-                saveUri = dependencies.saveUri,
+                loadSavedRootReference = dependencies.loadSavedRootReference,
+                saveRootReference = dependencies.saveSavedRootReference,
                 openRoot = dependencies.openRoot,
                 listFiles = dependencies.listFiles,
                 listFilesWithOpenClock = dependencies.listFilesWithOpenClock,
@@ -237,7 +238,7 @@ private fun orgClockViewModelFactory(
 internal data class NotificationSyncKey(
     val notificationEnabled: Boolean,
     val notificationDisplayMode: NotificationDisplayMode,
-    val rootUri: Uri?,
+    val rootReference: RootReference?,
     val openClockFootprint: Set<String>,
 )
 
@@ -245,7 +246,7 @@ internal fun buildNotificationSyncKey(state: OrgClockUiState): NotificationSyncK
     return NotificationSyncKey(
         notificationEnabled = state.notificationEnabled,
         notificationDisplayMode = state.notificationDisplayMode,
-        rootUri = state.rootUri,
+        rootReference = state.rootReference,
         openClockFootprint = state.headings
             .asSequence()
             .filter { it.openClock != null }
@@ -255,3 +256,5 @@ internal fun buildNotificationSyncKey(state: OrgClockUiState): NotificationSyncK
 }
 
 private const val NOTIFICATION_SYNC_DEBOUNCE_MS = 120L
+
+private fun Uri.toRootReference(): RootReference = RootReference(toString())

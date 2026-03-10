@@ -1,6 +1,4 @@
 package com.example.orgclock.ui.app
-
-import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -78,6 +76,7 @@ import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
 import com.example.orgclock.ui.time.RUNNING_PANEL_TICK_MS
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncRuntimeMode
 import com.example.orgclock.time.toJavaZonedDateTime
@@ -203,7 +202,7 @@ fun OrgClockScreen(
 
             Screen.Settings -> SettingsScreen(
                 status = state.status,
-                rootUri = state.rootUri,
+                rootReference = state.rootReference,
                 notificationEnabled = state.notificationEnabled,
                 notificationDisplayMode = state.notificationDisplayMode,
                 notificationPermissionGranted = state.notificationPermissionGranted,
@@ -884,7 +883,7 @@ private fun BulkHeadingActionButton(
 @Composable
 private fun SettingsScreen(
     status: UiStatus,
-    rootUri: Uri?,
+    rootReference: RootReference?,
     notificationEnabled: Boolean,
     notificationDisplayMode: NotificationDisplayMode,
     notificationPermissionGranted: Boolean,
@@ -928,7 +927,7 @@ private fun SettingsScreen(
         SectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.current_root), style = MaterialTheme.typography.titleMedium)
-                Text(rootUri?.toString() ?: stringResource(R.string.none), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(rootReference?.rawValue ?: stringResource(R.string.none), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onChangeRoot) { Text(stringResource(R.string.change_org_directory)) }
                     Button(onClick = onBack) { Text(stringResource(R.string.back)) }
@@ -1155,7 +1154,7 @@ private fun StatusBanner(status: UiStatus) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = stringResource(status.messageResId, *status.messageArgs.toTypedArray()),
+            text = statusText(status),
             color = fg,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             style = MaterialTheme.typography.bodySmall,
