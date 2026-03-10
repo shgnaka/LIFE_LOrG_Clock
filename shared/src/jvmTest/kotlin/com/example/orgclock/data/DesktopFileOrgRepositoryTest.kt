@@ -22,6 +22,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class DesktopFileOrgRepositoryTest {
@@ -94,6 +95,50 @@ class DesktopFileOrgRepositoryTest {
         }
 
         assertIs<SaveResult.Conflict>(save)
+    }
+
+    @Test
+    fun saveFile_outsideRepositoryRoot_returnsValidationError() {
+        val root = tempRoot()
+        val outsideRoot = tempRoot()
+        val path = write(outsideRoot.resolve("2026-03-01.org"), "* External\n")
+        val repository = DesktopFileOrgRepository(root)
+
+        val save = runSuspend {
+            repository.saveFile(
+                fileId = path.absolutePathString(),
+                lines = listOf("* External", "** Updated"),
+                expectedHash = "irrelevant",
+                writeIntent = FileWriteIntent.UserEdit,
+            )
+        }
+
+        val error = assertIs<SaveResult.ValidationError>(save)
+        assertEquals("File is outside repository root", error.reason)
+    }
+
+    @Test
+    fun saveDaily_createsNewFileAndLoadDailyReturnsSavedDocument() {
+        val root = tempRoot()
+        val repository = DesktopFileOrgRepository(root)
+        val date = LocalDate(2026, 3, 2)
+
+        val before = runSuspend { repository.loadDaily(date) }.getOrThrow()
+        assertEquals(emptyList(), before.lines)
+
+        val save = runSuspend {
+            repository.saveDaily(
+                date = date,
+                lines = listOf("* Work", "** Project A"),
+                expectedHash = before.hash,
+            )
+        }
+
+        assertEquals(SaveResult.Success, save)
+        val loaded = runSuspend { repository.loadDaily(date) }.getOrThrow()
+        assertEquals(date, loaded.date)
+        assertEquals(listOf("* Work", "** Project A"), loaded.lines)
+        assertTrue(Files.exists(root.resolve("2026-03-02.org")))
     }
 
     @Test
