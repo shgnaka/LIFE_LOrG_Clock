@@ -36,7 +36,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(*desktopTargetFormats)
             packageName = "org-clock-desktop"
-            packageVersion = "0.1.0"
+            packageVersion = "1.0.0"
             description = "Linux-first desktop MVP host for Org Clock."
         }
     }
