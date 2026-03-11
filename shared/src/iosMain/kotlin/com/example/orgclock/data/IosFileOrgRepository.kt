@@ -31,7 +31,7 @@ class IosFileOrgRepository : ClockRepository {
         val names = fileManager.contentsOfDirectoryAtPath(rootPath, error = null)
             ?.filterIsInstance<String>()
             .orEmpty()
-            .filter { it.endsWith(".org", ignoreCase = true) }
+            .filter { OrgFileNames.isVisibleOrgFileName(it) }
 
         names.map { name ->
             val path = "$rootPath/$name"

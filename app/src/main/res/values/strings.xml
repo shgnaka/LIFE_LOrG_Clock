@@ -41,6 +41,14 @@
     <string name="notification_permission_not_granted">通知権限: 未許可</string>
     <string name="open_notification_settings">通知設定を開く</string>
     <string name="keep_notification_visible">通知を常に表示</string>
+    <string name="auto_generation_title">Auto generation</string>
+    <string name="auto_generation_description">テンプレートから日次/週次ルールで org ファイルを生成します。</string>
+    <string name="auto_generation_rule_daily">Daily</string>
+    <string name="auto_generation_rule_weekly">Weekly</string>
+    <string name="auto_generation_hour_label">Hour</string>
+    <string name="auto_generation_minute_label">Minute</string>
+    <string name="auto_generation_weekdays_label">Weekdays</string>
+    <string name="auto_generation_save">Save schedule</string>
     <string name="clock_history_title">Clock履歴: %1$s</string>
     <string name="clock_history_empty">履歴がありません。</string>
     <string name="clock_history_delete_title">Clock履歴削除</string>
@@ -87,6 +95,8 @@
     <string name="status_notification_display_mode_updated">通知の表示設定を更新しました</string>
     <string name="status_notification_permission_granted">通知権限を許可しました</string>
     <string name="status_notification_permission_denied">通知権限が拒否されました。Settingsから許可してください。</string>
+    <string name="status_invalid_auto_generation_time">自動生成の時刻が不正です</string>
+    <string name="status_auto_generation_schedule_saved">自動生成スケジュールを保存しました</string>
     <string name="notif_summary_no_active">稼働中の見出しはありません</string>
     <string name="notif_summary_scan_degraded">一部ファイルの読込に失敗しました（%1$d件）。アプリを開いて状態を確認してください</string>
     <string name="notif_summary_first_entry">%1$s / %2$s 開始 / %3$d分経過（タップでアプリを開く）</string>

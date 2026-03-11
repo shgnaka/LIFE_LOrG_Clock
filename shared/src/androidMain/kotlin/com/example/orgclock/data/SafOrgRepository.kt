@@ -100,7 +100,10 @@ class SafOrgRepository(
             rootDoc.listFiles()
                 .asSequence()
                 .filter { it.isFile }
-                .filter { it.name?.endsWith(".org", ignoreCase = true) == true }
+                .filter { file ->
+                    val name = file.name ?: return@filter false
+                    OrgFileNames.isVisibleOrgFileName(name)
+                }
                 .mapNotNull { file ->
                     val name = file.name ?: return@mapNotNull null
                     OrgFileEntry(
@@ -173,6 +176,71 @@ class SafOrgRepository(
                 SaveResult.IoError(it.message ?: "Unknown I/O error")
             }
         }
+
+    suspend fun loadTemplate(): Result<OrgDocument> = withContext(Dispatchers.IO) {
+        runCatching {
+            val rootDoc = root ?: throw IllegalStateException("Root is not opened")
+            val file = rootDoc.findFile(OrgFileNames.TEMPLATE_FILE_NAME)
+            val rawText = file?.let { readText(it.uri) }
+            val lines = rawText?.let(::parseLines).orEmpty()
+            OrgDocument(
+                date = parseDateFromFileName(OrgFileNames.TEMPLATE_FILE_NAME),
+                lines = lines,
+                hash = hash(canonicalText(lines)),
+            )
+        }
+    }
+
+    suspend fun saveTemplate(lines: List<String>, expectedHash: String): SaveResult = withContext(Dispatchers.IO) {
+        runCatching {
+            val rootDoc = root ?: return@withContext SaveResult.ValidationError("Root is not opened")
+            val fileName = OrgFileNames.TEMPLATE_FILE_NAME
+            val existing = rootDoc.findFile(fileName)
+            val existingRawText = existing?.let { readText(it.uri) }
+            val existingLines = existingRawText?.let(::parseLines).orEmpty()
+            val existingHash = hash(canonicalText(existingLines))
+            if (existingHash != expectedHash) {
+                return@withContext SaveResult.Conflict("File changed by another process.")
+            }
+
+            val target = existing ?: createDocumentExactName(rootDoc, fileName)
+                ?: return@withContext SaveResult.IoError("Failed to create file: $fileName")
+            val lineSeparator = existingRawText?.let(::detectLineSeparator) ?: "\n"
+            val keepTrailingNewline = existingRawText?.endsWith('\n') ?: false
+            val outputText = formatOutputText(lines, lineSeparator, keepTrailingNewline)
+            resolver.openOutputStream(target.uri, "wt").use { output ->
+                requireNotNull(output) { "Cannot open output file: $fileName" }
+                val writer = OutputStreamWriter(output)
+                writer.write(outputText)
+                writer.flush()
+            }
+            SaveResult.Success
+        }.getOrElse {
+            SaveResult.IoError(it.message ?: "Unknown I/O error")
+        }
+    }
+
+    suspend fun createDailyFromTemplateIfMissing(date: LocalDate): Result<Boolean> = withContext(Dispatchers.IO) {
+        runCatching {
+            val rootDoc = root ?: throw IllegalStateException("Root is not opened")
+            val dailyName = OrgPaths.dailyFileName(date)
+            if (rootDoc.findFile(dailyName) != null) {
+                return@runCatching false
+            }
+
+            val templateDoc = loadTemplate().getOrThrow()
+            if (templateDoc.lines.isEmpty()) {
+                return@runCatching false
+            }
+
+            when (val save = saveDaily(date, templateDoc.lines, expectedHash = "")) {
+                is SaveResult.Success -> true
+                is SaveResult.Conflict -> false
+                is SaveResult.ValidationError -> throw IllegalStateException(save.reason)
+                is SaveResult.IoError -> throw IllegalStateException(save.reason)
+            }
+        }
+    }
 
     private fun shouldCreateBackup(fileId: String, writeIntent: FileWriteIntent, nowMs: Long): Boolean {
         if (writeIntent == FileWriteIntent.UserEdit) return true
