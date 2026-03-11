@@ -1,45 +1,20 @@
 package com.example.orgclock.ui.state
 
-import android.net.Uri
-import androidx.compose.runtime.Immutable
-import androidx.annotation.StringRes
-import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.presentation.Screen
+import com.example.orgclock.presentation.StatusMessageKey
+import com.example.orgclock.presentation.StatusText
+import com.example.orgclock.presentation.StatusTone
+import com.example.orgclock.presentation.UiStatus
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncMetricsSnapshot
 import com.example.orgclock.sync.SyncRuntimeMode
 
-enum class Screen {
-    RootSetup,
-    FilePicker,
-    HeadingList,
-    Settings,
-}
-
-enum class StatusTone {
-    Info,
-    Success,
-    Warning,
-    Error,
-}
-
-enum class CreateHeadingMode {
-    L1,
-    L2,
-}
-
-@Immutable
-data class UiStatus(
-    @StringRes val messageResId: Int,
-    val messageArgs: List<Any> = emptyList(),
-    val tone: StatusTone,
-)
-
-@Immutable
 data class ClockEditDraft(
     val startHour: Int,
     val startMinute: Int,
@@ -47,7 +22,11 @@ data class ClockEditDraft(
     val endMinute: Int,
 )
 
-@Immutable
+enum class CreateHeadingMode {
+    L1,
+    L2,
+}
+
 data class PeerUiItem(
     val peerId: String,
     val reachable: Boolean? = null,
@@ -55,7 +34,6 @@ data class PeerUiItem(
     val lastSyncedAtEpochMs: Long? = null,
 )
 
-@Immutable
 data class CreateHeadingDialogState(
     val mode: CreateHeadingMode,
     val parentL1Path: HeadingPath? = null,
@@ -66,11 +44,13 @@ data class CreateHeadingDialogState(
     val submitting: Boolean = false,
 )
 
-@Immutable
 data class OrgClockUiState(
     val screen: Screen = Screen.RootSetup,
-    val rootUri: Uri? = null,
-    val status: UiStatus = UiStatus(R.string.status_select_org_directory, tone = StatusTone.Info),
+    val rootReference: RootReference? = null,
+    val status: UiStatus = UiStatus(
+        text = StatusText(StatusMessageKey.SelectOrgDirectory),
+        tone = StatusTone.Info,
+    ),
     val files: List<OrgFileEntry> = emptyList(),
     val filesWithOpenClock: Set<String> = emptySet(),
     val selectedFile: OrgFileEntry? = null,

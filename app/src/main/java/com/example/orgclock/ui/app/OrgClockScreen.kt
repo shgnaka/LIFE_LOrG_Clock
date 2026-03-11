@@ -1,6 +1,4 @@
 package com.example.orgclock.ui.app
-
-import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -20,8 +18,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
@@ -78,6 +78,7 @@ import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
 import com.example.orgclock.ui.time.RUNNING_PANEL_TICK_MS
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncRuntimeMode
 import com.example.orgclock.time.toJavaZonedDateTime
@@ -143,6 +144,11 @@ private sealed interface HeadingListRow {
 private val ClockStartTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private const val HeadingListTag = "heading_list"
 private const val RunningClocksPanelTag = "running_clocks_panel"
+private const val FileRowTagPrefix = "file_row:"
+private const val SettingsRootTag = "settings_root"
+private const val NotificationSectionTag = "settings_notification_section"
+private const val SyncSettingsSectionTag = "settings_sync_section"
+private const val SyncDebugSectionTag = "settings_sync_debug_section"
 private const val HeadingRowTagPrefix = "heading_row:"
 private const val RunningPanelRowTagPrefix = "running_panel_row:"
 private const val RunningPanelToggleTag = "running_panel_toggle"
@@ -203,7 +209,7 @@ fun OrgClockScreen(
 
             Screen.Settings -> SettingsScreen(
                 status = state.status,
-                rootUri = state.rootUri,
+                rootReference = state.rootReference,
                 notificationEnabled = state.notificationEnabled,
                 notificationDisplayMode = state.notificationDisplayMode,
                 notificationPermissionGranted = state.notificationPermissionGranted,
@@ -264,10 +270,12 @@ fun OrgClockScreen(
             )
         }
 
-        if (state.editingEntry != null && state.editingDraft != null) {
+        val editingEntry = state.editingEntry
+        val editingDraft = state.editingDraft
+        if (editingEntry != null && editingDraft != null) {
             EditClockEntryDialog(
-                entry = state.editingEntry,
-                draft = state.editingDraft,
+                entry = editingEntry,
+                draft = editingDraft,
                 editingInProgress = state.editingInProgress,
                 onCancel = { onAction(OrgClockUiAction.CancelEdit) },
                 onSelectStartHour = { onAction(OrgClockUiAction.SelectStartHour(it)) },
@@ -359,13 +367,17 @@ private fun FilePickerScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 items(files, key = { it.fileId }) { file ->
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier
                             .fillMaxWidth()
+                            .testTag(fileRowTag(file.fileId))
                             .semantics { role = Role.Button }
                             .clickable { onSelectFile(file) },
                     ) {
@@ -786,6 +798,7 @@ private fun RunningClocksPanel(
 
 private fun headingRowTag(path: HeadingPath): String = "$HeadingRowTagPrefix${path}"
 private fun runningPanelRowTag(path: HeadingPath): String = "$RunningPanelRowTagPrefix${path}"
+private fun fileRowTag(fileId: String): String = "$FileRowTagPrefix$fileId"
 
 @Composable
 private fun HeadingListTopBar(
@@ -884,7 +897,7 @@ private fun BulkHeadingActionButton(
 @Composable
 private fun SettingsScreen(
     status: UiStatus,
-    rootUri: Uri?,
+    rootReference: RootReference?,
     notificationEnabled: Boolean,
     notificationDisplayMode: NotificationDisplayMode,
     notificationPermissionGranted: Boolean,
@@ -920,6 +933,8 @@ private fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .testTag(SettingsRootTag)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -928,14 +943,14 @@ private fun SettingsScreen(
         SectionCard {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.current_root), style = MaterialTheme.typography.titleMedium)
-                Text(rootUri?.toString() ?: stringResource(R.string.none), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(rootReference?.rawValue ?: stringResource(R.string.none), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onChangeRoot) { Text(stringResource(R.string.change_org_directory)) }
                     Button(onClick = onBack) { Text(stringResource(R.string.back)) }
                 }
             }
         }
-        SectionCard {
+        SectionCard(modifier = Modifier.testTag(NotificationSectionTag)) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -985,7 +1000,7 @@ private fun SettingsScreen(
             }
         }
         if (syncFeatureVisible) {
-            SectionCard {
+            SectionCard(modifier = Modifier.testTag(SyncSettingsSectionTag)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.sync_settings_title), style = MaterialTheme.typography.titleMedium)
                     Row(
@@ -1075,7 +1090,7 @@ private fun SettingsScreen(
             }
         }
         if (syncDebugVisible) {
-            SectionCard {
+            SectionCard(modifier = Modifier.testTag(SyncDebugSectionTag)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.sync_debug_title), style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -1155,7 +1170,7 @@ private fun StatusBanner(status: UiStatus) {
         modifier = Modifier.fillMaxWidth(),
     ) {
         Text(
-            text = stringResource(status.messageResId, *status.messageArgs.toTypedArray()),
+            text = statusText(status),
             color = fg,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             style = MaterialTheme.typography.bodySmall,
@@ -1164,11 +1179,14 @@ private fun StatusBanner(status: UiStatus) {
 }
 
 @Composable
-private fun SectionCard(content: @Composable () -> Unit) {
+private fun SectionCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             content()

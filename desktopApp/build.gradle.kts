@@ -27,6 +27,11 @@ java {
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
+    implementation(project(":shared"))
+    implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
+
+    testImplementation(kotlin("test"))
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
 }
 
 compose.desktop {

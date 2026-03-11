@@ -22,6 +22,7 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.notification.NotificationPermissionChecker
 import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.notification.NotificationServiceConfig
+import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.BuildConfigSyncIntegrationFeatureFlag
 import com.example.orgclock.sync.ClockCommandKind
 import com.example.orgclock.sync.DefaultClockCommandExecutor
@@ -144,9 +145,11 @@ class DefaultAppGraph(
         }
 
         return OrgClockRouteDependencies(
-            loadSavedUri = { prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)?.let(Uri::parse) },
-            saveUri = { uri -> prefs.edit().putString(NotificationPrefs.KEY_ROOT_URI, uri.toString()).apply() },
-            openRoot = { uri -> rootAccessGateway.openRoot(uri) },
+            loadSavedRootReference = { prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)?.let(::RootReference) },
+            saveSavedRootReference = { rootReference ->
+                prefs.edit().putString(NotificationPrefs.KEY_ROOT_URI, rootReference.rawValue).apply()
+            },
+            openRoot = { rootReference -> rootAccessGateway.openRoot(rootReference) },
             listFiles = { repository.listOrgFiles() },
             listFilesWithOpenClock = {
                 clockInScanner.scan(clockEnvironment.currentTimeZone()).map { scanResult ->
@@ -296,7 +299,7 @@ class DefaultAppGraph(
     override fun notificationServiceDependencies(): NotificationServiceDependencies {
         ClockInNotificationService.clockEnvironmentFactory = { clockEnvironment }
         return NotificationServiceDependencies(
-            openRoot = { uri -> rootAccessGateway.openRoot(uri) },
+            openRoot = { uri -> rootAccessGateway.openRoot(RootReference(uri.toString())) },
             scan = { clockInScanner.scan(clockEnvironment.currentTimeZone()) },
             stopClock = { fileId, headingPath ->
                 clockService.stopClockInFile(

@@ -1,26 +1,25 @@
 package com.example.orgclock.ui.app
 
-import android.net.Uri
 import com.example.orgclock.model.HeadingNode
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.ui.state.OrgClockUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Test
-import org.mockito.Mockito
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
 class OrgClockRouteNotificationSyncTest {
     @Test
     fun buildNotificationSyncKey_ignoresLineChangesWhenOpenHeadingPathIsStable() {
-        val rootUri = Mockito.mock(Uri::class.java)
+        val rootUri = RootReference("content://orgclock/root")
         val state1 = OrgClockUiState(
-            rootUri = rootUri,
+            rootReference = rootUri,
             notificationEnabled = true,
             notificationDisplayMode = NotificationDisplayMode.ActiveOnly,
             headings = listOf(
@@ -40,9 +39,9 @@ class OrgClockRouteNotificationSyncTest {
 
     @Test
     fun buildNotificationSyncKey_changesWhenNotificationRelevantStateChanges() {
-        val rootUri = Mockito.mock(Uri::class.java)
+        val rootUri = RootReference("content://orgclock/root")
         val base = OrgClockUiState(
-            rootUri = rootUri,
+            rootReference = rootUri,
             notificationEnabled = true,
             notificationDisplayMode = NotificationDisplayMode.ActiveOnly,
             headings = listOf(

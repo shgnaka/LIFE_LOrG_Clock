@@ -27,6 +27,7 @@ internal fun CreateHeadingInputDialog(
     onSetTplTag: (Boolean) -> Unit,
     onSubmit: () -> Unit,
 ) {
+    val parentL1Title = dialog.parentL1Title
     val dialogTitle = if (dialog.mode == CreateHeadingMode.L1) {
         stringResource(R.string.create_l1_heading)
     } else {
@@ -42,9 +43,9 @@ internal fun CreateHeadingInputDialog(
         title = { Text(dialogTitle) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                if (dialog.mode == CreateHeadingMode.L2 && !dialog.parentL1Title.isNullOrBlank()) {
+                if (dialog.mode == CreateHeadingMode.L2 && !parentL1Title.isNullOrBlank()) {
                     Text(
-                        stringResource(R.string.parent_heading_label, dialog.parentL1Title),
+                        stringResource(R.string.parent_heading_label, parentL1Title),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
