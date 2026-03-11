@@ -82,6 +82,7 @@ import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncRuntimeMode
 import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.ui.theme.CalmBorder
 import com.example.orgclock.ui.theme.CalmOnAccent
@@ -96,7 +97,6 @@ import com.example.orgclock.ui.theme.StateWarningBg
 import com.example.orgclock.ui.theme.StateWarningFg
 import kotlinx.coroutines.delay
 import java.time.Duration
-import java.time.DayOfWeek
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -930,7 +930,7 @@ private fun SettingsScreen(
     autoGenerationRule: ScheduleRuleType,
     autoGenerationHourInput: String,
     autoGenerationMinuteInput: String,
-    autoGenerationDaysOfWeek: Set<DayOfWeek>,
+    autoGenerationDaysOfWeek: Set<ScheduleWeekday>,
     syncFeatureVisible: Boolean,
     syncDebugVisible: Boolean,
     syncRuntimeEnabled: Boolean,
@@ -952,7 +952,7 @@ private fun SettingsScreen(
     onSetAutoGenerationRule: (ScheduleRuleType) -> Unit,
     onUpdateAutoGenerationHour: (String) -> Unit,
     onUpdateAutoGenerationMinute: (String) -> Unit,
-    onToggleAutoGenerationDay: (DayOfWeek) -> Unit,
+    onToggleAutoGenerationDay: (ScheduleWeekday) -> Unit,
     onSaveAutoGenerationSchedule: () -> Unit,
     onSyncFlushNow: () -> Unit,
     onSyncEnableStandard: () -> Unit,
@@ -1102,7 +1102,7 @@ private fun SettingsScreen(
                             stringResource(R.string.auto_generation_weekdays_label),
                             style = MaterialTheme.typography.bodyMedium,
                         )
-                        DayOfWeek.entries.toList().chunked(4).forEach { rowDays ->
+                        ScheduleWeekday.entries.toList().chunked(4).forEach { rowDays ->
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 rowDays.forEach { day ->
                                     val selected = day in autoGenerationDaysOfWeek
@@ -1277,15 +1277,15 @@ private fun formatEpochMillis(epochMs: Long?): String {
     }.getOrDefault("-")
 }
 
-private fun dayLabel(dayOfWeek: DayOfWeek): String {
+private fun dayLabel(dayOfWeek: ScheduleWeekday): String {
     return when (dayOfWeek) {
-        DayOfWeek.MONDAY -> "Mon"
-        DayOfWeek.TUESDAY -> "Tue"
-        DayOfWeek.WEDNESDAY -> "Wed"
-        DayOfWeek.THURSDAY -> "Thu"
-        DayOfWeek.FRIDAY -> "Fri"
-        DayOfWeek.SATURDAY -> "Sat"
-        DayOfWeek.SUNDAY -> "Sun"
+        ScheduleWeekday.Monday -> "Mon"
+        ScheduleWeekday.Tuesday -> "Tue"
+        ScheduleWeekday.Wednesday -> "Wed"
+        ScheduleWeekday.Thursday -> "Thu"
+        ScheduleWeekday.Friday -> "Fri"
+        ScheduleWeekday.Saturday -> "Sat"
+        ScheduleWeekday.Sunday -> "Sun"
     }
 }
 

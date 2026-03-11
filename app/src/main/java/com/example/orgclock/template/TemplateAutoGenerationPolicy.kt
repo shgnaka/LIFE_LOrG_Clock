@@ -7,7 +7,7 @@ object TemplateAutoGenerationPolicy {
     fun isDue(now: ZonedDateTime, config: RootScheduleConfig): Boolean {
         if (!config.enabled) return false
         val today = now.dayOfWeek
-        if (config.ruleType == ScheduleRuleType.Weekly && today !in config.daysOfWeek) return false
+        if (config.ruleType == ScheduleRuleType.Weekly && today !in config.daysOfWeek.map { it.toJavaDayOfWeek() }.toSet()) return false
         val scheduled = now.withHour(config.hour).withMinute(config.minute).withSecond(0).withNano(0)
         return !now.isBefore(scheduled)
     }
@@ -16,7 +16,12 @@ object TemplateAutoGenerationPolicy {
         val base = now.withSecond(0).withNano(0)
         return when (config.ruleType) {
             ScheduleRuleType.Daily -> nextDailyRun(base, config.hour, config.minute)
-            ScheduleRuleType.Weekly -> nextWeeklyRun(base, config.hour, config.minute, config.daysOfWeek)
+            ScheduleRuleType.Weekly -> nextWeeklyRun(
+                base,
+                config.hour,
+                config.minute,
+                config.daysOfWeek.map { it.toJavaDayOfWeek() }.toSet(),
+            )
         }
     }
 
@@ -41,4 +46,14 @@ object TemplateAutoGenerationPolicy {
         }
         return now.plusWeeks(1).withHour(hour).withMinute(minute).withSecond(0).withNano(0)
     }
+}
+
+private fun ScheduleWeekday.toJavaDayOfWeek(): DayOfWeek = when (this) {
+    ScheduleWeekday.Monday -> DayOfWeek.MONDAY
+    ScheduleWeekday.Tuesday -> DayOfWeek.TUESDAY
+    ScheduleWeekday.Wednesday -> DayOfWeek.WEDNESDAY
+    ScheduleWeekday.Thursday -> DayOfWeek.THURSDAY
+    ScheduleWeekday.Friday -> DayOfWeek.FRIDAY
+    ScheduleWeekday.Saturday -> DayOfWeek.SATURDAY
+    ScheduleWeekday.Sunday -> DayOfWeek.SUNDAY
 }

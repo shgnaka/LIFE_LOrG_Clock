@@ -18,6 +18,7 @@ import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
@@ -42,7 +43,6 @@ import kotlinx.datetime.LocalTime
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.toInstant
-import java.time.DayOfWeek
 
 class OrgClockStore(
     private val scope: CoroutineScope,
@@ -890,7 +890,7 @@ class OrgClockStore(
             ruleType = uiState.value.autoGenerationRule,
             hour = hour,
             minute = minute,
-            daysOfWeek = uiState.value.autoGenerationDaysOfWeek.ifEmpty { setOf(DayOfWeek.MONDAY) },
+            daysOfWeek = uiState.value.autoGenerationDaysOfWeek.ifEmpty { setOf(ScheduleWeekday.Monday) },
         )
         saveRootScheduleConfig(config)
         syncRootScheduleConfig(config)
@@ -905,7 +905,7 @@ class OrgClockStore(
                 autoGenerationRule = config.ruleType,
                 autoGenerationHourInput = config.hour.toString().padStart(2, '0'),
                 autoGenerationMinuteInput = config.minute.toString().padStart(2, '0'),
-                autoGenerationDaysOfWeek = config.daysOfWeek.ifEmpty { setOf(DayOfWeek.MONDAY) },
+                autoGenerationDaysOfWeek = config.daysOfWeek.ifEmpty { setOf(ScheduleWeekday.Monday) },
             )
         }
     }

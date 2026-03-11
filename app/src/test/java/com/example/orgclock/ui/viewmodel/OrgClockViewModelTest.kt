@@ -15,6 +15,7 @@ import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
@@ -35,7 +36,6 @@ import org.junit.Test
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 import java.time.LocalDate
-import java.time.DayOfWeek
 import java.time.ZoneId
 import java.time.ZonedDateTime
 
@@ -327,7 +327,7 @@ class OrgClockViewModelTest {
         vm.onAction(OrgClockUiAction.SetAutoGenerationRule(ScheduleRuleType.Weekly))
         vm.onAction(OrgClockUiAction.UpdateAutoGenerationHour("09"))
         vm.onAction(OrgClockUiAction.UpdateAutoGenerationMinute("30"))
-        vm.onAction(OrgClockUiAction.ToggleAutoGenerationDay(DayOfWeek.WEDNESDAY))
+        vm.onAction(OrgClockUiAction.ToggleAutoGenerationDay(ScheduleWeekday.Wednesday))
         vm.onAction(OrgClockUiAction.SaveAutoGenerationSchedule)
         advanceUntilIdle()
 
@@ -336,7 +336,7 @@ class OrgClockViewModelTest {
         assertEquals(ScheduleRuleType.Weekly, savedConfig?.ruleType)
         assertEquals(9, savedConfig?.hour)
         assertEquals(30, savedConfig?.minute)
-        assertTrue(DayOfWeek.WEDNESDAY in (savedConfig?.daysOfWeek ?: emptySet()))
+        assertTrue(ScheduleWeekday.Wednesday in (savedConfig?.daysOfWeek ?: emptySet()))
     }
 
     @Test

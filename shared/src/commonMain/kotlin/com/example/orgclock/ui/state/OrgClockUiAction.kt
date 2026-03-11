@@ -7,7 +7,7 @@ import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.template.ScheduleRuleType
-import java.time.DayOfWeek
+import com.example.orgclock.template.ScheduleWeekday
 
 sealed interface OrgClockUiAction {
     data object Initialize : OrgClockUiAction
@@ -54,7 +54,7 @@ sealed interface OrgClockUiAction {
     data class SetAutoGenerationRule(val ruleType: ScheduleRuleType) : OrgClockUiAction
     data class UpdateAutoGenerationHour(val value: String) : OrgClockUiAction
     data class UpdateAutoGenerationMinute(val value: String) : OrgClockUiAction
-    data class ToggleAutoGenerationDay(val dayOfWeek: DayOfWeek) : OrgClockUiAction
+    data class ToggleAutoGenerationDay(val dayOfWeek: ScheduleWeekday) : OrgClockUiAction
     data object SaveAutoGenerationSchedule : OrgClockUiAction
     data object RefreshSyncDebug : OrgClockUiAction
     data object SyncFlushNow : OrgClockUiAction

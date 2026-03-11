@@ -8,6 +8,7 @@ import com.example.orgclock.domain.InMemoryFileOperationCoordinator
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.SyncIntegrationSnapshot
+import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.today
 import com.example.orgclock.ui.store.OrgClockStore
@@ -34,65 +35,82 @@ class DesktopAppGraph(
     private var openClockScanner: DesktopOpenClockScanner? = null
 
     fun createStore(scope: CoroutineScope): OrgClockStore {
+        val listFiles: suspend () -> Result<List<com.example.orgclock.data.OrgFileEntry>> = {
+            repository?.listOrgFiles() ?: Result.failure(missingRootError())
+        }
+        val listFilesWithOpenClock: suspend () -> Result<Set<String>> = {
+            openClockScanner
+                ?.scan(clockEnvironment.currentTimeZone())
+                ?.map { result -> result.entries.asSequence().map { it.fileId }.toSet() }
+                ?: Result.failure(missingRootError())
+        }
+        val listHeadings: suspend (String) -> Result<List<com.example.orgclock.model.HeadingViewItem>> = { fileId ->
+            clockService?.listHeadings(fileId, clockEnvironment.currentTimeZone())
+                ?: Result.failure(missingRootError())
+        }
+        val startClock: suspend (String, com.example.orgclock.model.HeadingPath) -> Result<com.example.orgclock.domain.ClockMutationResult> = { fileId, headingPath ->
+            clockService?.startClockInFile(fileId, headingPath, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                ?: Result.failure(missingRootError())
+        }
+        val stopClock: suspend (String, com.example.orgclock.model.HeadingPath) -> Result<com.example.orgclock.domain.ClockMutationResult> = { fileId, headingPath ->
+            clockService?.stopClockInFile(fileId, headingPath, clockEnvironment.now(), clockEnvironment.currentTimeZone())
+                ?: Result.failure(missingRootError())
+        }
+        val cancelClock: suspend (String, com.example.orgclock.model.HeadingPath) -> Result<com.example.orgclock.domain.ClockMutationResult> = { fileId, headingPath ->
+            clockService?.cancelClockInFile(fileId, headingPath)
+                ?: Result.failure(missingRootError())
+        }
+        val listClosedClocks: suspend (String, com.example.orgclock.model.HeadingPath) -> Result<List<com.example.orgclock.model.ClosedClockEntry>> = { fileId, headingPath ->
+            clockService?.listClosedClocksInFile(fileId, headingPath, clockEnvironment.currentTimeZone())
+                ?: Result.failure(missingRootError())
+        }
+        val editClosedClock: suspend (String, com.example.orgclock.model.HeadingPath, Int, Instant, Instant) -> Result<Unit> = { fileId, headingPath, lineIndex, start, end ->
+            clockService?.editClosedClockInFile(
+                fileId = fileId,
+                headingPath = headingPath,
+                clockLineIndex = lineIndex,
+                newStart = start,
+                newEnd = end,
+                timeZone = clockEnvironment.currentTimeZone(),
+            ) ?: Result.failure(missingRootError())
+        }
+        val deleteClosedClock: suspend (String, com.example.orgclock.model.HeadingPath, Int) -> Result<Unit> = { fileId, headingPath, lineIndex ->
+            clockService?.deleteClosedClockInFile(fileId, headingPath, lineIndex)
+                ?: Result.failure(missingRootError())
+        }
+        val createL1Heading: suspend (String, String, Boolean) -> Result<Unit> = { fileId, title, attachTplTag ->
+            clockService?.createL1HeadingInFile(fileId, title, attachTplTag)
+                ?: Result.failure(missingRootError())
+        }
+        val createL2Heading: suspend (String, com.example.orgclock.model.HeadingPath, String, Boolean) -> Result<Unit> = { fileId, parent, title, attachTplTag ->
+            clockService?.createL2HeadingInFile(fileId, parent, title, attachTplTag)
+                ?: Result.failure(missingRootError())
+        }
+
         return OrgClockStore(
             scope = scope,
             loadSavedRootReference = { settingsStore.load().lastRootReference },
             saveRootReference = { settingsStore.save(DesktopHostSettings(lastRootReference = it)) },
             openRoot = ::openRoot,
-            listFiles = { repository?.listOrgFiles() ?: Result.failure(missingRootError()) },
-            listFilesWithOpenClock = {
-                openClockScanner
-                    ?.scan(clockEnvironment.currentTimeZone())
-                    ?.map { result -> result.entries.asSequence().map { it.fileId }.toSet() }
-                    ?: Result.failure(missingRootError())
-            },
-            listHeadings = { fileId ->
-                clockService?.listHeadings(fileId, clockEnvironment.currentTimeZone())
-                    ?: Result.failure(missingRootError())
-            },
-            startClock = { fileId, headingPath ->
-                clockService?.startClockInFile(fileId, headingPath, clockEnvironment.now(), clockEnvironment.currentTimeZone())
-                    ?: Result.failure(missingRootError())
-            },
-            stopClock = { fileId, headingPath ->
-                clockService?.stopClockInFile(fileId, headingPath, clockEnvironment.now(), clockEnvironment.currentTimeZone())
-                    ?: Result.failure(missingRootError())
-            },
-            cancelClock = { fileId, headingPath ->
-                clockService?.cancelClockInFile(fileId, headingPath)
-                    ?: Result.failure(missingRootError())
-            },
-            listClosedClocks = { fileId, headingPath ->
-                clockService?.listClosedClocksInFile(fileId, headingPath, clockEnvironment.currentTimeZone())
-                    ?: Result.failure(missingRootError())
-            },
-            editClosedClock = { fileId, headingPath, lineIndex, start, end ->
-                clockService?.editClosedClockInFile(
-                    fileId = fileId,
-                    headingPath = headingPath,
-                    clockLineIndex = lineIndex,
-                    newStart = start,
-                    newEnd = end,
-                    timeZone = clockEnvironment.currentTimeZone(),
-                ) ?: Result.failure(missingRootError())
-            },
-            deleteClosedClock = { fileId, headingPath, lineIndex ->
-                clockService?.deleteClosedClockInFile(fileId, headingPath, lineIndex)
-                    ?: Result.failure(missingRootError())
-            },
-            createL1Heading = { fileId, title, attachTplTag ->
-                clockService?.createL1HeadingInFile(fileId, title, attachTplTag)
-                    ?: Result.failure(missingRootError())
-            },
-            createL2Heading = { fileId, parent, title, attachTplTag ->
-                clockService?.createL2HeadingInFile(fileId, parent, title, attachTplTag)
-                    ?: Result.failure(missingRootError())
-            },
+            listFiles = listFiles,
+            listFilesWithOpenClock = listFilesWithOpenClock,
+            listHeadings = listHeadings,
+            startClock = startClock,
+            stopClock = stopClock,
+            cancelClock = cancelClock,
+            listClosedClocks = listClosedClocks,
+            editClosedClock = editClosedClock,
+            deleteClosedClock = deleteClosedClock,
+            createL1Heading = createL1Heading,
+            createL2Heading = createL2Heading,
             loadNotificationEnabled = { false },
             saveNotificationEnabled = { },
             loadNotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
             saveNotificationDisplayMode = { },
             notificationPermissionGrantedProvider = { false },
+            loadRootScheduleConfig = { rootReference -> RootScheduleConfig(rootUri = rootReference.rawValue) },
+            saveRootScheduleConfig = {},
+            syncRootScheduleConfig = {},
             syncSnapshotFlow = disabledSyncSnapshotFlow,
             nowProvider = { clockEnvironment.now() },
             todayProvider = { clockEnvironment.today() },

@@ -1,6 +1,14 @@
 package com.example.orgclock.template
 
-import java.time.DayOfWeek
+enum class ScheduleWeekday {
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+    Sunday,
+}
 
 enum class ScheduleRuleType {
     Daily,
@@ -13,5 +21,5 @@ data class RootScheduleConfig(
     val ruleType: ScheduleRuleType = ScheduleRuleType.Daily,
     val hour: Int = 0,
     val minute: Int = 0,
-    val daysOfWeek: Set<DayOfWeek> = setOf(DayOfWeek.MONDAY),
+    val daysOfWeek: Set<ScheduleWeekday> = setOf(ScheduleWeekday.Monday),
 )

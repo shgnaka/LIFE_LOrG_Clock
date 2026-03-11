@@ -32,7 +32,7 @@ class TemplateAutoGenerationPolicyTest {
             ruleType = ScheduleRuleType.Weekly,
             hour = 9,
             minute = 0,
-            daysOfWeek = setOf(DayOfWeek.THURSDAY),
+            daysOfWeek = setOf(ScheduleWeekday.Thursday),
         )
 
         assertFalse(TemplateAutoGenerationPolicy.isDue(now, config))
@@ -47,7 +47,7 @@ class TemplateAutoGenerationPolicyTest {
             ruleType = ScheduleRuleType.Weekly,
             hour = 8,
             minute = 0,
-            daysOfWeek = setOf(DayOfWeek.MONDAY, DayOfWeek.FRIDAY),
+            daysOfWeek = setOf(ScheduleWeekday.Monday, ScheduleWeekday.Friday),
         )
 
         val nextRun = TemplateAutoGenerationPolicy.nextRunAt(now, config)
