@@ -105,6 +105,31 @@ class OrgClockScreenTest {
     }
 
     @Test
+    fun settingsScreen_showsAndroidSyncSectionsWhenEnabled() {
+        composeRule.setContent {
+            OrgClockScreen(
+                state = OrgClockUiState(
+                    screen = Screen.Settings,
+                    syncFeatureVisible = true,
+                    syncDebugVisible = true,
+                    syncRuntimeEnabled = true,
+                    syncDefaultPeerId = "peer-a",
+                    status = UiStatus(text = StatusText(StatusMessageKey.RootSet), tone = StatusTone.Info),
+                ),
+                performanceMonitor = PerformanceMonitor(composeRule.activity.window),
+                zoneIdProvider = { ZoneId.systemDefault() },
+                nowProvider = { ZonedDateTime.now() },
+                onPickRoot = {},
+                onAction = {},
+            )
+        }
+
+        composeRule.onNodeWithText("同期設定").assertIsDisplayed()
+        composeRule.onNodeWithText("Sync Debug").assertIsDisplayed()
+        composeRule.onNodeWithText("Sync enabled").assertIsDisplayed()
+    }
+
+    @Test
     fun headingListScreen_runningPanelStopButtonDispatchesStopAction() {
         val actions = mutableListOf<OrgClockUiAction>()
         val runningPath = HeadingPath.parse("Work/Active Task")
