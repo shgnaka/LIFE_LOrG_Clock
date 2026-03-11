@@ -72,6 +72,27 @@ class OrgClockViewModelTest {
     }
 
     @Test
+    fun initialize_preservesAndroidNotificationAndSyncFlagsAfterSharedExtraction() = runTest {
+        val vm = testViewModel(
+            loadNotificationEnabled = { false },
+            loadNotificationDisplayMode = { NotificationDisplayMode.Always },
+            notificationPermissionGrantedProvider = { false },
+            syncFeatureEnabled = true,
+            syncDebugEnabled = true,
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertFalse(state.notificationEnabled)
+        assertEquals(NotificationDisplayMode.Always, state.notificationDisplayMode)
+        assertFalse(state.notificationPermissionGranted)
+        assertTrue(state.syncFeatureVisible)
+        assertTrue(state.syncDebugVisible)
+    }
+
+    @Test
     fun selectFile_loadsHeadingsAndRoutesToHeadingList() = runTest {
         val file = OrgFileEntry("f_today", "2026-02-16.org", null)
         val vm = testViewModel(
@@ -799,6 +820,7 @@ class OrgClockViewModelTest {
             PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
         },
         syncFeatureEnabled: Boolean = false,
+        syncDebugEnabled: Boolean = false,
         nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
         todayProvider: () -> LocalDate = { LocalDate.now() },
     ): OrgClockViewModel {
@@ -826,6 +848,7 @@ class OrgClockViewModelTest {
             syncRevokePeer = syncRevokePeer,
             syncProbePeer = syncProbePeer,
             syncFeatureEnabled = syncFeatureEnabled,
+            syncDebugEnabled = syncDebugEnabled,
             nowProvider = nowProvider,
             todayProvider = todayProvider,
             showPerfOverlay = true,
