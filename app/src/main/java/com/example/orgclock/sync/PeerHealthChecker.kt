@@ -3,13 +3,6 @@ package com.example.orgclock.sync
 import java.net.HttpURLConnection
 import java.net.URI
 
-data class PeerProbeResult(
-    val peerId: String,
-    val reachable: Boolean,
-    val checkedAtEpochMs: Long,
-    val reason: String? = null,
-)
-
 interface PeerHealthChecker {
     suspend fun probe(peerId: String): PeerProbeResult
 }

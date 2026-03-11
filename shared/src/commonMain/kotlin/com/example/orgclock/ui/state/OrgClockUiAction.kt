@@ -1,17 +1,17 @@
 package com.example.orgclock.ui.state
 
-import android.net.Uri
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.template.ScheduleRuleType
 import java.time.DayOfWeek
 
 sealed interface OrgClockUiAction {
     data object Initialize : OrgClockUiAction
-    data class PickRoot(val uri: Uri) : OrgClockUiAction
+    data class PickRoot(val rootReference: RootReference) : OrgClockUiAction
     data class SelectFile(val file: OrgFileEntry) : OrgClockUiAction
     data class ToggleL1(val title: String) : OrgClockUiAction
     data object CollapseAll : OrgClockUiAction

@@ -7,6 +7,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.example.orgclock.data.SafOrgRepository
+import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.time.toKotlinLocalDateCompat
 import java.time.Duration
 import java.time.ZonedDateTime
@@ -47,7 +48,7 @@ class TemplateAutoGenerationScheduler(
         if (!TemplateAutoGenerationPolicy.isDue(now, config)) return
 
         val repository = repositoryFactory()
-        val opened = repository.openRoot(rootUri)
+        val opened = repository.openRoot(RootReference(rootUri.toString()))
         if (opened.isFailure) return
         repository.createDailyFromTemplateIfMissing(now.toLocalDate().toKotlinLocalDateCompat())
     }

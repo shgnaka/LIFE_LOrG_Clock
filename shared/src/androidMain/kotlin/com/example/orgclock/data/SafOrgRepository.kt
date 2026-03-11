@@ -7,6 +7,7 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.example.orgclock.model.OrgDocument
+import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.time.toKotlinInstant
 import com.example.orgclock.time.toKotlinLocalDateCompat
 import kotlinx.coroutines.Dispatchers
@@ -27,8 +28,9 @@ class SafOrgRepository(
     private var root: DocumentFile? = null
     private val lastClockBackupByFileId = mutableMapOf<String, Long>()
 
-    override suspend fun openRoot(uri: Uri): Result<Unit> = withContext(Dispatchers.IO) {
+    override suspend fun openRoot(rootReference: RootReference): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
+            val uri = Uri.parse(rootReference.rawValue)
             context.contentResolver.takePersistableUriPermission(
                 uri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,

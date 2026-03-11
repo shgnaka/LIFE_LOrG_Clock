@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.model.HeadingNode
@@ -16,6 +17,8 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.StatusMessageKey
+import com.example.orgclock.presentation.StatusText
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
@@ -40,7 +43,7 @@ class OrgClockScreenTest {
             OrgClockScreen(
                 state = OrgClockUiState(
                     screen = Screen.RootSetup,
-                    status = UiStatus(messageResId = R.string.status_select_org_directory, tone = StatusTone.Info),
+                    status = UiStatus(text = StatusText(StatusMessageKey.SelectOrgDirectory), tone = StatusTone.Info),
                 ),
                 performanceMonitor = PerformanceMonitor(composeRule.activity.window),
                 zoneIdProvider = { ZoneId.systemDefault() },
@@ -55,13 +58,16 @@ class OrgClockScreenTest {
     }
 
     @Test
-    fun filePickerScreen_showsSettingsAndFileTitle() {
+    fun filePickerScreen_showsSettingsEntry() {
         composeRule.setContent {
             OrgClockScreen(
                 state = OrgClockUiState(
                     screen = Screen.FilePicker,
                     files = listOf(OrgFileEntry("f1", "2026-02-16.org", null)),
-                    status = UiStatus(messageResId = R.string.status_loaded_file, messageArgs = listOf("2026-02-16.org"), tone = StatusTone.Success),
+                    status = UiStatus(
+                        text = StatusText(StatusMessageKey.LoadedFile, listOf("2026-02-16.org")),
+                        tone = StatusTone.Success,
+                    ),
                 ),
                 performanceMonitor = PerformanceMonitor(composeRule.activity.window),
                 zoneIdProvider = { ZoneId.systemDefault() },
@@ -72,6 +78,29 @@ class OrgClockScreenTest {
         }
 
         composeRule.onNodeWithText("Settings").assertIsDisplayed()
+    }
+
+    @Test
+    fun filePickerScreen_rendersProvidedFileRow() {
+        composeRule.setContent {
+            OrgClockScreen(
+                state = OrgClockUiState(
+                    screen = Screen.FilePicker,
+                    files = listOf(OrgFileEntry("f1", "2026-02-16.org", null)),
+                    status = UiStatus(
+                        text = StatusText(StatusMessageKey.LoadedFile, listOf("2026-02-16.org")),
+                        tone = StatusTone.Success,
+                    ),
+                ),
+                performanceMonitor = PerformanceMonitor(composeRule.activity.window),
+                zoneIdProvider = { ZoneId.systemDefault() },
+                nowProvider = { ZonedDateTime.now() },
+                onPickRoot = {},
+                onAction = {},
+            )
+        }
+
+        composeRule.onNodeWithTag(fileRowTag("f1")).assertIsDisplayed()
         composeRule.onNodeWithText("2026-02-16.org").assertIsDisplayed()
     }
 
@@ -84,7 +113,7 @@ class OrgClockScreenTest {
                     notificationEnabled = true,
                     notificationPermissionGranted = false,
                     notificationDisplayMode = NotificationDisplayMode.ActiveOnly,
-                    status = UiStatus(messageResId = R.string.status_notification_enabled, tone = StatusTone.Info),
+                    status = UiStatus(text = StatusText(StatusMessageKey.NotificationEnabled), tone = StatusTone.Info),
                 ),
                 performanceMonitor = PerformanceMonitor(composeRule.activity.window),
                 zoneIdProvider = { ZoneId.systemDefault() },
@@ -97,6 +126,55 @@ class OrgClockScreenTest {
         composeRule.onNodeWithText("Settings").assertIsDisplayed()
         composeRule.onNodeWithText("通知機能").assertIsDisplayed()
         composeRule.onNodeWithText("通知設定を開く").assertIsDisplayed()
+    }
+
+    @Test
+    fun settingsScreen_exposesSyncSettingsSectionWhenEnabled() {
+        composeRule.setContent {
+            OrgClockScreen(
+                state = OrgClockUiState(
+                    screen = Screen.Settings,
+                    syncFeatureVisible = true,
+                    syncDebugVisible = true,
+                    syncRuntimeEnabled = true,
+                    syncDefaultPeerId = "peer-a",
+                    status = UiStatus(text = StatusText(StatusMessageKey.RootSet), tone = StatusTone.Info),
+                ),
+                performanceMonitor = PerformanceMonitor(composeRule.activity.window),
+                zoneIdProvider = { ZoneId.systemDefault() },
+                nowProvider = { ZonedDateTime.now() },
+                onPickRoot = {},
+                onAction = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("settings_sync_section").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("同期設定").assertIsDisplayed()
+        composeRule.onNodeWithText("Sync enabled").assertIsDisplayed()
+    }
+
+    @Test
+    fun settingsScreen_exposesSyncDebugSectionWhenEnabled() {
+        composeRule.setContent {
+            OrgClockScreen(
+                state = OrgClockUiState(
+                    screen = Screen.Settings,
+                    syncFeatureVisible = true,
+                    syncDebugVisible = true,
+                    syncRuntimeEnabled = true,
+                    syncDefaultPeerId = "peer-a",
+                    status = UiStatus(text = StatusText(StatusMessageKey.RootSet), tone = StatusTone.Info),
+                ),
+                performanceMonitor = PerformanceMonitor(composeRule.activity.window),
+                zoneIdProvider = { ZoneId.systemDefault() },
+                nowProvider = { ZonedDateTime.now() },
+                onPickRoot = {},
+                onAction = {},
+            )
+        }
+
+        composeRule.onNodeWithTag("settings_sync_debug_section").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Sync Debug").assertIsDisplayed()
     }
 
     @Test
@@ -226,3 +304,4 @@ class OrgClockScreenTest {
 
 private fun headingRowTag(path: String): String = "heading_row:$path"
 private fun runningPanelRowTag(path: String): String = "running_panel_row:$path"
+private fun fileRowTag(fileId: String): String = "file_row:$fileId"

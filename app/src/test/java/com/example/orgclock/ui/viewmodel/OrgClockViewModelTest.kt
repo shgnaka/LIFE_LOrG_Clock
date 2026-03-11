@@ -1,7 +1,5 @@
 package com.example.orgclock.ui.viewmodel
 
-import android.net.Uri
-import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
 import com.example.orgclock.domain.ClockOperationCode
 import com.example.orgclock.domain.ClockOperationException
@@ -12,6 +10,8 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.ScheduleRuleType
@@ -34,7 +34,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TestWatcher
 import org.junit.runner.Description
-import org.mockito.Mockito
 import java.time.LocalDate
 import java.time.DayOfWeek
 import java.time.ZoneId
@@ -47,7 +46,7 @@ class OrgClockViewModelTest {
 
     @Test
     fun initialize_withoutSavedUri_staysOnRootSetup() = runTest {
-        val vm = testViewModel(loadSavedUri = { null })
+        val vm = testViewModel(loadSavedRootReference = { null })
 
         vm.onAction(OrgClockUiAction.Initialize)
         advanceUntilIdle()
@@ -57,11 +56,10 @@ class OrgClockViewModelTest {
 
     @Test
     fun initialize_withSavedUri_loadsFilesWithOpenClock() = runTest {
-        // Use a mocked Uri in JVM tests; Android Uri static factories/fields are not reliable here.
-        val savedUri = Mockito.mock(Uri::class.java)
+        val savedUri = RootReference("content://orgclock/root")
         val vm = testViewModel(
-            loadSavedUri = { savedUri },
-            openRoot = { uri ->
+            loadSavedRootReference = { savedUri },
+            openRoot = { _ ->
                 Result.success(Unit)
             },
             todayProvider = { LocalDate.of(2026, 2, 16) },
@@ -74,6 +72,27 @@ class OrgClockViewModelTest {
         advanceUntilIdle()
 
         assertEquals(setOf("f_today"), vm.uiState.value.filesWithOpenClock)
+    }
+
+    @Test
+    fun initialize_preservesAndroidNotificationAndSyncFlagsAfterSharedExtraction() = runTest {
+        val vm = testViewModel(
+            loadNotificationEnabled = { false },
+            loadNotificationDisplayMode = { NotificationDisplayMode.Always },
+            notificationPermissionGrantedProvider = { false },
+            syncFeatureEnabled = true,
+            syncDebugEnabled = true,
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertFalse(state.notificationEnabled)
+        assertEquals(NotificationDisplayMode.Always, state.notificationDisplayMode)
+        assertFalse(state.notificationPermissionGranted)
+        assertTrue(state.syncFeatureVisible)
+        assertTrue(state.syncDebugVisible)
     }
 
     @Test
@@ -144,7 +163,7 @@ class OrgClockViewModelTest {
 
         val status = vm.uiState.value.status
         assertEquals(StatusTone.Warning, status.tone)
-        assertEquals(R.string.status_start_failed, status.messageResId)
+        assertEquals(StatusMessageKey.StartFailed, status.text.key)
     }
 
     @Test
@@ -168,7 +187,7 @@ class OrgClockViewModelTest {
 
         val status = vm.uiState.value.status
         assertEquals(StatusTone.Error, status.tone)
-        assertEquals(R.string.status_start_failed, status.messageResId)
+        assertEquals(StatusMessageKey.StartFailed, status.text.key)
     }
 
     @Test
@@ -290,15 +309,14 @@ class OrgClockViewModelTest {
 
     @Test
     fun saveAutoGenerationSchedule_persistsAndSyncsConfig() = runTest {
-        val savedUri = Mockito.mock(Uri::class.java)
-        Mockito.`when`(savedUri.toString()).thenReturn("content://root")
+        val savedRootReference = RootReference("content://root")
         var savedConfig: RootScheduleConfig? = null
         var syncedConfig: RootScheduleConfig? = null
         val vm = testViewModel(
-            loadSavedUri = { savedUri },
+            loadSavedRootReference = { savedRootReference },
             openRoot = { Result.success(Unit) },
             todayProvider = { LocalDate.of(2026, 2, 16) },
-            loadRootScheduleConfig = { uri -> RootScheduleConfig(rootUri = uri.toString()) },
+            loadRootScheduleConfig = { rootReference -> RootScheduleConfig(rootUri = rootReference.rawValue) },
             saveRootScheduleConfig = { config -> savedConfig = config },
             syncRootScheduleConfig = { config -> syncedConfig = config },
         )
@@ -566,11 +584,11 @@ class OrgClockViewModelTest {
 
     @Test
     fun initialize_calledTwice_withSavedUri_runsInitializationOnlyOnce() = runTest {
-        val savedUri = Mockito.mock(Uri::class.java)
+        val savedUri = RootReference("content://orgclock/root")
         var openRootCalls = 0
         val vm = testViewModel(
-            loadSavedUri = { savedUri },
-            openRoot = { uri ->
+            loadSavedRootReference = { savedUri },
+            openRoot = { _ ->
                 openRootCalls += 1
                 Result.success(Unit)
             },
@@ -587,9 +605,9 @@ class OrgClockViewModelTest {
 
     @Test
     fun initialize_withSavedUri_openRootFailure_routesToRootSetupAndError() = runTest {
-        val savedUri = Mockito.mock(Uri::class.java)
+        val savedUri = RootReference("content://orgclock/root")
         val vm = testViewModel(
-            loadSavedUri = { savedUri },
+            loadSavedRootReference = { savedUri },
             openRoot = { Result.failure(IllegalStateException("permission denied")) },
         )
 
@@ -602,10 +620,10 @@ class OrgClockViewModelTest {
 
     @Test
     fun initialize_withRootAndListFilesFailure_routesToFilePickerWithError() = runTest {
-        val savedUri = Mockito.mock(Uri::class.java)
+        val savedUri = RootReference("content://orgclock/root")
         val vm = testViewModel(
-            loadSavedUri = { savedUri },
-            openRoot = { uri -> Result.success(Unit) },
+            loadSavedRootReference = { savedUri },
+            openRoot = { _ -> Result.success(Unit) },
             listFiles = { Result.failure(IllegalStateException("list failed")) },
         )
 
@@ -618,10 +636,10 @@ class OrgClockViewModelTest {
 
     @Test
     fun initialize_whenTodayFileMissing_setsWarningAndKeepsFilePicker() = runTest {
-        val savedUri = Mockito.mock(Uri::class.java)
+        val savedUri = RootReference("content://orgclock/root")
         val vm = testViewModel(
-            loadSavedUri = { savedUri },
-            openRoot = { uri -> Result.success(Unit) },
+            loadSavedRootReference = { savedUri },
+            openRoot = { _ -> Result.success(Unit) },
             todayProvider = { LocalDate.of(2026, 2, 16) },
             listFiles = { Result.success(listOf(OrgFileEntry("f1", "projects.org", null))) },
         )
@@ -824,9 +842,9 @@ class OrgClockViewModelTest {
     }
 
     private fun testViewModel(
-        loadSavedUri: () -> android.net.Uri? = { null },
-        saveUri: (android.net.Uri) -> Unit = {},
-        openRoot: suspend (android.net.Uri) -> Result<Unit> = {
+        loadSavedRootReference: () -> RootReference? = { null },
+        saveRootReference: (RootReference) -> Unit = {},
+        openRoot: suspend (RootReference) -> Result<Unit> = {
             Result.failure(UnsupportedOperationException())
         },
         listFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },
@@ -851,8 +869,8 @@ class OrgClockViewModelTest {
         loadNotificationDisplayMode: () -> NotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
         saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit = {},
         notificationPermissionGrantedProvider: () -> Boolean = { true },
-        loadRootScheduleConfig: (android.net.Uri) -> RootScheduleConfig = { uri ->
-            RootScheduleConfig(rootUri = uri.toString())
+        loadRootScheduleConfig: (RootReference) -> RootScheduleConfig = { rootReference ->
+            RootScheduleConfig(rootUri = rootReference.rawValue)
         },
         saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
@@ -865,12 +883,13 @@ class OrgClockViewModelTest {
             PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
         },
         syncFeatureEnabled: Boolean = false,
+        syncDebugEnabled: Boolean = false,
         nowProvider: () -> ZonedDateTime = { ZonedDateTime.now() },
         todayProvider: () -> LocalDate = { LocalDate.now() },
     ): OrgClockViewModel {
         return OrgClockViewModel(
-            loadSavedUri = loadSavedUri,
-            saveUri = saveUri,
+            loadSavedRootReference = loadSavedRootReference,
+            saveRootReference = saveRootReference,
             openRoot = openRoot,
             listFiles = listFiles,
             listFilesWithOpenClock = listFilesWithOpenClock,
@@ -896,6 +915,7 @@ class OrgClockViewModelTest {
             syncRevokePeer = syncRevokePeer,
             syncProbePeer = syncProbePeer,
             syncFeatureEnabled = syncFeatureEnabled,
+            syncDebugEnabled = syncDebugEnabled,
             nowProvider = nowProvider,
             todayProvider = todayProvider,
             showPerfOverlay = true,
