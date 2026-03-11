@@ -37,6 +37,7 @@ class DesktopFileOrgRepository(
     override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = runCatching {
         rootPath.listDirectoryEntries("*.org")
             .filter { it.isRegularFile() }
+            .filter { OrgFileNames.isVisibleOrgFileName(it.name) }
             .map { path ->
                 OrgFileEntry(
                     fileId = path.absolutePathString(),

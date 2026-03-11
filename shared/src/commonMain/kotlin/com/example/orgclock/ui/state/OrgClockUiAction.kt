@@ -6,6 +6,8 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 
 sealed interface OrgClockUiAction {
     data object Initialize : OrgClockUiAction
@@ -48,6 +50,12 @@ sealed interface OrgClockUiAction {
     data object RefreshNotificationPermissionState : OrgClockUiAction
     data object OpenAppNotificationSettings : OrgClockUiAction
     data object AppNotificationSettingsOpened : OrgClockUiAction
+    data class ToggleAutoGenerationEnabled(val enabled: Boolean) : OrgClockUiAction
+    data class SetAutoGenerationRule(val ruleType: ScheduleRuleType) : OrgClockUiAction
+    data class UpdateAutoGenerationHour(val value: String) : OrgClockUiAction
+    data class UpdateAutoGenerationMinute(val value: String) : OrgClockUiAction
+    data class ToggleAutoGenerationDay(val dayOfWeek: ScheduleWeekday) : OrgClockUiAction
+    data object SaveAutoGenerationSchedule : OrgClockUiAction
     data object RefreshSyncDebug : OrgClockUiAction
     data object SyncFlushNow : OrgClockUiAction
     data object SyncEnableStandard : OrgClockUiAction

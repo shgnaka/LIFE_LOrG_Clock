@@ -81,6 +81,8 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncRuntimeMode
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.ui.theme.CalmBorder
 import com.example.orgclock.ui.theme.CalmOnAccent
@@ -213,6 +215,11 @@ fun OrgClockScreen(
                 notificationEnabled = state.notificationEnabled,
                 notificationDisplayMode = state.notificationDisplayMode,
                 notificationPermissionGranted = state.notificationPermissionGranted,
+                autoGenerationEnabled = state.autoGenerationEnabled,
+                autoGenerationRule = state.autoGenerationRule,
+                autoGenerationHourInput = state.autoGenerationHourInput,
+                autoGenerationMinuteInput = state.autoGenerationMinuteInput,
+                autoGenerationDaysOfWeek = state.autoGenerationDaysOfWeek,
                 syncFeatureVisible = state.syncFeatureVisible,
                 syncDebugVisible = state.syncDebugVisible,
                 syncRuntimeEnabled = state.syncRuntimeEnabled,
@@ -235,6 +242,24 @@ fun OrgClockScreen(
                 },
                 onOpenAppNotificationSettings = {
                     onAction(OrgClockUiAction.OpenAppNotificationSettings)
+                },
+                onToggleAutoGenerationEnabled = {
+                    onAction(OrgClockUiAction.ToggleAutoGenerationEnabled(it))
+                },
+                onSetAutoGenerationRule = {
+                    onAction(OrgClockUiAction.SetAutoGenerationRule(it))
+                },
+                onUpdateAutoGenerationHour = {
+                    onAction(OrgClockUiAction.UpdateAutoGenerationHour(it))
+                },
+                onUpdateAutoGenerationMinute = {
+                    onAction(OrgClockUiAction.UpdateAutoGenerationMinute(it))
+                },
+                onToggleAutoGenerationDay = {
+                    onAction(OrgClockUiAction.ToggleAutoGenerationDay(it))
+                },
+                onSaveAutoGenerationSchedule = {
+                    onAction(OrgClockUiAction.SaveAutoGenerationSchedule)
                 },
                 onSyncFlushNow = { onAction(OrgClockUiAction.SyncFlushNow) },
                 onSyncEnableStandard = { onAction(OrgClockUiAction.SyncEnableStandard) },
@@ -901,6 +926,11 @@ private fun SettingsScreen(
     notificationEnabled: Boolean,
     notificationDisplayMode: NotificationDisplayMode,
     notificationPermissionGranted: Boolean,
+    autoGenerationEnabled: Boolean,
+    autoGenerationRule: ScheduleRuleType,
+    autoGenerationHourInput: String,
+    autoGenerationMinuteInput: String,
+    autoGenerationDaysOfWeek: Set<ScheduleWeekday>,
     syncFeatureVisible: Boolean,
     syncDebugVisible: Boolean,
     syncRuntimeEnabled: Boolean,
@@ -918,6 +948,12 @@ private fun SettingsScreen(
     onToggleNotificationEnabled: (Boolean) -> Unit,
     onChangeNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     onOpenAppNotificationSettings: () -> Unit,
+    onToggleAutoGenerationEnabled: (Boolean) -> Unit,
+    onSetAutoGenerationRule: (ScheduleRuleType) -> Unit,
+    onUpdateAutoGenerationHour: (String) -> Unit,
+    onUpdateAutoGenerationMinute: (String) -> Unit,
+    onToggleAutoGenerationDay: (ScheduleWeekday) -> Unit,
+    onSaveAutoGenerationSchedule: () -> Unit,
     onSyncFlushNow: () -> Unit,
     onSyncEnableStandard: () -> Unit,
     onSyncEnableActive: () -> Unit,
@@ -996,6 +1032,98 @@ private fun SettingsScreen(
                         },
                         enabled = notificationEnabled,
                     )
+                }
+            }
+        }
+        SectionCard {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(stringResource(R.string.auto_generation_title), style = MaterialTheme.typography.titleMedium)
+                    Switch(
+                        checked = autoGenerationEnabled,
+                        onCheckedChange = onToggleAutoGenerationEnabled,
+                        enabled = rootReference != null,
+                    )
+                }
+                Text(
+                    stringResource(R.string.auto_generation_description),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onSetAutoGenerationRule(ScheduleRuleType.Daily) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (autoGenerationRule == ScheduleRuleType.Daily) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                        ),
+                    ) {
+                        Text(stringResource(R.string.auto_generation_rule_daily))
+                    }
+                    Button(
+                        onClick = { onSetAutoGenerationRule(ScheduleRuleType.Weekly) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (autoGenerationRule == ScheduleRuleType.Weekly) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                        ),
+                    ) {
+                        Text(stringResource(R.string.auto_generation_rule_weekly))
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = autoGenerationHourInput,
+                        onValueChange = onUpdateAutoGenerationHour,
+                        label = { Text(stringResource(R.string.auto_generation_hour_label)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = autoGenerationMinuteInput,
+                        onValueChange = onUpdateAutoGenerationMinute,
+                        label = { Text(stringResource(R.string.auto_generation_minute_label)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (autoGenerationRule == ScheduleRuleType.Weekly) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            stringResource(R.string.auto_generation_weekdays_label),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        ScheduleWeekday.entries.toList().chunked(4).forEach { rowDays ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                rowDays.forEach { day ->
+                                    val selected = day in autoGenerationDaysOfWeek
+                                    TextButton(
+                                        onClick = { onToggleAutoGenerationDay(day) },
+                                    ) {
+                                        Text(
+                                            dayLabel(day),
+                                            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Button(
+                    onClick = onSaveAutoGenerationSchedule,
+                    enabled = rootReference != null,
+                ) {
+                    Text(stringResource(R.string.auto_generation_save))
                 }
             }
         }
@@ -1147,6 +1275,18 @@ private fun formatEpochMillis(epochMs: Long?): String {
             .withLocale(Locale.getDefault())
             .format(instant.atZone(ZoneId.systemDefault()))
     }.getOrDefault("-")
+}
+
+private fun dayLabel(dayOfWeek: ScheduleWeekday): String {
+    return when (dayOfWeek) {
+        ScheduleWeekday.Monday -> "Mon"
+        ScheduleWeekday.Tuesday -> "Tue"
+        ScheduleWeekday.Wednesday -> "Wed"
+        ScheduleWeekday.Thursday -> "Thu"
+        ScheduleWeekday.Friday -> "Fri"
+        ScheduleWeekday.Saturday -> "Sat"
+        ScheduleWeekday.Sunday -> "Sun"
+    }
 }
 
 @Composable

@@ -13,6 +13,9 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.sync.PeerProbeResult
+import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
@@ -280,6 +283,60 @@ class OrgClockViewModelTest {
 
         assertTrue(vm.uiState.value.createHeadingDialog != null)
         assertEquals(StatusTone.Warning, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun submitCreateHeading_withTplTag_syncsTemplate() = runTest {
+        var syncedFileId: String? = null
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            syncTemplateTaggedHeading = { fileId ->
+                syncedFileId = fileId
+                Result.success(true)
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-02-16.org", null)))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.OpenCreateL1Dialog)
+        vm.onAction(OrgClockUiAction.SetCreateHeadingTplTag(true))
+        vm.onAction(OrgClockUiAction.UpdateCreateHeadingTitle("Template Seed"))
+        vm.onAction(OrgClockUiAction.SubmitCreateHeading)
+        advanceUntilIdle()
+
+        assertEquals("f1", syncedFileId)
+    }
+
+    @Test
+    fun saveAutoGenerationSchedule_persistsAndSyncsConfig() = runTest {
+        val savedRootReference = RootReference("content://root")
+        var savedConfig: RootScheduleConfig? = null
+        var syncedConfig: RootScheduleConfig? = null
+        val vm = testViewModel(
+            loadSavedRootReference = { savedRootReference },
+            openRoot = { Result.success(Unit) },
+            todayProvider = { LocalDate.of(2026, 2, 16) },
+            loadRootScheduleConfig = { rootReference -> RootScheduleConfig(rootUri = rootReference.rawValue) },
+            saveRootScheduleConfig = { config -> savedConfig = config },
+            syncRootScheduleConfig = { config -> syncedConfig = config },
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.ToggleAutoGenerationEnabled(true))
+        vm.onAction(OrgClockUiAction.SetAutoGenerationRule(ScheduleRuleType.Weekly))
+        vm.onAction(OrgClockUiAction.UpdateAutoGenerationHour("09"))
+        vm.onAction(OrgClockUiAction.UpdateAutoGenerationMinute("30"))
+        vm.onAction(OrgClockUiAction.ToggleAutoGenerationDay(ScheduleWeekday.Wednesday))
+        vm.onAction(OrgClockUiAction.SaveAutoGenerationSchedule)
+        advanceUntilIdle()
+
+        assertEquals(savedConfig, syncedConfig)
+        assertEquals(true, savedConfig?.enabled)
+        assertEquals(ScheduleRuleType.Weekly, savedConfig?.ruleType)
+        assertEquals(9, savedConfig?.hour)
+        assertEquals(30, savedConfig?.minute)
+        assertTrue(ScheduleWeekday.Wednesday in (savedConfig?.daysOfWeek ?: emptySet()))
     }
 
     @Test
@@ -812,6 +869,12 @@ class OrgClockViewModelTest {
         loadNotificationDisplayMode: () -> NotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
         saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit = {},
         notificationPermissionGrantedProvider: () -> Boolean = { true },
+        loadRootScheduleConfig: (RootReference) -> RootScheduleConfig = { rootReference ->
+            RootScheduleConfig(rootUri = rootReference.rawValue)
+        },
+        saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
+        syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
+        syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
         syncAddTrustedPeer: suspend (String) -> PeerProbeResult = { peerId ->
             PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
         },
@@ -844,6 +907,10 @@ class OrgClockViewModelTest {
             loadNotificationDisplayMode = loadNotificationDisplayMode,
             saveNotificationDisplayMode = saveNotificationDisplayMode,
             notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
+            loadRootScheduleConfig = loadRootScheduleConfig,
+            saveRootScheduleConfig = saveRootScheduleConfig,
+            syncRootScheduleConfig = syncRootScheduleConfig,
+            syncTemplateTaggedHeading = syncTemplateTaggedHeading,
             syncAddTrustedPeer = syncAddTrustedPeer,
             syncRevokePeer = syncRevokePeer,
             syncProbePeer = syncProbePeer,

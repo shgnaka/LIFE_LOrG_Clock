@@ -37,6 +37,8 @@ internal fun statusText(status: UiStatus): String {
         StatusMessageKey.NotificationDisplayModeUpdated -> R.string.status_notification_display_mode_updated
         StatusMessageKey.NotificationPermissionGranted -> R.string.status_notification_permission_granted
         StatusMessageKey.NotificationPermissionDenied -> R.string.status_notification_permission_denied
+        StatusMessageKey.InvalidAutoGenerationTime -> R.string.status_invalid_auto_generation_time
+        StatusMessageKey.AutoGenerationScheduleSaved -> R.string.status_auto_generation_schedule_saved
         StatusMessageKey.SyncPeerAddFailed -> R.string.status_sync_peer_add_failed
         StatusMessageKey.SyncPeerAdded -> R.string.status_sync_peer_added
         StatusMessageKey.SyncPeerRemoved -> R.string.status_sync_peer_removed

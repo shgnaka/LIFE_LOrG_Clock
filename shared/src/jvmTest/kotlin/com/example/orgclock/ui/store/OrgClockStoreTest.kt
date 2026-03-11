@@ -12,6 +12,7 @@ import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.presentation.StatusMessageKey
+import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -354,6 +355,11 @@ class OrgClockStoreTest {
         deleteClosedClock: suspend (String, HeadingPath, Int) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         createL1Heading: suspend (String, String, Boolean) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         createL2Heading: suspend (String, HeadingPath, String, Boolean) -> Result<Unit> = { _, _, _, _ -> Result.success(Unit) },
+        loadRootScheduleConfig: (RootReference) -> RootScheduleConfig = { rootReference ->
+            RootScheduleConfig(rootUri = rootReference.rawValue)
+        },
+        saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
+        syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
     ): OrgClockStore {
         return OrgClockStore(
             scope = scope,
@@ -376,6 +382,9 @@ class OrgClockStoreTest {
             loadNotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
             saveNotificationDisplayMode = {},
             notificationPermissionGrantedProvider = { true },
+            loadRootScheduleConfig = loadRootScheduleConfig,
+            saveRootScheduleConfig = saveRootScheduleConfig,
+            syncRootScheduleConfig = syncRootScheduleConfig,
             nowProvider = { Instant.parse("2026-03-10T09:00:00Z") },
             todayProvider = { LocalDate(2026, 3, 10) },
             timeZoneProvider = { TimeZone.UTC },

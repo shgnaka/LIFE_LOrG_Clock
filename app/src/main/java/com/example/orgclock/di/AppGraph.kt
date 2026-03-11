@@ -36,6 +36,10 @@ import com.example.orgclock.sync.SyncCoreClientFactory
 import com.example.orgclock.sync.SyncIntegrationService
 import com.example.orgclock.sync.SyncRuntimeEntryPoint
 import com.example.orgclock.sync.SyncRuntimeManager
+import com.example.orgclock.template.RootScheduleStore
+import com.example.orgclock.template.TemplateAutoGenerationEntryPoint
+import com.example.orgclock.template.TemplateAutoGenerationScheduler
+import com.example.orgclock.template.TemplateSyncService
 import androidx.lifecycle.lifecycleScope
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
@@ -83,9 +87,20 @@ class DefaultAppGraph(
     private val syncCoreClientFactory: SyncCoreClientFactory by lazy {
         loadSyncCoreClientFactory()
     }
+    private val prefs by lazy {
+        appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
+    }
+    private val rootScheduleStore by lazy { RootScheduleStore(prefs) }
+    private val templateSyncService by lazy { TemplateSyncService(safRepository) }
+    private val templateAutoGenerationScheduler by lazy {
+        TemplateAutoGenerationScheduler(
+            appContext = appContext,
+            scheduleStore = rootScheduleStore,
+        )
+    }
     private val runtimePrefs by lazy {
         SharedPreferencesSyncRuntimePrefs(
-            appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
+            prefs,
         )
     }
     private val deviceIdProvider by lazy {
@@ -94,7 +109,6 @@ class DefaultAppGraph(
         )
     }
     private val syncIntegrationService: SyncIntegrationService by lazy {
-        val prefs = appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
         val commandIdStore = RoomCommandIdStore.create(appContext)
         val orgSyncCoreClient = syncCoreClientFactory.create(
             appContext = appContext,
@@ -131,8 +145,8 @@ class DefaultAppGraph(
         activity: ComponentActivity,
         notificationPermissionChecker: NotificationPermissionChecker,
     ): OrgClockRouteDependencies {
-        val prefs = activity.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
         ClockInNotificationService.clockEnvironmentFactory = { clockEnvironment }
+        TemplateAutoGenerationEntryPoint.scheduler = templateAutoGenerationScheduler
         val localPublisher = LocalClockOperationPublisher(
             syncIntegrationService = syncIntegrationService,
             deviceIdProvider = deviceIdProvider,
@@ -234,6 +248,18 @@ class DefaultAppGraph(
             notificationPermissionGrantedProvider = {
                 notificationPermissionChecker.isGranted(activity)
             },
+            loadRootScheduleConfig = { rootReference ->
+                rootScheduleStore.load(rootReference.rawValue)
+            },
+            saveRootScheduleConfig = { config ->
+                rootScheduleStore.save(config)
+            },
+            syncRootScheduleConfig = { config ->
+                templateAutoGenerationScheduler.sync(Uri.parse(config.rootUri), config)
+            },
+            syncTemplateTaggedHeading = { fileId ->
+                templateSyncService.syncFromFile(fileId)
+            },
             syncNotificationService = { enabled, mode ->
                 ClockInNotificationService.sync(
                     context = activity,
@@ -293,6 +319,7 @@ class DefaultAppGraph(
 
     override fun syncIntegrationService(): SyncIntegrationService {
         SyncRuntimeEntryPoint.syncIntegrationService = syncIntegrationService
+        TemplateAutoGenerationEntryPoint.scheduler = templateAutoGenerationScheduler
         return syncIntegrationService
     }
 

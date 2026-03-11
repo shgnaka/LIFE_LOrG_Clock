@@ -16,6 +16,9 @@ import com.example.orgclock.presentation.StatusTone
 import com.example.orgclock.presentation.UiStatus
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
+import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
@@ -62,6 +65,10 @@ class OrgClockStore(
     private val loadNotificationDisplayMode: () -> NotificationDisplayMode,
     private val saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     private val notificationPermissionGrantedProvider: () -> Boolean,
+    private val loadRootScheduleConfig: (RootReference) -> RootScheduleConfig,
+    private val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
+    private val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
+    private val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     private val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
     private val syncEnableStandardMode: suspend () -> Unit = {},
     private val syncEnableActiveMode: suspend () -> Unit = {},
@@ -118,6 +125,7 @@ class OrgClockStore(
         if (handleHistoryEditDeleteAction(action)) return
         if (handleCreateHeadingAction(action)) return
         if (handleNotificationAction(action)) return
+        if (handleAutoGenerationAction(action)) return
         error("Unhandled OrgClockUiAction: $action")
     }
 
@@ -365,6 +373,41 @@ class OrgClockStore(
         else -> false
     }
 
+    private fun handleAutoGenerationAction(action: OrgClockUiAction): Boolean = when (action) {
+        is OrgClockUiAction.ToggleAutoGenerationEnabled -> {
+            _uiState.update { it.copy(autoGenerationEnabled = action.enabled) }
+            true
+        }
+        is OrgClockUiAction.SetAutoGenerationRule -> {
+            _uiState.update { it.copy(autoGenerationRule = action.ruleType) }
+            true
+        }
+        is OrgClockUiAction.UpdateAutoGenerationHour -> {
+            _uiState.update { it.copy(autoGenerationHourInput = action.value.filter(Char::isDigit).take(2)) }
+            true
+        }
+        is OrgClockUiAction.UpdateAutoGenerationMinute -> {
+            _uiState.update { it.copy(autoGenerationMinuteInput = action.value.filter(Char::isDigit).take(2)) }
+            true
+        }
+        is OrgClockUiAction.ToggleAutoGenerationDay -> {
+            _uiState.update { state ->
+                val nextDays = if (action.dayOfWeek in state.autoGenerationDaysOfWeek) {
+                    state.autoGenerationDaysOfWeek - action.dayOfWeek
+                } else {
+                    state.autoGenerationDaysOfWeek + action.dayOfWeek
+                }
+                state.copy(autoGenerationDaysOfWeek = if (nextDays.isEmpty()) setOf(action.dayOfWeek) else nextDays)
+            }
+            true
+        }
+        OrgClockUiAction.SaveAutoGenerationSchedule -> {
+            scope.launch { saveAutoGenerationSchedule() }
+            true
+        }
+        else -> false
+    }
+
     private suspend fun initialize() {
         _uiState.update {
             it.copy(
@@ -449,6 +492,9 @@ class OrgClockStore(
         }
         saveRootReference(rootReference)
         _uiState.update { it.copy(rootReference = rootReference, status = status(StatusMessageKey.RootSet, StatusTone.Success)) }
+        val scheduleConfig = loadRootScheduleConfig(rootReference)
+        applyScheduleConfig(scheduleConfig)
+        syncRootScheduleConfig(scheduleConfig)
         refreshFilesAndRoute()
     }
 
@@ -590,6 +636,9 @@ class OrgClockStore(
             finishCreateHeadingSubmit(success = false)
         }
         if (result.isSuccess) {
+            if (dialog.attachTplTag) {
+                syncTemplateTaggedHeading(file.fileId)
+            }
             _uiState.update { it.copy(createHeadingDialog = null, status = status(StatusMessageKey.HeadingCreated, StatusTone.Success)) }
             synchronizeHeadings(file)
             return
@@ -824,6 +873,41 @@ class OrgClockStore(
         if (raw.contains("://")) return "peer id must be host[:port]"
         if (!Regex("^[a-zA-Z0-9.-]+(:\\d{1,5})?$").matches(raw)) return "peer id format is invalid"
         return null
+    }
+
+    private suspend fun saveAutoGenerationSchedule() {
+        val rootReference = uiState.value.rootReference ?: return
+        val hour = uiState.value.autoGenerationHourInput.toIntOrNull()
+        val minute = uiState.value.autoGenerationMinuteInput.toIntOrNull()
+        if (hour == null || hour !in 0..23 || minute == null || minute !in 0..59) {
+            _uiState.update { it.copy(status = status(StatusMessageKey.InvalidAutoGenerationTime, StatusTone.Warning)) }
+            return
+        }
+
+        val config = RootScheduleConfig(
+            rootUri = rootReference.rawValue,
+            enabled = uiState.value.autoGenerationEnabled,
+            ruleType = uiState.value.autoGenerationRule,
+            hour = hour,
+            minute = minute,
+            daysOfWeek = uiState.value.autoGenerationDaysOfWeek.ifEmpty { setOf(ScheduleWeekday.Monday) },
+        )
+        saveRootScheduleConfig(config)
+        syncRootScheduleConfig(config)
+        _uiState.update { it.copy(status = status(StatusMessageKey.AutoGenerationScheduleSaved, StatusTone.Success)) }
+        refreshFilesAndRoute()
+    }
+
+    private fun applyScheduleConfig(config: RootScheduleConfig) {
+        _uiState.update {
+            it.copy(
+                autoGenerationEnabled = config.enabled,
+                autoGenerationRule = config.ruleType,
+                autoGenerationHourInput = config.hour.toString().padStart(2, '0'),
+                autoGenerationMinuteInput = config.minute.toString().padStart(2, '0'),
+                autoGenerationDaysOfWeek = config.daysOfWeek.ifEmpty { setOf(ScheduleWeekday.Monday) },
+            )
+        }
     }
 
     private fun applySyncSnapshot(snapshot: SyncIntegrationSnapshot) {

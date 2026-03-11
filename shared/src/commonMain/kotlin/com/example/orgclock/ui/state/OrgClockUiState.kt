@@ -6,11 +6,10 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
-import com.example.orgclock.presentation.Screen
 import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.presentation.StatusText
-import com.example.orgclock.presentation.StatusTone
-import com.example.orgclock.presentation.UiStatus
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncMetricsSnapshot
 import com.example.orgclock.sync.SyncRuntimeMode
@@ -73,6 +72,11 @@ data class OrgClockUiState(
     val notificationPermissionRequestPending: Boolean = false,
     val pendingEnableNotificationAfterPermission: Boolean = false,
     val openAppNotificationSettingsPending: Boolean = false,
+    val autoGenerationEnabled: Boolean = false,
+    val autoGenerationRule: ScheduleRuleType = ScheduleRuleType.Daily,
+    val autoGenerationHourInput: String = "00",
+    val autoGenerationMinuteInput: String = "00",
+    val autoGenerationDaysOfWeek: Set<ScheduleWeekday> = setOf(ScheduleWeekday.Monday),
     val showPerfOverlay: Boolean = false,
     val syncFeatureVisible: Boolean = false,
     val syncDebugVisible: Boolean = false,

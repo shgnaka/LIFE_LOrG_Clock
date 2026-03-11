@@ -11,11 +11,12 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
+import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.time.toKotlinInstantCompat
+import com.example.orgclock.time.toKotlinLocalDateCompat
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.store.OrgClockStore
-import com.example.orgclock.time.toKotlinInstantCompat
-import com.example.orgclock.time.toKotlinLocalDateCompat
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.datetime.toJavaInstant
@@ -42,6 +43,10 @@ class OrgClockViewModel(
     loadNotificationDisplayMode: () -> NotificationDisplayMode,
     saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     notificationPermissionGrantedProvider: () -> Boolean,
+    loadRootScheduleConfig: (RootReference) -> RootScheduleConfig,
+    saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
+    syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
+    syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
     syncEnableStandardMode: suspend () -> Unit = {},
     syncEnableActiveMode: suspend () -> Unit = {},
@@ -92,6 +97,10 @@ class OrgClockViewModel(
         loadNotificationDisplayMode = loadNotificationDisplayMode,
         saveNotificationDisplayMode = saveNotificationDisplayMode,
         notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
+        loadRootScheduleConfig = loadRootScheduleConfig,
+        saveRootScheduleConfig = saveRootScheduleConfig,
+        syncRootScheduleConfig = syncRootScheduleConfig,
+        syncTemplateTaggedHeading = syncTemplateTaggedHeading,
         syncSnapshotFlow = syncSnapshotFlow,
         syncEnableStandardMode = syncEnableStandardMode,
         syncEnableActiveMode = syncEnableActiveMode,

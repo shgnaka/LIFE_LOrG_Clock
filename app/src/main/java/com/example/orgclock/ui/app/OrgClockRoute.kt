@@ -26,6 +26,7 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
+import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
@@ -58,6 +59,10 @@ data class OrgClockRouteDependencies(
     val loadNotificationDisplayMode: () -> NotificationDisplayMode,
     val saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     val notificationPermissionGrantedProvider: () -> Boolean,
+    val loadRootScheduleConfig: (RootReference) -> RootScheduleConfig,
+    val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
+    val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
+    val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     val syncNotificationService: (Boolean, NotificationDisplayMode) -> Unit,
     val stopNotificationService: () -> Unit,
     val openAppNotificationSettings: () -> Unit,
@@ -212,6 +217,10 @@ private fun orgClockViewModelFactory(
                 loadNotificationDisplayMode = dependencies.loadNotificationDisplayMode,
                 saveNotificationDisplayMode = dependencies.saveNotificationDisplayMode,
                 notificationPermissionGrantedProvider = dependencies.notificationPermissionGrantedProvider,
+                loadRootScheduleConfig = dependencies.loadRootScheduleConfig,
+                saveRootScheduleConfig = dependencies.saveRootScheduleConfig,
+                syncRootScheduleConfig = dependencies.syncRootScheduleConfig,
+                syncTemplateTaggedHeading = dependencies.syncTemplateTaggedHeading,
                 syncSnapshotFlow = dependencies.syncSnapshotFlow,
                 syncEnableStandardMode = dependencies.syncEnableStandardMode,
                 syncEnableActiveMode = dependencies.syncEnableActiveMode,

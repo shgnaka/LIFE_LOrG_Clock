@@ -47,6 +47,8 @@ enum class StatusMessageKey {
     NotificationDisplayModeUpdated,
     NotificationPermissionGranted,
     NotificationPermissionDenied,
+    InvalidAutoGenerationTime,
+    AutoGenerationScheduleSaved,
     SyncPeerAddFailed,
     SyncPeerAdded,
     SyncPeerRemoved,
