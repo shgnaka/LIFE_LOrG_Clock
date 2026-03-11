@@ -144,6 +144,11 @@ private sealed interface HeadingListRow {
 private val ClockStartTimeFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 private const val HeadingListTag = "heading_list"
 private const val RunningClocksPanelTag = "running_clocks_panel"
+private const val FileRowTagPrefix = "file_row:"
+private const val SettingsRootTag = "settings_root"
+private const val NotificationSectionTag = "settings_notification_section"
+private const val SyncSettingsSectionTag = "settings_sync_section"
+private const val SyncDebugSectionTag = "settings_sync_debug_section"
 private const val HeadingRowTagPrefix = "heading_row:"
 private const val RunningPanelRowTagPrefix = "running_panel_row:"
 private const val RunningPanelToggleTag = "running_panel_toggle"
@@ -370,6 +375,7 @@ private fun FilePickerScreen(
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
                         modifier = Modifier
                             .fillMaxWidth()
+                            .testTag(fileRowTag(file.fileId))
                             .semantics { role = Role.Button }
                             .clickable { onSelectFile(file) },
                     ) {
@@ -790,6 +796,7 @@ private fun RunningClocksPanel(
 
 private fun headingRowTag(path: HeadingPath): String = "$HeadingRowTagPrefix${path}"
 private fun runningPanelRowTag(path: HeadingPath): String = "$RunningPanelRowTagPrefix${path}"
+private fun fileRowTag(fileId: String): String = "$FileRowTagPrefix$fileId"
 
 @Composable
 private fun HeadingListTopBar(
@@ -924,6 +931,8 @@ private fun SettingsScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .testTag(SettingsRootTag)
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
@@ -939,7 +948,7 @@ private fun SettingsScreen(
                 }
             }
         }
-        SectionCard {
+        SectionCard(modifier = Modifier.testTag(NotificationSectionTag)) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -989,7 +998,7 @@ private fun SettingsScreen(
             }
         }
         if (syncFeatureVisible) {
-            SectionCard {
+            SectionCard(modifier = Modifier.testTag(SyncSettingsSectionTag)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.sync_settings_title), style = MaterialTheme.typography.titleMedium)
                     Row(
@@ -1079,7 +1088,7 @@ private fun SettingsScreen(
             }
         }
         if (syncDebugVisible) {
-            SectionCard {
+            SectionCard(modifier = Modifier.testTag(SyncDebugSectionTag)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.sync_debug_title), style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -1168,11 +1177,14 @@ private fun StatusBanner(status: UiStatus) {
 }
 
 @Composable
-private fun SectionCard(content: @Composable () -> Unit) {
+private fun SectionCard(
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             content()
