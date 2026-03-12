@@ -19,6 +19,7 @@ import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.ClockEditDraft
@@ -52,6 +53,7 @@ class OrgClockStore(
     private val saveRootReference: (RootReference) -> Unit,
     private val openRoot: suspend (RootReference) -> Result<Unit>,
     private val listFiles: suspend () -> Result<List<OrgFileEntry>>,
+    private val listTemplateCandidateFiles: suspend () -> Result<List<OrgFileEntry>>,
     private val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     private val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
     private val startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
@@ -70,8 +72,10 @@ class OrgClockStore(
     private val loadRootScheduleConfig: (RootReference) -> RootScheduleConfig,
     private val loadTemplateFileStatus: suspend (RootScheduleConfig) -> TemplateFileStatus,
     private val loadTemplateAutoGenerationFailure: (RootReference) -> String?,
+    private val loadAutoGenerationRuntimeState: suspend (RootReference) -> TemplateAutoGenerationRuntimeState,
     private val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     private val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
+    private val runAutoGenerationCatchUp: suspend (RootReference) -> Unit,
     private val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     private val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
     private val syncEnableStandardMode: suspend () -> Unit = {},
@@ -112,6 +116,8 @@ class OrgClockStore(
     private val createHeadingSubmitMutex = Mutex()
     private var deleteInFlight = false
     private val deleteMutex = Mutex()
+    private var autoGenerationCatchUpInFlight = false
+    private val autoGenerationCatchUpMutex = Mutex()
 
     init {
         if (syncFeatureEnabled) {
@@ -189,12 +195,17 @@ class OrgClockStore(
         }
         OrgClockUiAction.OpenTemplateFilePicker -> {
             _uiState.update { it.copy(screen = Screen.FilePicker, selectingTemplateFile = true) }
+            scope.launch { refreshTemplateCandidates() }
             true
         }
         OrgClockUiAction.OpenSettings -> {
             _uiState.update { it.copy(screen = Screen.Settings) }
             uiState.value.rootReference?.let { rootReference ->
-                scope.launch { refreshTemplateState(rootReference, loadRootScheduleConfig(rootReference)) }
+                scope.launch {
+                    evaluateAutoGeneration(rootReference)
+                    refreshTemplateState(rootReference, loadRootScheduleConfig(rootReference))
+                    refreshAutoGenerationRuntimeState(rootReference)
+                }
             }
             true
         }
@@ -205,6 +216,10 @@ class OrgClockStore(
                     selectingTemplateFile = false,
                 )
             }
+            true
+        }
+        OrgClockUiAction.RefreshTemplateCandidates -> {
+            scope.launch { refreshTemplateCandidates() }
             true
         }
         OrgClockUiAction.ClearExplicitTemplateFile -> {
@@ -431,6 +446,18 @@ class OrgClockStore(
             scope.launch { saveAutoGenerationSchedule() }
             true
         }
+        OrgClockUiAction.RefreshAutoGenerationStatus -> {
+            uiState.value.rootReference?.let { rootReference ->
+                scope.launch { refreshAutoGenerationRuntimeState(rootReference) }
+            }
+            true
+        }
+        OrgClockUiAction.EvaluateAutoGenerationCatchUp -> {
+            uiState.value.rootReference?.let { rootReference ->
+                scope.launch { evaluateAutoGeneration(rootReference) }
+            }
+            true
+        }
         else -> false
     }
 
@@ -486,6 +513,7 @@ class OrgClockStore(
     }
 
     private suspend fun refreshFilesAndRoute() {
+        uiState.value.rootReference?.let { evaluateAutoGeneration(it) }
         val result = listFiles()
         if (result.isFailure) {
             val reason = result.exceptionOrNull()?.message ?: ""
@@ -503,6 +531,24 @@ class OrgClockStore(
                 it.copy(selectedFile = null, headings = emptyList(), selectedHeadingPath = null, screen = Screen.FilePicker, status = status(StatusMessageKey.TodayFileNotFound, StatusTone.Warning))
             }
         }
+        uiState.value.rootReference?.let { refreshAutoGenerationRuntimeState(it) }
+    }
+
+    private suspend fun refreshTemplateCandidates() {
+        val result = listTemplateCandidateFiles()
+        if (result.isFailure) {
+            val reason = result.exceptionOrNull()?.message ?: ""
+            _uiState.update {
+                it.copy(
+                    templateCandidateFiles = emptyList(),
+                    status = status(StatusMessageKey.FailedListingFiles, StatusTone.Error, reason),
+                    screen = Screen.FilePicker,
+                    selectingTemplateFile = true,
+                )
+            }
+            return
+        }
+        _uiState.update { it.copy(templateCandidateFiles = result.getOrThrow(), screen = Screen.FilePicker, selectingTemplateFile = true) }
     }
 
     private suspend fun refreshFilesWithOpenClock() {
@@ -522,6 +568,7 @@ class OrgClockStore(
         applyScheduleConfig(scheduleConfig)
         syncRootScheduleConfig(scheduleConfig)
         refreshTemplateState(rootReference, scheduleConfig)
+        refreshAutoGenerationRuntimeState(rootReference)
         refreshFilesAndRoute()
     }
 
@@ -843,6 +890,20 @@ class OrgClockStore(
         _uiState.update { it.copy(deletingInProgress = false) }
     }
 
+    private fun beginAutoGenerationCatchUp(): Boolean {
+        return withGuard(autoGenerationCatchUpMutex) {
+            if (autoGenerationCatchUpInFlight) {
+                return@withGuard false
+            }
+            autoGenerationCatchUpInFlight = true
+            true
+        }
+    }
+
+    private fun finishAutoGenerationCatchUp() {
+        withGuard(autoGenerationCatchUpMutex) { autoGenerationCatchUpInFlight = false }
+    }
+
     private suspend fun synchronizeHeadings(file: OrgFileEntry) {
         val loaded = listHeadings(file.fileId)
         if (loaded.isSuccess) {
@@ -925,6 +986,7 @@ class OrgClockStore(
         saveRootScheduleConfig(config)
         syncRootScheduleConfig(config)
         refreshTemplateState(rootReference, config)
+        refreshAutoGenerationRuntimeState(rootReference)
         _uiState.update { it.copy(status = status(StatusMessageKey.AutoGenerationScheduleSaved, StatusTone.Success)) }
         refreshFilesAndRoute()
     }
@@ -968,6 +1030,7 @@ class OrgClockStore(
         saveRootScheduleConfig(updated)
         syncRootScheduleConfig(updated)
         refreshTemplateState(rootReference, updated)
+        refreshAutoGenerationRuntimeState(rootReference)
         _uiState.update {
             it.copy(
                 screen = Screen.Settings,
@@ -984,10 +1047,31 @@ class OrgClockStore(
         saveRootScheduleConfig(updated)
         syncRootScheduleConfig(updated)
         refreshTemplateState(rootReference, updated)
+        refreshAutoGenerationRuntimeState(rootReference)
         _uiState.update {
             it.copy(
                 status = status(StatusMessageKey.TemplateFileSelectionCleared, StatusTone.Success),
             )
+        }
+    }
+
+    private suspend fun refreshAutoGenerationRuntimeState(rootReference: RootReference) {
+        val runtimeState = runCatching { loadAutoGenerationRuntimeState(rootReference) }
+            .getOrElse { TemplateAutoGenerationRuntimeState(lastFailureMessage = it.message) }
+        _uiState.update {
+            it.copy(
+                autoGenerationRuntimeState = runtimeState,
+                templateAutoGenerationFailure = runtimeState.lastFailureMessage ?: it.templateAutoGenerationFailure,
+            )
+        }
+    }
+
+    private suspend fun evaluateAutoGeneration(rootReference: RootReference) {
+        if (!beginAutoGenerationCatchUp()) return
+        try {
+            runAutoGenerationCatchUp(rootReference)
+        } finally {
+            finishAutoGenerationCatchUp()
         }
     }
 

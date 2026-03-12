@@ -25,6 +25,7 @@ import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
 import com.example.orgclock.ui.state.UiStatus
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import kotlinx.datetime.Instant
 import org.junit.Rule
 import org.junit.Test
@@ -105,6 +106,32 @@ class OrgClockScreenTest {
     }
 
     @Test
+    fun templatePickerScreen_showsHiddenTemplateCandidate() {
+        composeRule.setContent {
+            OrgClockScreen(
+                state = OrgClockUiState(
+                    screen = Screen.FilePicker,
+                    selectingTemplateFile = true,
+                    templateCandidateFiles = listOf(OrgFileEntry("tpl", ".orgclock-template.org", null)),
+                    status = UiStatus(
+                        text = StatusText(StatusMessageKey.RootSet),
+                        tone = StatusTone.Success,
+                    ),
+                ),
+                performanceMonitor = PerformanceMonitor(composeRule.activity.window),
+                zoneIdProvider = { ZoneId.systemDefault() },
+                nowProvider = { ZonedDateTime.now() },
+                onPickRoot = {},
+                onAction = {},
+            )
+        }
+
+        composeRule.onNodeWithText("テンプレート候補を選択").assertIsDisplayed()
+        composeRule.onNodeWithText(".orgclock-template.org").assertIsDisplayed()
+        composeRule.onNodeWithText("既定テンプレート").assertIsDisplayed()
+    }
+
+    @Test
     fun settingsScreen_showsNotificationControls() {
         composeRule.setContent {
             OrgClockScreen(
@@ -126,6 +153,36 @@ class OrgClockScreenTest {
         composeRule.onNodeWithText("Settings").assertIsDisplayed()
         composeRule.onNodeWithText("通知機能").assertIsDisplayed()
         composeRule.onNodeWithText("通知設定を開く").assertIsDisplayed()
+    }
+
+    @Test
+    fun settingsScreen_showsAutoGenerationRuntimeState() {
+        composeRule.setContent {
+            OrgClockScreen(
+                state = OrgClockUiState(
+                    screen = Screen.Settings,
+                    autoGenerationEnabled = true,
+                    autoGenerationRuntimeState = TemplateAutoGenerationRuntimeState(
+                        lastAttemptAtEpochMs = 1_710_000_000_000L,
+                        lastSuccessAtEpochMs = 1_710_000_300_000L,
+                        nextScheduledRunAtEpochMs = 1_710_003_600_000L,
+                        overdue = true,
+                        lastFailureMessage = "worker delayed",
+                    ),
+                    templateAutoGenerationFailure = "worker delayed",
+                    status = UiStatus(text = StatusText(StatusMessageKey.RootSet), tone = StatusTone.Info),
+                ),
+                performanceMonitor = PerformanceMonitor(composeRule.activity.window),
+                zoneIdProvider = { ZoneId.systemDefault() },
+                nowProvider = { ZonedDateTime.now() },
+                onPickRoot = {},
+                onAction = {},
+            )
+        }
+
+        composeRule.onNodeWithText("自動生成ステータス").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("状態: 予定超過だが未実行").assertIsDisplayed()
+        composeRule.onNodeWithText("Last auto-generation issue: worker delayed").assertIsDisplayed()
     }
 
     @Test

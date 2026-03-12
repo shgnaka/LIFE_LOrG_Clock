@@ -105,25 +105,18 @@ class SafOrgRepository(
     override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = withContext(Dispatchers.IO) {
         runCatching {
             val rootDoc = root ?: throw IllegalStateException("Root is not opened")
-            rootDoc.listFiles()
-                .asSequence()
-                .filter { it.isFile }
-                .filter { file ->
-                    val name = file.name ?: return@filter false
-                    OrgFileNames.isVisibleOrgFileName(name)
-                }
-                .mapNotNull { file ->
-                    val name = file.name ?: return@mapNotNull null
-                    OrgFileEntry(
-                        fileId = file.uri.toString(),
-                        displayName = name,
-                        modifiedAt = file.lastModified().takeIf { it > 0 }?.let {
-                            java.time.Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toKotlinInstant()
-                        },
-                    )
-                }
-                .sortedByDescending { it.modifiedAt?.toEpochMilliseconds() ?: Long.MIN_VALUE }
-                .toList()
+            listOrgEntries(rootDoc) { name -> OrgFileNames.isVisibleOrgFileName(name) }
+        }
+    }
+
+    override suspend fun listTemplateCandidateFiles(): Result<List<OrgFileEntry>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val rootDoc = root ?: throw IllegalStateException("Root is not opened")
+            listOrgEntries(rootDoc) { name -> name.endsWith(".org", ignoreCase = true) }
+                .sortedWith(
+                    compareByDescending<OrgFileEntry> { OrgFileNames.isTemplateFileName(it.displayName) }
+                        .thenByDescending { it.modifiedAt?.toEpochMilliseconds() ?: Long.MIN_VALUE },
+                )
         }
     }
 
@@ -328,6 +321,13 @@ class SafOrgRepository(
         }
     }
 
+    override suspend fun hasDailyFile(date: LocalDate): Result<Boolean> = withContext(Dispatchers.IO) {
+        runCatching {
+            val rootDoc = root ?: throw IllegalStateException("Root is not opened")
+            rootDoc.findFile(OrgPaths.dailyFileName(date)) != null
+        }
+    }
+
     private fun resolveTemplateFile(rootDoc: DocumentFile, templateFileUri: String?): DocumentFile? {
         return if (templateFileUri.isNullOrBlank()) {
             rootDoc.findFile(OrgFileNames.TEMPLATE_FILE_NAME)
@@ -400,6 +400,25 @@ class SafOrgRepository(
     }
 
     private fun canonicalText(lines: List<String>): String = lines.joinToString("\n")
+
+    private fun listOrgEntries(rootDoc: DocumentFile, include: (String) -> Boolean): List<OrgFileEntry> {
+        return rootDoc.listFiles()
+            .asSequence()
+            .filter { it.isFile }
+            .mapNotNull { file ->
+                val name = file.name ?: return@mapNotNull null
+                if (!include(name)) return@mapNotNull null
+                OrgFileEntry(
+                    fileId = file.uri.toString(),
+                    displayName = name,
+                    modifiedAt = file.lastModified().takeIf { it > 0 }?.let {
+                        java.time.Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toKotlinInstant()
+                    },
+                )
+            }
+            .sortedByDescending { it.modifiedAt?.toEpochMilliseconds() ?: Long.MIN_VALUE }
+            .toList()
+    }
 
     private fun detectLineSeparator(rawText: String): String {
         return if (rawText.contains("\r\n")) "\r\n" else "\n"

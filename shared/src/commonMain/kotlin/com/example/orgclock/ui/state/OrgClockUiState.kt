@@ -10,6 +10,7 @@ import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.presentation.StatusText
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncMetricsSnapshot
 import com.example.orgclock.sync.SyncRuntimeMode
@@ -85,6 +86,8 @@ data class OrgClockUiState(
         referenceMode = TemplateReferenceMode.LegacyHiddenFile,
     ),
     val templateAutoGenerationFailure: String? = null,
+    val autoGenerationRuntimeState: TemplateAutoGenerationRuntimeState = TemplateAutoGenerationRuntimeState(),
+    val templateCandidateFiles: List<OrgFileEntry> = emptyList(),
     val selectingTemplateFile: Boolean = false,
     val showPerfOverlay: Boolean = false,
     val syncFeatureVisible: Boolean = false,

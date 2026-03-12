@@ -2,6 +2,7 @@ package com.example.orgclock.template
 
 import android.content.SharedPreferences
 import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.time.toKotlinLocalDateCompat
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -18,6 +19,7 @@ class TemplateAutoGenerationSchedulerTest {
         val prefs = FakeSharedPreferences()
         val store = RootScheduleStore(prefs)
         val reporter = FakeFailureReporter()
+        val runtimeStore = FakeRuntimeStore()
         val workScheduler = FakeWorkScheduler()
         val repository = FakeTemplateRepository(
             generationResult = TemplateGenerationResult.Generated,
@@ -30,6 +32,7 @@ class TemplateAutoGenerationSchedulerTest {
             appContext = mock(android.content.Context::class.java),
             scheduleStore = store,
             failureReporter = reporter,
+            runtimeStore = runtimeStore,
             repositoryFactory = { repository },
             workScheduler = workScheduler,
             logError = {},
@@ -51,6 +54,9 @@ class TemplateAutoGenerationSchedulerTest {
         assertEquals(config.rootUri, workScheduler.scheduledRootUri)
         assertTrue(reporter.clearedRoots.contains(config.rootUri))
         assertEquals(config.templateFileUri, store.load(config.rootUri).templateFileUri)
+        assertEquals(now.toInstant().toEpochMilli(), runtimeStore.state.lastAttemptAtEpochMs)
+        assertEquals(now.toInstant().toEpochMilli(), runtimeStore.state.lastSuccessAtEpochMs)
+        assertTrue(runtimeStore.state.nextScheduledRunAtEpochMs != null)
     }
 
     @Test
@@ -58,6 +64,7 @@ class TemplateAutoGenerationSchedulerTest {
         val prefs = FakeSharedPreferences()
         val store = RootScheduleStore(prefs)
         val reporter = FakeFailureReporter()
+        val runtimeStore = FakeRuntimeStore()
         val workScheduler = FakeWorkScheduler()
         val repository = FakeTemplateRepository(
             generationResult = TemplateGenerationResult.Failed(
@@ -82,6 +89,7 @@ class TemplateAutoGenerationSchedulerTest {
             appContext = mock(android.content.Context::class.java),
             scheduleStore = store,
             failureReporter = reporter,
+            runtimeStore = runtimeStore,
             repositoryFactory = { repository },
             workScheduler = workScheduler,
             logError = {},
@@ -95,21 +103,69 @@ class TemplateAutoGenerationSchedulerTest {
         assertEquals(rootUri, reporter.lastRootUri)
         assertEquals("content://orgclock/root/template-source", repository.generatedTemplateFileUri)
         assertEquals(rootUri, workScheduler.scheduledRootUri)
+        assertTrue(runtimeStore.state.lastAttemptAtEpochMs != null)
+        assertEquals(null, runtimeStore.state.lastSuccessAtEpochMs)
+    }
+
+    @Test
+    fun runCatchUpIfDue_generatesMissingTodayFileAndMarksStateOverdueFalse() = runTest {
+        val prefs = FakeSharedPreferences()
+        val store = RootScheduleStore(prefs)
+        val reporter = FakeFailureReporter()
+        val runtimeStore = FakeRuntimeStore()
+        val workScheduler = FakeWorkScheduler()
+        val repository = FakeTemplateRepository(
+            generationResult = TemplateGenerationResult.Generated,
+            hasDailyFile = false,
+        )
+        val rootUri = "content://orgclock/root"
+        store.save(
+            RootScheduleConfig(
+                rootUri = rootUri,
+                enabled = true,
+                hour = 9,
+                minute = 0,
+            ),
+        )
+        val rootUriRef = mock(android.net.Uri::class.java).apply {
+            doReturn(rootUri).`when`(this).toString()
+        }
+        val now = ZonedDateTime.of(2026, 3, 12, 9, 30, 0, 0, ZoneId.of("Asia/Tokyo"))
+        val scheduler = TemplateAutoGenerationScheduler(
+            appContext = mock(android.content.Context::class.java),
+            scheduleStore = store,
+            failureReporter = reporter,
+            runtimeStore = runtimeStore,
+            repositoryFactory = { repository },
+            workScheduler = workScheduler,
+            logError = {},
+            nowProvider = { now },
+        )
+
+        scheduler.runCatchUpIfDue(rootUriRef)
+        val state = scheduler.loadRuntimeState(rootUriRef)
+
+        assertEquals(now.toLocalDate().toKotlinLocalDateCompat(), repository.generatedDate)
+        assertEquals(false, state.overdue)
     }
 }
 
 private class FakeTemplateRepository(
     private val openRootResult: Result<Unit> = Result.success(Unit),
     private val generationResult: TemplateGenerationResult,
+    private val hasDailyFile: Boolean = false,
 ) : TemplateAutoGenerationRepository {
     var openedRoot: RootReference? = null
     var generatedDate: kotlinx.datetime.LocalDate? = null
     var generatedTemplateFileUri: String? = null
+    private var generated = false
 
     override suspend fun openRoot(rootReference: RootReference): Result<Unit> {
         openedRoot = rootReference
         return openRootResult
     }
+
+    override suspend fun hasDailyFile(date: kotlinx.datetime.LocalDate): Result<Boolean> = Result.success(hasDailyFile || generated)
 
     override suspend fun createDailyFromTemplateIfMissing(
         date: kotlinx.datetime.LocalDate,
@@ -117,7 +173,26 @@ private class FakeTemplateRepository(
     ): Result<TemplateGenerationResult> {
         generatedDate = date
         generatedTemplateFileUri = templateFileUri
+        generated = generationResult == TemplateGenerationResult.Generated
         return Result.success(generationResult)
+    }
+}
+
+private class FakeRuntimeStore : TemplateAutoGenerationRuntimeStore(FakeSharedPreferences()) {
+    var state: TemplateAutoGenerationRuntimeState = TemplateAutoGenerationRuntimeState()
+
+    override fun load(rootUri: String): TemplateAutoGenerationRuntimeState = state
+
+    override fun saveLastAttempt(rootUri: String, epochMs: Long) {
+        state = state.copy(lastAttemptAtEpochMs = epochMs)
+    }
+
+    override fun saveLastSuccess(rootUri: String, epochMs: Long) {
+        state = state.copy(lastSuccessAtEpochMs = epochMs)
+    }
+
+    override fun saveNextScheduledRun(rootUri: String, epochMs: Long?) {
+        state = state.copy(nextScheduledRunAtEpochMs = epochMs)
     }
 }
 
