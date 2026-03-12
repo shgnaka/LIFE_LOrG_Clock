@@ -1,5 +1,6 @@
 package com.example.orgclock.template
 
+import com.example.orgclock.data.FileWriteIntent
 import com.example.orgclock.data.SafOrgRepository
 
 class TemplateSyncService(
@@ -8,16 +9,42 @@ class TemplateSyncService(
 ) {
     suspend fun syncFromFile(fileId: String): Result<Boolean> {
         val source = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
-        val extractedSections = extractTaggedSections(source.lines)
+        val headings = parseHeadings(source.lines)
+        val cleanedSourceLines = removeTplTagsFromLines(source.lines)
+        val extractedSections = extractTaggedSections(source.lines, headings)
+
+        var changed = false
+        if (cleanedSourceLines != source.lines) {
+            when (
+                val save = repository.saveFile(
+                    fileId = fileId,
+                    lines = cleanedSourceLines,
+                    expectedHash = source.hash,
+                    writeIntent = FileWriteIntent.UserEdit,
+                )
+            ) {
+                is com.example.orgclock.data.SaveResult.Success -> changed = true
+                is com.example.orgclock.data.SaveResult.Conflict -> {
+                    return Result.failure(IllegalStateException(save.reason))
+                }
+                is com.example.orgclock.data.SaveResult.ValidationError -> {
+                    return Result.failure(IllegalStateException(save.reason))
+                }
+                is com.example.orgclock.data.SaveResult.IoError -> {
+                    return Result.failure(IllegalStateException(save.reason))
+                }
+            }
+        }
+
         if (extractedSections.isEmpty()) {
-            return Result.success(false)
+            return Result.success(changed)
         }
 
         val templateFileUri = templateFileUriProvider()
         val existing = repository.loadTemplate(templateFileUri).getOrElse { return Result.failure(it) }
         val merged = mergeTemplate(existing.lines, extractedSections)
         if (merged == existing.lines) {
-            return Result.success(false)
+            return Result.success(changed)
         }
 
         return when (val save = repository.saveTemplate(merged, existing.hash, templateFileUri)) {
@@ -28,61 +55,67 @@ class TemplateSyncService(
         }
     }
 
-    private fun extractTaggedSections(lines: List<String>): List<TemplateSection> {
-        val headings = parseHeadings(lines)
-        val taggedIndices = headings.indices.filter { index ->
-            val heading = headings[index]
-            heading.hasTplTag && headings.none { candidate ->
-                candidate.index != heading.index &&
-                    candidate.hasTplTag &&
-                    candidate.level < heading.level &&
-                    candidate.index < heading.index &&
-                    candidate.endExclusive >= heading.endExclusive
+    private fun removeTplTagsFromLines(lines: List<String>): List<String> {
+        return lines.map { line ->
+            if (getHeadingLevel(line) == 0 || !line.contains(TPL_TAG)) {
+                line
+            } else {
+                stripTplTag(line)
             }
         }
+    }
 
-        return taggedIndices.map { index ->
-            val heading = headings[index]
+    private fun extractTaggedSections(lines: List<String>, headings: List<ParsedHeading>): List<TemplateSection> {
+        return headings.filter { it.hasTplTag }.map { heading ->
             TemplateSection(
+                hierarchy = heading.hierarchy,
                 pathKey = heading.pathKey,
-                lines = lines.subList(heading.index, heading.endExclusive).trimTrailingBlankLines(),
+                lines = lines.subList(heading.index, heading.endExclusive)
+                    .map(::stripTplTag)
+                    .trimTrailingBlankLines(),
             )
         }
     }
 
     private fun mergeTemplate(existingLines: List<String>, extractedSections: List<TemplateSection>): List<String> {
         if (existingLines.isEmpty()) {
-            return extractedSections.joinSections()
+            return extractedSections.joinToString("\n") { it.lines.joinToString("\n") }
+                .split('\n')
+                .trimTrailingBlankLines()
         }
 
-        val existingSections = extractTaggedSections(existingLines)
-        if (existingSections.isEmpty()) {
-            return extractedSections.joinSections()
-        }
-
-        val extractedByPath = extractedSections.associateBy { it.pathKey }
-        val mergedSections = buildList {
-            existingSections.forEach { section ->
-                add(extractedByPath[section.pathKey] ?: section)
+        val updated = existingLines.toMutableList()
+        extractedSections.forEach { section ->
+            if (containsPath(updated, section.pathKey)) {
+                return@forEach
             }
-            extractedSections.forEach { section ->
-                if (existingSections.none { it.pathKey == section.pathKey }) {
-                    add(section)
-                }
-            }
+            insertSection(updated, section)
         }
-        return mergedSections.joinSections()
+        return updated.trimTrailingBlankLines()
     }
 
-    private fun List<TemplateSection>.joinSections(): List<String> {
-        val result = mutableListOf<String>()
-        forEachIndexed { index, section ->
-            if (index > 0 && result.lastOrNull()?.isNotEmpty() == true) {
-                result += ""
-            }
-            result += section.lines
+    private fun insertSection(updated: MutableList<String>, section: TemplateSection) {
+        val headings = parseHeadings(updated)
+        val insertIndex = findInsertIndex(headings, updated.size, section.hierarchy)
+        updated.addAll(insertIndex, section.lines)
+    }
+
+    private fun findInsertIndex(
+        headings: List<ParsedHeading>,
+        lineCount: Int,
+        hierarchy: List<String>,
+    ): Int {
+        if (hierarchy.isEmpty()) {
+            return lineCount
         }
-        return result.trimTrailingBlankLines()
+
+        val parentPath = hierarchy.joinToString("/")
+        val parent = headings.firstOrNull { it.pathKey == parentPath }
+        return parent?.endExclusive ?: lineCount
+    }
+
+    private fun containsPath(lines: List<String>, pathKey: String): Boolean {
+        return parseHeadings(lines).any { it.pathKey == pathKey }
     }
 
     private fun List<String>.trimTrailingBlankLines(): List<String> {
@@ -105,11 +138,13 @@ class TemplateSyncService(
             val title = normalizeHeadingTitle(rawTitle)
             titlesByLevel[level] = title
             titlesByLevel.keys.removeAll { it > level }
-            val pathKey = (1..level).mapNotNull { titlesByLevel[it] }.joinToString("/")
+            val hierarchy = (1 until level).mapNotNull { titlesByLevel[it] }
+            val pathKey = (hierarchy + title).joinToString("/")
             rawHeadings += ParsedHeading(
                 index = index,
                 level = level,
                 rawTitle = rawTitle,
+                hierarchy = hierarchy,
                 pathKey = pathKey,
             )
         }
@@ -130,19 +165,38 @@ class TemplateSyncService(
         return tagMatch?.groupValues?.get(1)?.trim()?.ifEmpty { trimmed } ?: trimmed
     }
 
+    private fun getHeadingLevel(line: String): Int {
+        val match = Regex("""^(\*+)\s+""").find(line) ?: return 0
+        return match.groupValues[1].length
+    }
+
+    private fun stripTplTag(line: String): String {
+        if (!line.contains(TPL_TAG)) return line
+        val cleaned = line.replace("""(?<=\s):TPL:""".toRegex(), "")
+            .replace(Regex("\\s{2,}"), " ")
+            .trimEnd()
+        return cleaned
+    }
+
     private data class ParsedHeading(
         val index: Int,
         val level: Int,
         val rawTitle: String,
+        val hierarchy: List<String>,
         val pathKey: String,
         val endExclusive: Int = index + 1,
     ) {
         val hasTplTag: Boolean
-            get() = rawTitle.contains(":TPL:")
+            get() = rawTitle.contains(TPL_TAG)
     }
 
     private data class TemplateSection(
+        val hierarchy: List<String>,
         val pathKey: String,
         val lines: List<String>,
     )
+
+    private companion object {
+        const val TPL_TAG = ":TPL:"
+    }
 }
