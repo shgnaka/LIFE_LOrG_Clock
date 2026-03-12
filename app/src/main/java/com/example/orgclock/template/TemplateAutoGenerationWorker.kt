@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.orgclock.notification.NotificationPrefs
+import com.example.orgclock.notification.DefaultNotificationPermissionChecker
 
 class TemplateAutoGenerationWorker(
     appContext: Context,
@@ -20,6 +21,10 @@ class TemplateAutoGenerationWorker(
             appContext = applicationContext,
             scheduleStore = RootScheduleStore(
                 applicationContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
+            ),
+            failureReporter = SharedPrefsTemplateAutoGenerationFailureReporter(
+                appContext = applicationContext,
+                permissionChecker = DefaultNotificationPermissionChecker(),
             ),
         )
         return runCatching {

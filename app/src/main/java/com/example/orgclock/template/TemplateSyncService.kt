@@ -4,6 +4,7 @@ import com.example.orgclock.data.SafOrgRepository
 
 class TemplateSyncService(
     private val repository: SafOrgRepository,
+    private val templateFileUriProvider: () -> String? = { null },
 ) {
     suspend fun syncFromFile(fileId: String): Result<Boolean> {
         val source = repository.loadFile(fileId).getOrElse { return Result.failure(it) }
@@ -12,13 +13,14 @@ class TemplateSyncService(
             return Result.success(false)
         }
 
-        val existing = repository.loadTemplate().getOrElse { return Result.failure(it) }
+        val templateFileUri = templateFileUriProvider()
+        val existing = repository.loadTemplate(templateFileUri).getOrElse { return Result.failure(it) }
         val merged = mergeTemplate(existing.lines, extractedSections)
         if (merged == existing.lines) {
             return Result.success(false)
         }
 
-        return when (val save = repository.saveTemplate(merged, existing.hash)) {
+        return when (val save = repository.saveTemplate(merged, existing.hash, templateFileUri)) {
             is com.example.orgclock.data.SaveResult.Success -> Result.success(true)
             is com.example.orgclock.data.SaveResult.Conflict -> Result.failure(IllegalStateException(save.reason))
             is com.example.orgclock.data.SaveResult.ValidationError -> Result.failure(IllegalStateException(save.reason))

@@ -13,6 +13,9 @@ import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncMetricsSnapshot
 import com.example.orgclock.sync.SyncRuntimeMode
+import com.example.orgclock.template.TemplateAvailability
+import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.template.TemplateReferenceMode
 
 data class ClockEditDraft(
     val startHour: Int,
@@ -77,6 +80,12 @@ data class OrgClockUiState(
     val autoGenerationHourInput: String = "00",
     val autoGenerationMinuteInput: String = "00",
     val autoGenerationDaysOfWeek: Set<ScheduleWeekday> = setOf(ScheduleWeekday.Monday),
+    val templateFileStatus: TemplateFileStatus = TemplateFileStatus(
+        availability = TemplateAvailability.Missing,
+        referenceMode = TemplateReferenceMode.LegacyHiddenFile,
+    ),
+    val templateAutoGenerationFailure: String? = null,
+    val selectingTemplateFile: Boolean = false,
     val showPerfOverlay: Boolean = false,
     val syncFeatureVisible: Boolean = false,
     val syncDebugVisible: Boolean = false,

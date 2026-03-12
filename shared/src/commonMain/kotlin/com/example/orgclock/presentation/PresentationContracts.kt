@@ -49,6 +49,8 @@ enum class StatusMessageKey {
     NotificationPermissionDenied,
     InvalidAutoGenerationTime,
     AutoGenerationScheduleSaved,
+    TemplateFileSelected,
+    TemplateFileSelectionCleared,
     SyncPeerAddFailed,
     SyncPeerAdded,
     SyncPeerRemoved,

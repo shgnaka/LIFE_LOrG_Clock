@@ -27,6 +27,7 @@ class RootScheduleStore(
             hour = prefs.getInt("${prefix}hour", 0).coerceIn(0, 23),
             minute = prefs.getInt("${prefix}minute", 0).coerceIn(0, 59),
             daysOfWeek = if (storedDays.isEmpty()) setOf(ScheduleWeekday.Monday) else storedDays,
+            templateFileUri = prefs.getString("${prefix}template_file_uri", null),
         )
     }
 
@@ -43,6 +44,7 @@ class RootScheduleStore(
                     .sortedBy { scheduleWeekdayToIso(it) }
                     .joinToString(",") { scheduleWeekdayToIso(it).toString() },
             )
+            .putString("${prefix}template_file_uri", config.templateFileUri)
             .apply()
     }
 

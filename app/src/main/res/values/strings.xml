@@ -43,6 +43,19 @@
     <string name="keep_notification_visible">通知を常に表示</string>
     <string name="auto_generation_title">Auto generation</string>
     <string name="auto_generation_description">テンプレートから日次/週次ルールで org ファイルを生成します。</string>
+    <string name="template_status_title">Template file</string>
+    <string name="template_status_available">利用可能: %1$s</string>
+    <string name="template_status_missing">見つかりません: %1$s</string>
+    <string name="template_status_unreadable">読めません: %1$s</string>
+    <string name="template_status_detail">詳細: %1$s</string>
+    <string name="template_reference_explicit">明示選択</string>
+    <string name="template_reference_legacy">既定の隠しファイル</string>
+    <string name="template_choose_file">Choose template file</string>
+    <string name="template_use_legacy">Use default hidden template</string>
+    <string name="template_picker_title">Select template file</string>
+    <string name="template_picker_description">日次自動生成に使う org ファイルを選択します。</string>
+    <string name="template_setup_guidance">テンプレートが未設定です。既存の org ファイルをテンプレートとして選ぶか、既定の `.orgclock-template.org` を作成してください。</string>
+    <string name="template_auto_generation_last_failure">Last auto-generation issue: %1$s</string>
     <string name="auto_generation_rule_daily">Daily</string>
     <string name="auto_generation_rule_weekly">Weekly</string>
     <string name="auto_generation_hour_label">Hour</string>
@@ -97,6 +110,8 @@
     <string name="status_notification_permission_denied">通知権限が拒否されました。Settingsから許可してください。</string>
     <string name="status_invalid_auto_generation_time">自動生成の時刻が不正です</string>
     <string name="status_auto_generation_schedule_saved">自動生成スケジュールを保存しました</string>
+    <string name="status_template_file_selected">テンプレートファイルを設定しました: %1$s</string>
+    <string name="status_template_file_selection_cleared">既定の隠しテンプレートに戻しました</string>
     <string name="notif_summary_no_active">稼働中の見出しはありません</string>
     <string name="notif_summary_scan_degraded">一部ファイルの読込に失敗しました（%1$d件）。アプリを開いて状態を確認してください</string>
     <string name="notif_summary_first_entry">%1$s / %2$s 開始 / %3$d分経過（タップでアプリを開く）</string>
@@ -145,4 +160,6 @@
     <string name="sync_active_channel_description">Foreground sync ticker for active mode</string>
     <string name="sync_active_notification_title">Sync active mode</string>
     <string name="sync_active_notification_text">Running low-latency sync ticks</string>
+    <string name="template_auto_generation_channel_name">Template auto-generation</string>
+    <string name="template_auto_generation_channel_description">Template auto-generation failures</string>
 </resources>

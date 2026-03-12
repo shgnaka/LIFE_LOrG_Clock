@@ -9,6 +9,9 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.TemplateAvailability
+import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.today
 import com.example.orgclock.ui.store.OrgClockStore
@@ -22,6 +25,8 @@ import java.nio.file.Path
 import kotlin.io.path.absolute
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
+import kotlin.io.path.isReadable
+import kotlin.io.path.name
 
 class DesktopAppGraph(
     private val settingsStore: DesktopSettingsStore = DesktopSettingsStore(),
@@ -109,6 +114,8 @@ class DesktopAppGraph(
             saveNotificationDisplayMode = { },
             notificationPermissionGrantedProvider = { false },
             loadRootScheduleConfig = { rootReference -> RootScheduleConfig(rootUri = rootReference.rawValue) },
+            loadTemplateFileStatus = { config -> loadDesktopTemplateFileStatus(config) },
+            loadTemplateAutoGenerationFailure = { null },
             saveRootScheduleConfig = {},
             syncRootScheduleConfig = {},
             syncSnapshotFlow = disabledSyncSnapshotFlow,
@@ -141,10 +148,49 @@ class DesktopAppGraph(
         return path
     }
 
+    private fun loadDesktopTemplateFileStatus(config: RootScheduleConfig): TemplateFileStatus {
+        val rootPath = runCatching { normalizeRoot(RootReference(config.rootUri)) }.getOrNull()
+        val explicitPath = config.templateFileUri?.let { raw ->
+            runCatching { Path.of(raw).absolute().normalize() }.getOrNull()
+        }
+        val referenceMode = if (explicitPath != null) {
+            TemplateReferenceMode.Explicit
+        } else {
+            TemplateReferenceMode.LegacyHiddenFile
+        }
+        val candidate = explicitPath ?: rootPath?.resolve(TEMPLATE_FILE_NAME)
+        val displayName = explicitPath?.name ?: TEMPLATE_FILE_NAME
+
+        if (candidate == null || !candidate.exists()) {
+            return TemplateFileStatus(
+                availability = TemplateAvailability.Missing,
+                referenceMode = referenceMode,
+                fileId = explicitPath?.toString(),
+                displayName = displayName,
+            )
+        }
+        if (!candidate.isReadable()) {
+            return TemplateFileStatus(
+                availability = TemplateAvailability.Unreadable,
+                referenceMode = referenceMode,
+                fileId = candidate.toString(),
+                displayName = displayName,
+                detailMessage = "Template file is not readable",
+            )
+        }
+        return TemplateFileStatus(
+            availability = TemplateAvailability.Available,
+            referenceMode = referenceMode,
+            fileId = candidate.toString(),
+            displayName = displayName,
+        )
+    }
+
     private fun missingRootError(): IllegalStateException =
         IllegalStateException("Desktop root is not opened")
 
     private companion object {
+        const val TEMPLATE_FILE_NAME = ".orgclock-template.org"
         val disabledSyncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> =
             MutableStateFlow(SyncIntegrationSnapshot())
     }

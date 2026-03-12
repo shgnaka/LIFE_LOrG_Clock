@@ -43,6 +43,7 @@ class DesktopFileOrgRepositoryTest {
         val root = tempRoot()
         val older = write(root.resolve("2026-03-01.org"), "* Older")
         val newer = write(root.resolve("notes.org"), "* Newer")
+        write(root.resolve(".orgclock-template.org"), "* Hidden Template")
         Files.setLastModifiedTime(older, java.nio.file.attribute.FileTime.fromMillis(1_000))
         Files.setLastModifiedTime(newer, java.nio.file.attribute.FileTime.fromMillis(2_000))
         val repository = DesktopFileOrgRepository(root)

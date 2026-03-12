@@ -22,4 +22,24 @@ data class RootScheduleConfig(
     val hour: Int = 0,
     val minute: Int = 0,
     val daysOfWeek: Set<ScheduleWeekday> = setOf(ScheduleWeekday.Monday),
+    val templateFileUri: String? = null,
+)
+
+enum class TemplateReferenceMode {
+    Explicit,
+    LegacyHiddenFile,
+}
+
+enum class TemplateAvailability {
+    Available,
+    Missing,
+    Unreadable,
+}
+
+data class TemplateFileStatus(
+    val availability: TemplateAvailability,
+    val referenceMode: TemplateReferenceMode,
+    val fileId: String? = null,
+    val displayName: String? = null,
+    val detailMessage: String? = null,
 )
