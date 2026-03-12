@@ -12,6 +12,7 @@ import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.time.toKotlinLocalDateCompat
 import com.example.orgclock.ui.state.OrgClockUiAction
@@ -44,6 +45,8 @@ class OrgClockViewModel(
     saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     notificationPermissionGrantedProvider: () -> Boolean,
     loadRootScheduleConfig: (RootReference) -> RootScheduleConfig,
+    loadTemplateFileStatus: suspend (RootScheduleConfig) -> TemplateFileStatus,
+    loadTemplateAutoGenerationFailure: (RootReference) -> String?,
     saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
@@ -98,6 +101,8 @@ class OrgClockViewModel(
         saveNotificationDisplayMode = saveNotificationDisplayMode,
         notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
         loadRootScheduleConfig = loadRootScheduleConfig,
+        loadTemplateFileStatus = loadTemplateFileStatus,
+        loadTemplateAutoGenerationFailure = loadTemplateAutoGenerationFailure,
         saveRootScheduleConfig = saveRootScheduleConfig,
         syncRootScheduleConfig = syncRootScheduleConfig,
         syncTemplateTaggedHeading = syncTemplateTaggedHeading,

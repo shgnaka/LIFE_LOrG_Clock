@@ -27,6 +27,7 @@ import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
@@ -60,6 +61,8 @@ data class OrgClockRouteDependencies(
     val saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     val notificationPermissionGrantedProvider: () -> Boolean,
     val loadRootScheduleConfig: (RootReference) -> RootScheduleConfig,
+    val loadTemplateFileStatus: suspend (RootScheduleConfig) -> TemplateFileStatus,
+    val loadTemplateAutoGenerationFailure: (RootReference) -> String?,
     val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
@@ -218,6 +221,8 @@ private fun orgClockViewModelFactory(
                 saveNotificationDisplayMode = dependencies.saveNotificationDisplayMode,
                 notificationPermissionGrantedProvider = dependencies.notificationPermissionGrantedProvider,
                 loadRootScheduleConfig = dependencies.loadRootScheduleConfig,
+                loadTemplateFileStatus = dependencies.loadTemplateFileStatus,
+                loadTemplateAutoGenerationFailure = dependencies.loadTemplateAutoGenerationFailure,
                 saveRootScheduleConfig = dependencies.saveRootScheduleConfig,
                 syncRootScheduleConfig = dependencies.syncRootScheduleConfig,
                 syncTemplateTaggedHeading = dependencies.syncTemplateTaggedHeading,

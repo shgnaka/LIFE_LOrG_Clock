@@ -19,6 +19,8 @@ import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
+import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
@@ -66,6 +68,8 @@ class OrgClockStore(
     private val saveNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     private val notificationPermissionGrantedProvider: () -> Boolean,
     private val loadRootScheduleConfig: (RootReference) -> RootScheduleConfig,
+    private val loadTemplateFileStatus: suspend (RootScheduleConfig) -> TemplateFileStatus,
+    private val loadTemplateAutoGenerationFailure: (RootReference) -> String?,
     private val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     private val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     private val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
@@ -142,7 +146,11 @@ class OrgClockStore(
             true
         }
         is OrgClockUiAction.SelectFile -> {
-            scope.launch { loadHeadingsFor(action.file) }
+            if (uiState.value.selectingTemplateFile) {
+                scope.launch { selectTemplateFile(action.file) }
+            } else {
+                scope.launch { loadHeadingsFor(action.file) }
+            }
             true
         }
         is OrgClockUiAction.ToggleL1 -> {
@@ -176,17 +184,35 @@ class OrgClockStore(
             true
         }
         OrgClockUiAction.OpenFilePicker -> {
-            _uiState.update { it.copy(screen = Screen.FilePicker) }
+            _uiState.update { it.copy(screen = Screen.FilePicker, selectingTemplateFile = false) }
+            true
+        }
+        OrgClockUiAction.OpenTemplateFilePicker -> {
+            _uiState.update { it.copy(screen = Screen.FilePicker, selectingTemplateFile = true) }
             true
         }
         OrgClockUiAction.OpenSettings -> {
             _uiState.update { it.copy(screen = Screen.Settings) }
+            uiState.value.rootReference?.let { rootReference ->
+                scope.launch { refreshTemplateState(rootReference, loadRootScheduleConfig(rootReference)) }
+            }
             true
         }
         OrgClockUiAction.BackFromSettings -> {
             _uiState.update { state ->
-                state.copy(screen = if (state.selectedFile != null) Screen.HeadingList else Screen.FilePicker)
+                state.copy(
+                    screen = if (state.selectedFile != null) Screen.HeadingList else Screen.FilePicker,
+                    selectingTemplateFile = false,
+                )
             }
+            true
+        }
+        OrgClockUiAction.ClearExplicitTemplateFile -> {
+            scope.launch { clearExplicitTemplateFile() }
+            true
+        }
+        is OrgClockUiAction.SelectTemplateFile -> {
+            scope.launch { selectTemplateFile(action.file) }
             true
         }
         else -> false
@@ -495,6 +521,7 @@ class OrgClockStore(
         val scheduleConfig = loadRootScheduleConfig(rootReference)
         applyScheduleConfig(scheduleConfig)
         syncRootScheduleConfig(scheduleConfig)
+        refreshTemplateState(rootReference, scheduleConfig)
         refreshFilesAndRoute()
     }
 
@@ -891,9 +918,13 @@ class OrgClockStore(
             hour = hour,
             minute = minute,
             daysOfWeek = uiState.value.autoGenerationDaysOfWeek.ifEmpty { setOf(ScheduleWeekday.Monday) },
+            templateFileUri = uiState.value.templateFileStatus.fileId?.takeIf {
+                uiState.value.templateFileStatus.referenceMode == TemplateReferenceMode.Explicit
+            },
         )
         saveRootScheduleConfig(config)
         syncRootScheduleConfig(config)
+        refreshTemplateState(rootReference, config)
         _uiState.update { it.copy(status = status(StatusMessageKey.AutoGenerationScheduleSaved, StatusTone.Success)) }
         refreshFilesAndRoute()
     }
@@ -906,6 +937,56 @@ class OrgClockStore(
                 autoGenerationHourInput = config.hour.toString().padStart(2, '0'),
                 autoGenerationMinuteInput = config.minute.toString().padStart(2, '0'),
                 autoGenerationDaysOfWeek = config.daysOfWeek.ifEmpty { setOf(ScheduleWeekday.Monday) },
+            )
+        }
+    }
+
+    private suspend fun refreshTemplateState(rootReference: RootReference, config: RootScheduleConfig) {
+        val templateStatus = runCatching { loadTemplateFileStatus(config) }
+            .getOrElse { error ->
+                _uiState.update {
+                    it.copy(
+                        templateAutoGenerationFailure = loadTemplateAutoGenerationFailure(rootReference),
+                        status = status(StatusMessageKey.FailedOpenRoot, StatusTone.Error, error.message ?: ""),
+                    )
+                }
+                return
+            }
+        val lastFailure = loadTemplateAutoGenerationFailure(rootReference)
+        _uiState.update {
+            it.copy(
+                templateFileStatus = templateStatus,
+                templateAutoGenerationFailure = lastFailure,
+            )
+        }
+    }
+
+    private suspend fun selectTemplateFile(file: OrgFileEntry) {
+        val rootReference = uiState.value.rootReference ?: return
+        val current = loadRootScheduleConfig(rootReference)
+        val updated = current.copy(templateFileUri = file.fileId)
+        saveRootScheduleConfig(updated)
+        syncRootScheduleConfig(updated)
+        refreshTemplateState(rootReference, updated)
+        _uiState.update {
+            it.copy(
+                screen = Screen.Settings,
+                selectingTemplateFile = false,
+                status = status(StatusMessageKey.TemplateFileSelected, StatusTone.Success, file.displayName),
+            )
+        }
+    }
+
+    private suspend fun clearExplicitTemplateFile() {
+        val rootReference = uiState.value.rootReference ?: return
+        val current = loadRootScheduleConfig(rootReference)
+        val updated = current.copy(templateFileUri = null)
+        saveRootScheduleConfig(updated)
+        syncRootScheduleConfig(updated)
+        refreshTemplateState(rootReference, updated)
+        _uiState.update {
+            it.copy(
+                status = status(StatusMessageKey.TemplateFileSelectionCleared, StatusTone.Success),
             )
         }
     }

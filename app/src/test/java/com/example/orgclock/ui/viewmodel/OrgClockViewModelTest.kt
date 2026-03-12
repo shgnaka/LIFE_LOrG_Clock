@@ -16,6 +16,9 @@ import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
+import com.example.orgclock.template.TemplateAvailability
+import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
@@ -242,6 +245,93 @@ class OrgClockViewModelTest {
         advanceUntilIdle()
 
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun initialize_loadsTemplateStatusAndLastFailure() = runTest {
+        val root = RootReference("content://orgclock/root")
+        val vm = testViewModel(
+            loadSavedRootReference = { root },
+            openRoot = { Result.success(Unit) },
+            loadTemplateFileStatus = {
+                TemplateFileStatus(
+                    availability = TemplateAvailability.Unreadable,
+                    referenceMode = TemplateReferenceMode.LegacyHiddenFile,
+                    displayName = ".orgclock-template.org",
+                    detailMessage = "permission denied",
+                )
+            },
+            loadTemplateAutoGenerationFailure = { "Template file is unreadable" },
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        val state = vm.uiState.value
+        assertEquals(TemplateAvailability.Unreadable, state.templateFileStatus.availability)
+        assertEquals("Template file is unreadable", state.templateAutoGenerationFailure)
+    }
+
+    @Test
+    fun selectTemplateFile_savesExplicitReferenceAndReturnsToSettings() = runTest {
+        val root = RootReference("content://orgclock/root")
+        var savedConfig: RootScheduleConfig? = null
+        var syncedConfig: RootScheduleConfig? = null
+        val picked = OrgFileEntry("content://orgclock/root/template-source", "template-source.org", null)
+        val vm = testViewModel(
+            openRoot = { Result.success(Unit) },
+            loadTemplateFileStatus = { config ->
+                TemplateFileStatus(
+                    availability = TemplateAvailability.Available,
+                    referenceMode = if (config.templateFileUri == null) TemplateReferenceMode.LegacyHiddenFile else TemplateReferenceMode.Explicit,
+                    fileId = config.templateFileUri,
+                    displayName = picked.displayName,
+                )
+            },
+            saveRootScheduleConfig = { savedConfig = it },
+            syncRootScheduleConfig = { syncedConfig = it },
+        )
+
+        vm.onAction(OrgClockUiAction.PickRoot(root))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.OpenTemplateFilePicker)
+        vm.onAction(OrgClockUiAction.SelectTemplateFile(picked))
+        advanceUntilIdle()
+
+        assertEquals(picked.fileId, savedConfig?.templateFileUri)
+        assertEquals(picked.fileId, syncedConfig?.templateFileUri)
+        assertEquals(Screen.Settings, vm.uiState.value.screen)
+        assertFalse(vm.uiState.value.selectingTemplateFile)
+        assertEquals(TemplateReferenceMode.Explicit, vm.uiState.value.templateFileStatus.referenceMode)
+    }
+
+    @Test
+    fun clearExplicitTemplateFile_restoresLegacyTemplateMode() = runTest {
+        val root = RootReference("content://orgclock/root")
+        var currentConfig = RootScheduleConfig(rootUri = root.rawValue, templateFileUri = "content://orgclock/root/template-source")
+        val vm = testViewModel(
+            openRoot = { Result.success(Unit) },
+            loadRootScheduleConfig = { currentConfig },
+            loadTemplateFileStatus = { config ->
+                TemplateFileStatus(
+                    availability = TemplateAvailability.Missing,
+                    referenceMode = if (config.templateFileUri == null) TemplateReferenceMode.LegacyHiddenFile else TemplateReferenceMode.Explicit,
+                    fileId = config.templateFileUri,
+                    displayName = config.templateFileUri ?: ".orgclock-template.org",
+                )
+            },
+            saveRootScheduleConfig = { currentConfig = it },
+            syncRootScheduleConfig = { currentConfig = it },
+        )
+
+        vm.onAction(OrgClockUiAction.PickRoot(root))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.ClearExplicitTemplateFile)
+        advanceUntilIdle()
+
+        assertNull(currentConfig.templateFileUri)
+        assertEquals(TemplateReferenceMode.LegacyHiddenFile, vm.uiState.value.templateFileStatus.referenceMode)
+        assertEquals(StatusMessageKey.TemplateFileSelectionCleared, vm.uiState.value.status.text.key)
     }
 
     @Test
@@ -872,6 +962,15 @@ class OrgClockViewModelTest {
         loadRootScheduleConfig: (RootReference) -> RootScheduleConfig = { rootReference ->
             RootScheduleConfig(rootUri = rootReference.rawValue)
         },
+        loadTemplateFileStatus: suspend (RootScheduleConfig) -> TemplateFileStatus = { config ->
+            TemplateFileStatus(
+                availability = TemplateAvailability.Missing,
+                referenceMode = if (config.templateFileUri == null) TemplateReferenceMode.LegacyHiddenFile else TemplateReferenceMode.Explicit,
+                fileId = config.templateFileUri,
+                displayName = config.templateFileUri ?: ".orgclock-template.org",
+            )
+        },
+        loadTemplateAutoGenerationFailure: (RootReference) -> String? = { null },
         saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
@@ -908,6 +1007,8 @@ class OrgClockViewModelTest {
             saveNotificationDisplayMode = saveNotificationDisplayMode,
             notificationPermissionGrantedProvider = notificationPermissionGrantedProvider,
             loadRootScheduleConfig = loadRootScheduleConfig,
+            loadTemplateFileStatus = loadTemplateFileStatus,
+            loadTemplateAutoGenerationFailure = loadTemplateAutoGenerationFailure,
             saveRootScheduleConfig = saveRootScheduleConfig,
             syncRootScheduleConfig = syncRootScheduleConfig,
             syncTemplateTaggedHeading = syncTemplateTaggedHeading,

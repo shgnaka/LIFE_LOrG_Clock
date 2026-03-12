@@ -13,6 +13,9 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.TemplateAvailability
+import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -358,6 +361,15 @@ class OrgClockStoreTest {
         loadRootScheduleConfig: (RootReference) -> RootScheduleConfig = { rootReference ->
             RootScheduleConfig(rootUri = rootReference.rawValue)
         },
+        loadTemplateFileStatus: suspend (RootScheduleConfig) -> TemplateFileStatus = { config ->
+            TemplateFileStatus(
+                availability = TemplateAvailability.Missing,
+                referenceMode = if (config.templateFileUri == null) TemplateReferenceMode.LegacyHiddenFile else TemplateReferenceMode.Explicit,
+                fileId = config.templateFileUri,
+                displayName = config.templateFileUri ?: ".orgclock-template.org",
+            )
+        },
+        loadTemplateAutoGenerationFailure: (RootReference) -> String? = { null },
         saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
     ): OrgClockStore {
@@ -383,6 +395,8 @@ class OrgClockStoreTest {
             saveNotificationDisplayMode = {},
             notificationPermissionGrantedProvider = { true },
             loadRootScheduleConfig = loadRootScheduleConfig,
+            loadTemplateFileStatus = loadTemplateFileStatus,
+            loadTemplateAutoGenerationFailure = loadTemplateAutoGenerationFailure,
             saveRootScheduleConfig = saveRootScheduleConfig,
             syncRootScheduleConfig = syncRootScheduleConfig,
             nowProvider = { Instant.parse("2026-03-10T09:00:00Z") },

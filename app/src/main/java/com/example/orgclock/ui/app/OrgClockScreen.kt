@@ -83,6 +83,9 @@ import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncRuntimeMode
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
+import com.example.orgclock.template.TemplateAvailability
+import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.ui.theme.CalmBorder
 import com.example.orgclock.ui.theme.CalmOnAccent
@@ -177,10 +180,20 @@ fun OrgClockScreen(
                 status = state.status,
                 files = state.files,
                 filesWithOpenClock = state.filesWithOpenClock,
+                selectingTemplateFile = state.selectingTemplateFile,
                 zoneIdProvider = zoneIdProvider,
                 onPickRoot = onPickRoot,
-                onSelectFile = { onAction(OrgClockUiAction.SelectFile(it)) },
+                onSelectFile = {
+                    onAction(
+                        if (state.selectingTemplateFile) {
+                            OrgClockUiAction.SelectTemplateFile(it)
+                        } else {
+                            OrgClockUiAction.SelectFile(it)
+                        },
+                    )
+                },
                 onOpenSettings = { onAction(OrgClockUiAction.OpenSettings) },
+                onBackFromTemplatePicker = { onAction(OrgClockUiAction.BackFromSettings) },
                 onRefreshFiles = { onAction(OrgClockUiAction.RefreshFiles) },
             )
 
@@ -220,6 +233,8 @@ fun OrgClockScreen(
                 autoGenerationHourInput = state.autoGenerationHourInput,
                 autoGenerationMinuteInput = state.autoGenerationMinuteInput,
                 autoGenerationDaysOfWeek = state.autoGenerationDaysOfWeek,
+                templateFileStatus = state.templateFileStatus,
+                templateAutoGenerationFailure = state.templateAutoGenerationFailure,
                 syncFeatureVisible = state.syncFeatureVisible,
                 syncDebugVisible = state.syncDebugVisible,
                 syncRuntimeEnabled = state.syncRuntimeEnabled,
@@ -261,6 +276,8 @@ fun OrgClockScreen(
                 onSaveAutoGenerationSchedule = {
                     onAction(OrgClockUiAction.SaveAutoGenerationSchedule)
                 },
+                onOpenTemplateFilePicker = { onAction(OrgClockUiAction.OpenTemplateFilePicker) },
+                onClearExplicitTemplateFile = { onAction(OrgClockUiAction.ClearExplicitTemplateFile) },
                 onSyncFlushNow = { onAction(OrgClockUiAction.SyncFlushNow) },
                 onSyncEnableStandard = { onAction(OrgClockUiAction.SyncEnableStandard) },
                 onSyncEnableActive = { onAction(OrgClockUiAction.SyncEnableActive) },
@@ -352,10 +369,12 @@ private fun FilePickerScreen(
     status: UiStatus,
     files: List<OrgFileEntry>,
     filesWithOpenClock: Set<String>,
+    selectingTemplateFile: Boolean,
     zoneIdProvider: () -> ZoneId,
     onPickRoot: () -> Unit,
     onSelectFile: (OrgFileEntry) -> Unit,
     onOpenSettings: () -> Unit,
+    onBackFromTemplatePicker: () -> Unit,
     onRefreshFiles: () -> Unit,
 ) {
     Column(
@@ -370,7 +389,11 @@ private fun FilePickerScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Button(onClick = onPickRoot) { Text(stringResource(R.string.change_root)) }
-            Button(onClick = onOpenSettings) { Text(stringResource(R.string.settings)) }
+            Button(
+                onClick = if (selectingTemplateFile) onBackFromTemplatePicker else onOpenSettings,
+            ) {
+                Text(stringResource(if (selectingTemplateFile) R.string.back else R.string.settings))
+            }
             Spacer(modifier = Modifier.weight(1f))
             IconButton(
                 onClick = onRefreshFiles,
@@ -383,7 +406,17 @@ private fun FilePickerScreen(
             }
         }
         StatusBanner(status)
-        Text(stringResource(R.string.select_org_file), style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(if (selectingTemplateFile) R.string.template_picker_title else R.string.select_org_file),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        if (selectingTemplateFile) {
+            Text(
+                text = stringResource(R.string.template_picker_description),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         if (files.isEmpty()) {
             Text(
@@ -931,6 +964,8 @@ private fun SettingsScreen(
     autoGenerationHourInput: String,
     autoGenerationMinuteInput: String,
     autoGenerationDaysOfWeek: Set<ScheduleWeekday>,
+    templateFileStatus: TemplateFileStatus,
+    templateAutoGenerationFailure: String?,
     syncFeatureVisible: Boolean,
     syncDebugVisible: Boolean,
     syncRuntimeEnabled: Boolean,
@@ -954,6 +989,8 @@ private fun SettingsScreen(
     onUpdateAutoGenerationMinute: (String) -> Unit,
     onToggleAutoGenerationDay: (ScheduleWeekday) -> Unit,
     onSaveAutoGenerationSchedule: () -> Unit,
+    onOpenTemplateFilePicker: () -> Unit,
+    onClearExplicitTemplateFile: () -> Unit,
     onSyncFlushNow: () -> Unit,
     onSyncEnableStandard: () -> Unit,
     onSyncEnableActive: () -> Unit,
@@ -1054,6 +1091,58 @@ private fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                 )
+                Text(
+                    text = stringResource(R.string.template_status_title),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = templateStatusSummary(templateFileStatus),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = stringResource(
+                        if (templateFileStatus.referenceMode == TemplateReferenceMode.Explicit) {
+                            R.string.template_reference_explicit
+                        } else {
+                            R.string.template_reference_legacy
+                        },
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                templateFileStatus.detailMessage?.takeIf { it.isNotBlank() }?.let { detail ->
+                    Text(
+                        text = stringResource(R.string.template_status_detail, detail),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (templateFileStatus.availability == TemplateAvailability.Missing) {
+                    Text(
+                        text = stringResource(R.string.template_setup_guidance),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                templateAutoGenerationFailure?.let { failure ->
+                    Text(
+                        text = stringResource(R.string.template_auto_generation_last_failure, failure),
+                        color = StateWarningFg,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onOpenTemplateFilePicker) {
+                        Text(stringResource(R.string.template_choose_file))
+                    }
+                    if (templateFileStatus.referenceMode == TemplateReferenceMode.Explicit) {
+                        Button(onClick = onClearExplicitTemplateFile) {
+                            Text(stringResource(R.string.template_use_legacy))
+                        }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { onSetAutoGenerationRule(ScheduleRuleType.Daily) },
@@ -1264,6 +1353,16 @@ private fun SettingsScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun templateStatusSummary(status: TemplateFileStatus): String {
+    val name = status.displayName ?: stringResource(R.string.none)
+    return when (status.availability) {
+        TemplateAvailability.Available -> stringResource(R.string.template_status_available, name)
+        TemplateAvailability.Missing -> stringResource(R.string.template_status_missing, name)
+        TemplateAvailability.Unreadable -> stringResource(R.string.template_status_unreadable, name)
     }
 }
 

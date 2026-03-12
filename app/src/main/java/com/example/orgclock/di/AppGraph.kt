@@ -18,6 +18,7 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.notification.ClockInNotificationService
 import com.example.orgclock.notification.ClockInScanResult
 import com.example.orgclock.notification.ClockInScanner
+import com.example.orgclock.notification.DefaultNotificationPermissionChecker
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.notification.NotificationPermissionChecker
 import com.example.orgclock.notification.NotificationPrefs
@@ -37,6 +38,7 @@ import com.example.orgclock.sync.SyncIntegrationService
 import com.example.orgclock.sync.SyncRuntimeEntryPoint
 import com.example.orgclock.sync.SyncRuntimeManager
 import com.example.orgclock.template.RootScheduleStore
+import com.example.orgclock.template.SharedPrefsTemplateAutoGenerationFailureReporter
 import com.example.orgclock.template.TemplateAutoGenerationEntryPoint
 import com.example.orgclock.template.TemplateAutoGenerationScheduler
 import com.example.orgclock.template.TemplateSyncService
@@ -91,11 +93,26 @@ class DefaultAppGraph(
         appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
     }
     private val rootScheduleStore by lazy { RootScheduleStore(prefs) }
-    private val templateSyncService by lazy { TemplateSyncService(safRepository) }
+    private val templateFailureReporter by lazy {
+        SharedPrefsTemplateAutoGenerationFailureReporter(
+            appContext = appContext,
+            permissionChecker = DefaultNotificationPermissionChecker(),
+        )
+    }
+    private val templateSyncService by lazy {
+        TemplateSyncService(
+            repository = safRepository,
+            templateFileUriProvider = {
+                prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)
+                    ?.let { rootScheduleStore.load(it).templateFileUri }
+            },
+        )
+    }
     private val templateAutoGenerationScheduler by lazy {
         TemplateAutoGenerationScheduler(
             appContext = appContext,
             scheduleStore = rootScheduleStore,
+            failureReporter = templateFailureReporter,
         )
     }
     private val runtimePrefs by lazy {
@@ -250,6 +267,12 @@ class DefaultAppGraph(
             },
             loadRootScheduleConfig = { rootReference ->
                 rootScheduleStore.load(rootReference.rawValue)
+            },
+            loadTemplateFileStatus = { config ->
+                safRepository.inspectTemplateFile(config.templateFileUri).getOrThrow()
+            },
+            loadTemplateAutoGenerationFailure = { rootReference ->
+                templateFailureReporter.loadLastFailure(rootReference.rawValue)
             },
             saveRootScheduleConfig = { config ->
                 rootScheduleStore.save(config)

@@ -8,6 +8,12 @@ import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.example.orgclock.model.OrgDocument
 import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.template.TemplateAvailability
+import com.example.orgclock.template.TemplateAutoGenerationRepository
+import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.template.TemplateGenerationFailureKind
+import com.example.orgclock.template.TemplateGenerationResult
+import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.time.toKotlinInstant
 import com.example.orgclock.time.toKotlinLocalDateCompat
 import kotlinx.coroutines.Dispatchers
@@ -23,7 +29,7 @@ import java.time.format.DateTimeFormatter
 class SafOrgRepository(
     private val context: Context,
     private val backupPolicy: BackupPolicyConfig = BackupPolicyConfig(),
-) : ClockRepository, RootAccessGateway {
+) : ClockRepository, RootAccessGateway, TemplateAutoGenerationRepository {
     private val resolver: ContentResolver = context.contentResolver
     private var root: DocumentFile? = null
     private val lastClockBackupByFileId = mutableMapOf<String, Long>()
@@ -179,25 +185,32 @@ class SafOrgRepository(
             }
         }
 
-    suspend fun loadTemplate(): Result<OrgDocument> = withContext(Dispatchers.IO) {
+    suspend fun loadTemplate(templateFileUri: String? = null): Result<OrgDocument> = withContext(Dispatchers.IO) {
         runCatching {
             val rootDoc = root ?: throw IllegalStateException("Root is not opened")
-            val file = rootDoc.findFile(OrgFileNames.TEMPLATE_FILE_NAME)
+            val file = resolveTemplateFile(rootDoc, templateFileUri)
             val rawText = file?.let { readText(it.uri) }
             val lines = rawText?.let(::parseLines).orEmpty()
             OrgDocument(
-                date = parseDateFromFileName(OrgFileNames.TEMPLATE_FILE_NAME),
+                date = parseDateFromFileName(file?.name ?: OrgFileNames.TEMPLATE_FILE_NAME),
                 lines = lines,
                 hash = hash(canonicalText(lines)),
             )
         }
     }
 
-    suspend fun saveTemplate(lines: List<String>, expectedHash: String): SaveResult = withContext(Dispatchers.IO) {
+    suspend fun saveTemplate(
+        lines: List<String>,
+        expectedHash: String,
+        templateFileUri: String? = null,
+    ): SaveResult = withContext(Dispatchers.IO) {
         runCatching {
             val rootDoc = root ?: return@withContext SaveResult.ValidationError("Root is not opened")
-            val fileName = OrgFileNames.TEMPLATE_FILE_NAME
-            val existing = rootDoc.findFile(fileName)
+            val existing = resolveTemplateFile(rootDoc, templateFileUri)
+            val fileName = existing?.name ?: OrgFileNames.TEMPLATE_FILE_NAME
+            if (templateFileUri != null && existing == null) {
+                return@withContext SaveResult.ValidationError("Template file not found")
+            }
             val existingRawText = existing?.let { readText(it.uri) }
             val existingLines = existingRawText?.let(::parseLines).orEmpty()
             val existingHash = hash(canonicalText(existingLines))
@@ -222,26 +235,111 @@ class SafOrgRepository(
         }
     }
 
-    suspend fun createDailyFromTemplateIfMissing(date: LocalDate): Result<Boolean> = withContext(Dispatchers.IO) {
+    suspend fun inspectTemplateFile(templateFileUri: String? = null): Result<TemplateFileStatus> =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val rootDoc = root ?: throw IllegalStateException("Root is not opened")
+                val file = resolveTemplateFile(rootDoc, templateFileUri)
+                val referenceMode = if (templateFileUri != null) {
+                    TemplateReferenceMode.Explicit
+                } else {
+                    TemplateReferenceMode.LegacyHiddenFile
+                }
+                if (file == null) {
+                    return@runCatching TemplateFileStatus(
+                        availability = TemplateAvailability.Missing,
+                        referenceMode = referenceMode,
+                        fileId = templateFileUri,
+                        displayName = templateDisplayName(templateFileUri, null),
+                    )
+                }
+                runCatching { readText(file.uri) }.fold(
+                    onSuccess = {
+                        TemplateFileStatus(
+                            availability = TemplateAvailability.Available,
+                            referenceMode = referenceMode,
+                            fileId = file.uri.toString(),
+                            displayName = templateDisplayName(templateFileUri, file.name),
+                        )
+                    },
+                    onFailure = { error ->
+                        TemplateFileStatus(
+                            availability = TemplateAvailability.Unreadable,
+                            referenceMode = referenceMode,
+                            fileId = file.uri.toString(),
+                            displayName = templateDisplayName(templateFileUri, file.name),
+                            detailMessage = error.message ?: "Template read failed",
+                        )
+                    },
+                )
+            }
+        }
+
+    override suspend fun createDailyFromTemplateIfMissing(
+        date: LocalDate,
+        templateFileUri: String?,
+    ): Result<TemplateGenerationResult> = withContext(Dispatchers.IO) {
         runCatching {
             val rootDoc = root ?: throw IllegalStateException("Root is not opened")
             val dailyName = OrgPaths.dailyFileName(date)
             if (rootDoc.findFile(dailyName) != null) {
-                return@runCatching false
+                return@runCatching TemplateGenerationResult.SkippedDailyAlreadyExists
             }
 
-            val templateDoc = loadTemplate().getOrThrow()
+            val templateStatus = inspectTemplateFile(templateFileUri).getOrThrow()
+            if (templateStatus.availability == TemplateAvailability.Missing) {
+                return@runCatching TemplateGenerationResult.Failed(
+                    reason = "Template file is missing",
+                    kind = TemplateGenerationFailureKind.TemplateMissing,
+                    templateStatus = templateStatus,
+                )
+            }
+            if (templateStatus.availability == TemplateAvailability.Unreadable) {
+                return@runCatching TemplateGenerationResult.Failed(
+                    reason = templateStatus.detailMessage ?: "Template file is unreadable",
+                    kind = TemplateGenerationFailureKind.TemplateUnreadable,
+                    templateStatus = templateStatus,
+                )
+            }
+
+            val templateDoc = loadTemplate(templateFileUri).getOrThrow()
             if (templateDoc.lines.isEmpty()) {
-                return@runCatching false
+                return@runCatching TemplateGenerationResult.Failed(
+                    reason = "Template file is empty",
+                    kind = TemplateGenerationFailureKind.TemplateUnreadable,
+                    templateStatus = templateStatus,
+                )
             }
 
             when (val save = saveDaily(date, templateDoc.lines, expectedHash = "")) {
-                is SaveResult.Success -> true
-                is SaveResult.Conflict -> false
-                is SaveResult.ValidationError -> throw IllegalStateException(save.reason)
-                is SaveResult.IoError -> throw IllegalStateException(save.reason)
+                is SaveResult.Success -> TemplateGenerationResult.Generated
+                is SaveResult.Conflict -> TemplateGenerationResult.SkippedDailyAlreadyExists
+                is SaveResult.ValidationError -> TemplateGenerationResult.Failed(
+                    reason = save.reason,
+                    kind = TemplateGenerationFailureKind.SaveFailed,
+                    templateStatus = templateStatus,
+                )
+                is SaveResult.IoError -> TemplateGenerationResult.Failed(
+                    reason = save.reason,
+                    kind = TemplateGenerationFailureKind.SaveFailed,
+                    templateStatus = templateStatus,
+                )
             }
         }
+    }
+
+    private fun resolveTemplateFile(rootDoc: DocumentFile, templateFileUri: String?): DocumentFile? {
+        return if (templateFileUri.isNullOrBlank()) {
+            rootDoc.findFile(OrgFileNames.TEMPLATE_FILE_NAME)
+        } else {
+            resolveFileById(rootDoc, templateFileUri)
+        }
+    }
+
+    private fun templateDisplayName(templateFileUri: String?, fileName: String?): String {
+        return fileName
+            ?: templateFileUri?.substringAfterLast('/')
+            ?: OrgFileNames.TEMPLATE_FILE_NAME
     }
 
     private fun shouldCreateBackup(fileId: String, writeIntent: FileWriteIntent, nowMs: Long): Boolean {
