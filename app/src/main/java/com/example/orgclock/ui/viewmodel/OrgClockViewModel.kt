@@ -17,6 +17,9 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.sync.SyncRuntimeMode
+import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.time.toJavaZonedDateTime
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.ui.state.ClockEditDraft
@@ -55,6 +58,9 @@ class OrgClockViewModel(
     private val deleteClosedClock: suspend (String, HeadingPath, Int) -> Result<Unit>,
     private val createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
     private val createL2Heading: suspend (String, HeadingPath, String, Boolean) -> Result<Unit>,
+    private val syncTemplateFromFile: suspend (String) -> Result<Boolean>,
+    private val loadRootScheduleConfig: (String) -> RootScheduleConfig,
+    private val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Result<Unit>,
     private val loadNotificationEnabled: () -> Boolean,
     private val saveNotificationEnabled: (Boolean) -> Unit,
     private val loadNotificationDisplayMode: () -> NotificationDisplayMode,
@@ -180,6 +186,11 @@ class OrgClockViewModel(
                 true
             }
 
+            OrgClockUiAction.SyncTemplateNow -> {
+                viewModelScope.launch { syncTemplateNow() }
+                true
+            }
+
             is OrgClockUiAction.SelectHeading -> {
                 _uiState.update { state -> state.copy(selectedHeadingPath = action.path) }
                 true
@@ -199,6 +210,43 @@ class OrgClockViewModel(
                 _uiState.update { state ->
                     state.copy(screen = if (state.selectedFile != null) Screen.HeadingList else Screen.FilePicker)
                 }
+                true
+            }
+
+            is OrgClockUiAction.SetAutoGenerationEnabled -> {
+                _uiState.update { it.copy(autoGenerationEnabled = action.enabled) }
+                true
+            }
+
+            is OrgClockUiAction.SetAutoGenerationRuleType -> {
+                _uiState.update { it.copy(autoGenerationRuleType = action.ruleType) }
+                true
+            }
+
+            is OrgClockUiAction.SetAutoGenerationHour -> {
+                _uiState.update { it.copy(autoGenerationHourInput = action.value.filter(Char::isDigit).take(2)) }
+                true
+            }
+
+            is OrgClockUiAction.SetAutoGenerationMinute -> {
+                _uiState.update { it.copy(autoGenerationMinuteInput = action.value.filter(Char::isDigit).take(2)) }
+                true
+            }
+
+            is OrgClockUiAction.ToggleAutoGenerationWeekday -> {
+                _uiState.update { state ->
+                    val updated = if (action.weekday in state.autoGenerationDays) {
+                        state.autoGenerationDays - action.weekday
+                    } else {
+                        state.autoGenerationDays + action.weekday
+                    }
+                    state.copy(autoGenerationDays = updated)
+                }
+                true
+            }
+
+            OrgClockUiAction.SaveAutoGenerationSchedule -> {
+                viewModelScope.launch { saveAutoGenerationSchedule() }
                 true
             }
 
@@ -646,6 +694,7 @@ class OrgClockViewModel(
             return
         }
         saveUri(uri)
+        applyRootSchedule(uri)
         _uiState.update {
             it.copy(
                 rootUri = uri,
@@ -658,6 +707,19 @@ class OrgClockViewModel(
     private suspend fun refreshSelectedFileHeadings() {
         val file = uiState.value.selectedFile ?: return
         synchronizeHeadings(file)
+    }
+
+    private fun applyRootSchedule(uri: Uri) {
+        val config = loadRootScheduleConfig(uri.toString())
+        _uiState.update {
+            it.copy(
+                autoGenerationEnabled = config.enabled,
+                autoGenerationRuleType = config.ruleType,
+                autoGenerationHourInput = config.hour.toString(),
+                autoGenerationMinuteInput = config.minute.toString(),
+                autoGenerationDays = config.daysOfWeek,
+            )
+        }
     }
 
     private suspend fun openHistory(item: HeadingViewItem) {
@@ -902,10 +964,34 @@ class OrgClockViewModel(
         }
 
         if (result.isSuccess) {
+            val templateSyncResult = if (dialog.attachTplTag) {
+                syncTemplateFromFile(file.fileId)
+            } else {
+                null
+            }
             _uiState.update {
                 it.copy(
                     createHeadingDialog = null,
-                    status = status(R.string.status_heading_created, StatusTone.Success),
+                    status = when {
+                        templateSyncResult == null || templateSyncResult.isSuccess -> {
+                            status(
+                                if (templateSyncResult?.getOrNull() == true) {
+                                    R.string.status_heading_created_and_template_synced
+                                } else {
+                                    R.string.status_heading_created
+                                },
+                                StatusTone.Success,
+                            )
+                        }
+
+                        else -> {
+                            status(
+                                R.string.status_heading_created_but_template_sync_failed,
+                                StatusTone.Warning,
+                                templateSyncResult.exceptionOrNull()?.message ?: "",
+                            )
+                        }
+                    },
                 )
             }
             synchronizeHeadings(file)
@@ -923,6 +1009,98 @@ class OrgClockViewModel(
             current.copy(
                 createHeadingDialog = currentDialog?.copy(submitting = false),
                 status = status(R.string.status_create_heading_failed, tone, message),
+            )
+        }
+    }
+
+    private suspend fun syncTemplateNow() {
+        val file = uiState.value.selectedFile ?: return
+        _uiState.update { it.copy(templateSyncInProgress = true) }
+        val result = try {
+            syncTemplateFromFile(file.fileId)
+        } finally {
+            _uiState.update { it.copy(templateSyncInProgress = false) }
+        }
+
+        _uiState.update {
+            it.copy(
+                status = when {
+                    result.isFailure -> {
+                        status(
+                            R.string.status_template_sync_failed,
+                            StatusTone.Error,
+                            result.exceptionOrNull()?.message ?: "",
+                        )
+                    }
+
+                    result.getOrDefault(false) -> {
+                        status(R.string.status_template_sync_success, StatusTone.Success)
+                    }
+
+                    else -> {
+                        status(R.string.status_template_sync_no_changes, StatusTone.Info)
+                    }
+                },
+            )
+        }
+    }
+
+    private suspend fun saveAutoGenerationSchedule() {
+        val rootUri = uiState.value.rootUri ?: return
+        val hour = uiState.value.autoGenerationHourInput.toIntOrNull()
+        val minute = uiState.value.autoGenerationMinuteInput.toIntOrNull()
+        if (hour == null || hour !in 0..23) {
+            _uiState.update {
+                it.copy(status = status(R.string.status_auto_generation_invalid_hour, StatusTone.Warning))
+            }
+            return
+        }
+        if (minute == null || minute !in 0..59) {
+            _uiState.update {
+                it.copy(status = status(R.string.status_auto_generation_invalid_minute, StatusTone.Warning))
+            }
+            return
+        }
+        if (uiState.value.autoGenerationRuleType == ScheduleRuleType.Weekly &&
+            uiState.value.autoGenerationDays.isEmpty()
+        ) {
+            _uiState.update {
+                it.copy(status = status(R.string.status_auto_generation_weekday_required, StatusTone.Warning))
+            }
+            return
+        }
+
+        val config = RootScheduleConfig(
+            rootUri = rootUri.toString(),
+            enabled = uiState.value.autoGenerationEnabled,
+            ruleType = uiState.value.autoGenerationRuleType,
+            hour = hour,
+            minute = minute,
+            daysOfWeek = if (uiState.value.autoGenerationDays.isEmpty()) {
+                setOf(ScheduleWeekday.Monday)
+            } else {
+                uiState.value.autoGenerationDays
+            },
+        )
+
+        _uiState.update { it.copy(autoGenerationSaving = true) }
+        val result = try {
+            saveRootScheduleConfig(config)
+        } finally {
+            _uiState.update { it.copy(autoGenerationSaving = false) }
+        }
+
+        _uiState.update {
+            it.copy(
+                status = if (result.isSuccess) {
+                    status(R.string.status_auto_generation_schedule_saved, StatusTone.Success)
+                } else {
+                    status(
+                        R.string.status_auto_generation_schedule_failed,
+                        StatusTone.Error,
+                        result.exceptionOrNull()?.message ?: "",
+                    )
+                },
             )
         }
     }

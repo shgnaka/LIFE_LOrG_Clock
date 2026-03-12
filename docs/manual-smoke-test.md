@@ -61,3 +61,18 @@ CLOCK: [start]--[end] =>  H:MM
 2. Verify backup files are created in root directory with pattern:
    - `.<daily-filename>.bak.<timestamp>`
 3. Confirm old generations are trimmed beyond configured limit.
+
+## 10. Template sync validation
+1. Open a daily file and create an L1 or L2 heading with `Add TPL tag` enabled.
+2. Confirm status is either `Heading created and template synced` or, on partial failure, a dedicated template sync warning.
+3. Verify `.template.org` is created or updated under the selected root.
+4. Modify an existing file so it contains another `:TPL:` section, then press `Sync template`.
+5. Confirm the new `:TPL:` section is merged into `.template.org` without deleting unrelated existing sections.
+
+## 11. Auto generation schedule validation
+1. Open `Settings` and configure `自動生成`.
+2. Save one `Daily` schedule and confirm success status is shown.
+3. Switch to `Weekly`, select at least one weekday, save again, and confirm the setting persists after reopening the app.
+4. With `.template.org` present and non-empty, wait until the scheduled time or set a near-future time to verify that today's daily file is generated only when missing.
+5. Repeat with an empty `.template.org` and confirm no daily file is generated.
+6. Repeat with an already existing daily file and confirm it is not overwritten.

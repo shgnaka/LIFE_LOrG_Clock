@@ -13,6 +13,9 @@ import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.sync.PeerProbeResult
+import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.state.StatusTone
@@ -220,6 +223,74 @@ class OrgClockViewModelTest {
         advanceUntilIdle()
 
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun submitCreateHeading_withTplSyncFailureShowsWarningAfterCreateSuccess() = runTest {
+        val file = OrgFileEntry("f1", "2026-02-16.org", null)
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            syncTemplateFromFile = {
+                Result.failure(IllegalStateException("template write failed"))
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(file))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.OpenCreateL1Dialog)
+        vm.onAction(OrgClockUiAction.UpdateCreateHeadingTitle("Seed"))
+        vm.onAction(OrgClockUiAction.SetCreateHeadingTplTag(true))
+        vm.onAction(OrgClockUiAction.SubmitCreateHeading)
+        advanceUntilIdle()
+
+        assertEquals(StatusTone.Warning, vm.uiState.value.status.tone)
+        assertEquals(R.string.status_heading_created_but_template_sync_failed, vm.uiState.value.status.messageResId)
+    }
+
+    @Test
+    fun syncTemplateNow_successShowsDedicatedStatus() = runTest {
+        val file = OrgFileEntry("f1", "2026-02-16.org", null)
+        val vm = testViewModel(
+            listHeadings = { Result.success(sampleHeadings()) },
+            syncTemplateFromFile = { Result.success(true) },
+        )
+
+        vm.onAction(OrgClockUiAction.SelectFile(file))
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.SyncTemplateNow)
+        advanceUntilIdle()
+
+        assertEquals(R.string.status_template_sync_success, vm.uiState.value.status.messageResId)
+        assertEquals(StatusTone.Success, vm.uiState.value.status.tone)
+    }
+
+    @Test
+    fun saveAutoGenerationSchedule_validatesWeeklyDaySelection() = runTest {
+        val savedUri = Mockito.mock(Uri::class.java)
+        Mockito.`when`(savedUri.toString()).thenReturn("content://root")
+        val vm = testViewModel(
+            loadSavedUri = { savedUri },
+            openRoot = { Result.success(Unit) },
+            loadRootScheduleConfig = {
+                RootScheduleConfig(
+                    rootUri = it,
+                    enabled = false,
+                    ruleType = ScheduleRuleType.Daily,
+                    hour = 9,
+                    minute = 0,
+                )
+            },
+        )
+
+        vm.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        vm.onAction(OrgClockUiAction.SetAutoGenerationRuleType(ScheduleRuleType.Weekly))
+        vm.onAction(OrgClockUiAction.ToggleAutoGenerationWeekday(ScheduleWeekday.Monday))
+        vm.onAction(OrgClockUiAction.SaveAutoGenerationSchedule)
+        advanceUntilIdle()
+
+        assertEquals(R.string.status_auto_generation_weekday_required, vm.uiState.value.status.messageResId)
+        assertEquals(StatusTone.Warning, vm.uiState.value.status.tone)
     }
 
     @Test
@@ -788,6 +859,11 @@ class OrgClockViewModelTest {
         deleteClosedClock: suspend (String, HeadingPath, Int) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         createL1Heading: suspend (String, String, Boolean) -> Result<Unit> = { _, _, _ -> Result.success(Unit) },
         createL2Heading: suspend (String, HeadingPath, String, Boolean) -> Result<Unit> = { _, _, _, _ -> Result.success(Unit) },
+        syncTemplateFromFile: suspend (String) -> Result<Boolean> = { Result.success(false) },
+        loadRootScheduleConfig: (String) -> RootScheduleConfig = {
+            RootScheduleConfig(rootUri = it)
+        },
+        saveRootScheduleConfig: suspend (RootScheduleConfig) -> Result<Unit> = { Result.success(Unit) },
         loadNotificationEnabled: () -> Boolean = { true },
         saveNotificationEnabled: (Boolean) -> Unit = {},
         loadNotificationDisplayMode: () -> NotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
@@ -819,6 +895,9 @@ class OrgClockViewModelTest {
             deleteClosedClock = deleteClosedClock,
             createL1Heading = createL1Heading,
             createL2Heading = createL2Heading,
+            syncTemplateFromFile = syncTemplateFromFile,
+            loadRootScheduleConfig = loadRootScheduleConfig,
+            saveRootScheduleConfig = saveRootScheduleConfig,
             loadNotificationEnabled = loadNotificationEnabled,
             saveNotificationEnabled = saveNotificationEnabled,
             loadNotificationDisplayMode = loadNotificationDisplayMode,

@@ -35,6 +35,11 @@ import com.example.orgclock.sync.SyncCoreClientFactory
 import com.example.orgclock.sync.SyncIntegrationService
 import com.example.orgclock.sync.SyncRuntimeEntryPoint
 import com.example.orgclock.sync.SyncRuntimeManager
+import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.RootScheduleStore
+import com.example.orgclock.template.TemplateAutoGenerationEntryPoint
+import com.example.orgclock.template.TemplateAutoGenerationScheduler
+import com.example.orgclock.template.TemplateSyncService
 import androidx.lifecycle.lifecycleScope
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
@@ -79,6 +84,19 @@ class DefaultAppGraph(
     private val clockService by lazy { ClockService(repository, fileOperationCoordinator = fileOperationCoordinator) }
     private val clockInScanner by lazy { ClockInScanner(repository) }
     private val notificationServiceConfig: NotificationServiceConfig = NotificationServiceConfig()
+    private val rootScheduleStore by lazy {
+        RootScheduleStore(
+            appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
+        )
+    }
+    private val templateSyncService by lazy { TemplateSyncService(safRepository) }
+    private val templateAutoGenerationScheduler by lazy {
+        TemplateAutoGenerationScheduler(
+            appContext = appContext,
+            scheduleStore = rootScheduleStore,
+            repositoryFactory = { safRepository },
+        )
+    }
     private val syncCoreClientFactory: SyncCoreClientFactory by lazy {
         loadSyncCoreClientFactory()
     }
@@ -132,6 +150,7 @@ class DefaultAppGraph(
     ): OrgClockRouteDependencies {
         val prefs = activity.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
         ClockInNotificationService.clockEnvironmentFactory = { clockEnvironment }
+        TemplateAutoGenerationEntryPoint.scheduler = templateAutoGenerationScheduler
         val localPublisher = LocalClockOperationPublisher(
             syncIntegrationService = syncIntegrationService,
             deviceIdProvider = deviceIdProvider,
@@ -215,6 +234,17 @@ class DefaultAppGraph(
             },
             createL2Heading = { fileId, parentL1Path, title, attachTplTag ->
                 clockService.createL2HeadingInFile(fileId, parentL1Path, title, attachTplTag)
+            },
+            syncTemplateFromFile = { fileId ->
+                templateSyncService.syncFromFile(fileId)
+            },
+            loadRootScheduleConfig = { rootUri ->
+                rootScheduleStore.load(rootUri)
+            },
+            saveRootScheduleConfig = { config: RootScheduleConfig ->
+                runCatching {
+                    templateAutoGenerationScheduler.sync(Uri.parse(config.rootUri), config)
+                }
             },
             loadNotificationEnabled = { prefs.getBoolean(NotificationPrefs.KEY_ENABLED, true) },
             saveNotificationEnabled = { enabled ->

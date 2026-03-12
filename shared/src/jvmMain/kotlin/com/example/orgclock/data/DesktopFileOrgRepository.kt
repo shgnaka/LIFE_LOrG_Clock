@@ -37,6 +37,10 @@ class DesktopFileOrgRepository(
     override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = runCatching {
         rootPath.listDirectoryEntries("*.org")
             .filter { it.isRegularFile() }
+            .filterNot { path ->
+                path.name.equals(TEMPLATE_FILE_NAME, ignoreCase = true) ||
+                    path.name.equals(LEGACY_TEMPLATE_FILE_NAME, ignoreCase = true)
+            }
             .map { path ->
                 OrgFileEntry(
                     fileId = path.absolutePathString(),
@@ -235,5 +239,7 @@ class DesktopFileOrgRepository(
 
     private companion object {
         val BACKUP_STAMP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+        const val TEMPLATE_FILE_NAME = ".template.org"
+        const val LEGACY_TEMPLATE_FILE_NAME = "template.org"
     }
 }

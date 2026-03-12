@@ -20,6 +20,8 @@ Android 端末と Linux デスクトップ上で org ファイルの見出しに
   `docs/features/clock-in-notification-spec.md`
 - 通知機能実装状況  
   `docs/features/clock-in-notification-status.md`
+- template 同期 / 自動生成仕様  
+  `docs/features/template-auto-generation.md`
 - 改善チケット運用（Kaizen）  
   `docs/kaizens/README.md`
 - iOS 対応ロードマップ（Milestone 定義）  

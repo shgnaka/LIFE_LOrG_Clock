@@ -12,6 +12,8 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncMetricsSnapshot
 import com.example.orgclock.sync.SyncRuntimeMode
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 
 enum class Screen {
     RootSetup,
@@ -87,6 +89,13 @@ data class OrgClockUiState(
     val deletingEntry: ClosedClockEntry? = null,
     val deletingInProgress: Boolean = false,
     val createHeadingDialog: CreateHeadingDialogState? = null,
+    val templateSyncInProgress: Boolean = false,
+    val autoGenerationEnabled: Boolean = false,
+    val autoGenerationRuleType: ScheduleRuleType = ScheduleRuleType.Daily,
+    val autoGenerationHourInput: String = "9",
+    val autoGenerationMinuteInput: String = "0",
+    val autoGenerationDays: Set<ScheduleWeekday> = setOf(ScheduleWeekday.Monday),
+    val autoGenerationSaving: Boolean = false,
     val notificationEnabled: Boolean = true,
     val notificationDisplayMode: NotificationDisplayMode = NotificationDisplayMode.ActiveOnly,
     val notificationPermissionGranted: Boolean = false,

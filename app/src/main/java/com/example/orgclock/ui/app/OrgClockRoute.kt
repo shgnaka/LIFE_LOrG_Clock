@@ -30,6 +30,7 @@ import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.viewmodel.OrgClockViewModel
+import com.example.orgclock.template.RootScheduleConfig
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -52,6 +53,9 @@ data class OrgClockRouteDependencies(
     val deleteClosedClock: suspend (String, HeadingPath, Int) -> Result<Unit>,
     val createL1Heading: suspend (String, String, Boolean) -> Result<Unit>,
     val createL2Heading: suspend (String, HeadingPath, String, Boolean) -> Result<Unit>,
+    val syncTemplateFromFile: suspend (String) -> Result<Boolean>,
+    val loadRootScheduleConfig: (String) -> RootScheduleConfig,
+    val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Result<Unit>,
     val loadNotificationEnabled: () -> Boolean,
     val saveNotificationEnabled: (Boolean) -> Unit,
     val loadNotificationDisplayMode: () -> NotificationDisplayMode,
@@ -206,6 +210,9 @@ private fun orgClockViewModelFactory(
                 deleteClosedClock = dependencies.deleteClosedClock,
                 createL1Heading = dependencies.createL1Heading,
                 createL2Heading = dependencies.createL2Heading,
+                syncTemplateFromFile = dependencies.syncTemplateFromFile,
+                loadRootScheduleConfig = dependencies.loadRootScheduleConfig,
+                saveRootScheduleConfig = dependencies.saveRootScheduleConfig,
                 loadNotificationEnabled = dependencies.loadNotificationEnabled,
                 saveNotificationEnabled = dependencies.saveNotificationEnabled,
                 loadNotificationDisplayMode = dependencies.loadNotificationDisplayMode,

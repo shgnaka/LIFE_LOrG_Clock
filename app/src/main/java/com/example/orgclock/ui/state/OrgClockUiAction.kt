@@ -6,6 +6,8 @@ import com.example.orgclock.model.ClosedClockEntry
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 
 sealed interface OrgClockUiAction {
     data object Initialize : OrgClockUiAction
@@ -16,6 +18,7 @@ sealed interface OrgClockUiAction {
     data object ExpandAll : OrgClockUiAction
     data object RefreshHeadings : OrgClockUiAction
     data object RefreshFiles : OrgClockUiAction
+    data object SyncTemplateNow : OrgClockUiAction
     data class SelectHeading(val path: HeadingPath) : OrgClockUiAction
     data class OpenHistory(val item: HeadingViewItem) : OrgClockUiAction
     data object DismissHistory : OrgClockUiAction
@@ -41,6 +44,12 @@ sealed interface OrgClockUiAction {
     data object OpenFilePicker : OrgClockUiAction
     data object OpenSettings : OrgClockUiAction
     data object BackFromSettings : OrgClockUiAction
+    data class SetAutoGenerationEnabled(val enabled: Boolean) : OrgClockUiAction
+    data class SetAutoGenerationRuleType(val ruleType: ScheduleRuleType) : OrgClockUiAction
+    data class SetAutoGenerationHour(val value: String) : OrgClockUiAction
+    data class SetAutoGenerationMinute(val value: String) : OrgClockUiAction
+    data class ToggleAutoGenerationWeekday(val weekday: ScheduleWeekday) : OrgClockUiAction
+    data object SaveAutoGenerationSchedule : OrgClockUiAction
     data class ToggleNotificationEnabled(val enabled: Boolean) : OrgClockUiAction
     data class ChangeNotificationDisplayMode(val mode: NotificationDisplayMode) : OrgClockUiAction
     data object RequestNotificationPermissionHandled : OrgClockUiAction

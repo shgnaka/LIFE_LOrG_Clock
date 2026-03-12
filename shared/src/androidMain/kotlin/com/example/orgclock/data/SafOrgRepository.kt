@@ -7,6 +7,8 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import com.example.orgclock.model.OrgDocument
+import com.example.orgclock.template.TemplateAutoGenerationRepository
+import com.example.orgclock.template.TemplateSyncRepository
 import com.example.orgclock.time.toKotlinInstant
 import com.example.orgclock.time.toKotlinLocalDateCompat
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +24,7 @@ import java.time.format.DateTimeFormatter
 class SafOrgRepository(
     private val context: Context,
     private val backupPolicy: BackupPolicyConfig = BackupPolicyConfig(),
-) : ClockRepository, RootAccessGateway {
+) : ClockRepository, RootAccessGateway, TemplateSyncRepository, TemplateAutoGenerationRepository {
     private val resolver: ContentResolver = context.contentResolver
     private var root: DocumentFile? = null
     private val lastClockBackupByFileId = mutableMapOf<String, Long>()
@@ -37,6 +39,7 @@ class SafOrgRepository(
                 ?: throw IllegalArgumentException("Invalid tree uri")
             require(rootDoc.isDirectory) { "Selected uri must be a directory." }
             root = rootDoc
+            migrateLegacyTemplateIfNeeded(rootDoc)
             Unit
         }
     }
@@ -100,7 +103,12 @@ class SafOrgRepository(
             rootDoc.listFiles()
                 .asSequence()
                 .filter { it.isFile }
-                .filter { it.name?.endsWith(".org", ignoreCase = true) == true }
+                .filter { file ->
+                    val name = file.name ?: return@filter false
+                    name.endsWith(".org", ignoreCase = true) &&
+                        !name.equals(OrgPaths.templateFileName(), ignoreCase = true) &&
+                        !name.equals(OrgPaths.legacyTemplateFileName(), ignoreCase = true)
+                }
                 .mapNotNull { file ->
                     val name = file.name ?: return@mapNotNull null
                     OrgFileEntry(
@@ -173,6 +181,74 @@ class SafOrgRepository(
                 SaveResult.IoError(it.message ?: "Unknown I/O error")
             }
         }
+
+    override suspend fun loadTemplate(): Result<OrgDocument> = withContext(Dispatchers.IO) {
+        runCatching {
+            val rootDoc = root ?: throw IllegalStateException("Root is not opened")
+            val file = findCurrentTemplateFile(rootDoc)
+            val rawText = file?.let { readText(it.uri) }
+            val lines = rawText?.let(::parseLines).orEmpty()
+            OrgDocument(
+                date = parseDateFromFileName(OrgPaths.templateFileName()),
+                lines = lines,
+                hash = hash(canonicalText(lines)),
+            )
+        }
+    }
+
+    override suspend fun saveTemplate(lines: List<String>, expectedHash: String): SaveResult = withContext(Dispatchers.IO) {
+        runCatching {
+            val rootDoc = root ?: return@withContext SaveResult.ValidationError("Root is not opened")
+            val fileName = OrgPaths.templateFileName()
+            val existing = findCurrentTemplateFile(rootDoc)
+            val existingRawText = existing?.let { readText(it.uri) }
+            val existingLines = existingRawText?.let(::parseLines).orEmpty()
+            val existingHash = hash(canonicalText(existingLines))
+            if (existingHash != expectedHash) {
+                return@withContext SaveResult.Conflict("File changed by another process.")
+            }
+
+            val target = rootDoc.findFile(fileName) ?: createDocumentExactName(rootDoc, fileName)
+                ?: return@withContext SaveResult.IoError("Failed to create file: $fileName")
+            val lineSeparator = existingRawText?.let(::detectLineSeparator) ?: "\n"
+            val keepTrailingNewline = existingRawText?.endsWith('\n') ?: false
+            val outputText = formatOutputText(lines, lineSeparator, keepTrailingNewline)
+            resolver.openOutputStream(target.uri, "wt").use { output ->
+                requireNotNull(output) { "Cannot open output file: $fileName" }
+                val writer = OutputStreamWriter(output)
+                writer.write(outputText)
+                writer.flush()
+            }
+            if (!existing?.name.equals(fileName, ignoreCase = true)) {
+                rootDoc.findFile(OrgPaths.legacyTemplateFileName())?.delete()
+            }
+            SaveResult.Success
+        }.getOrElse {
+            SaveResult.IoError(it.message ?: "Unknown I/O error")
+        }
+    }
+
+    override suspend fun createDailyFromTemplateIfMissing(date: LocalDate): Result<Boolean> = withContext(Dispatchers.IO) {
+        runCatching {
+            val rootDoc = root ?: throw IllegalStateException("Root is not opened")
+            val dailyName = OrgPaths.dailyFileName(date)
+            if (rootDoc.findFile(dailyName) != null) {
+                return@runCatching false
+            }
+
+            val templateDoc = loadTemplate().getOrThrow()
+            if (templateDoc.lines.isEmpty()) {
+                return@runCatching false
+            }
+
+            when (val save = saveDaily(date, templateDoc.lines, expectedHash = "")) {
+                is SaveResult.Success -> true
+                is SaveResult.Conflict -> false
+                is SaveResult.ValidationError -> throw IllegalStateException(save.reason)
+                is SaveResult.IoError -> throw IllegalStateException(save.reason)
+            }
+        }
+    }
 
     private fun shouldCreateBackup(fileId: String, writeIntent: FileWriteIntent, nowMs: Long): Boolean {
         if (writeIntent == FileWriteIntent.UserEdit) return true
@@ -258,6 +334,27 @@ class SafOrgRepository(
         if (!isUriUnderRoot(rootDoc.uri, uri)) return null
         val file = DocumentFile.fromSingleUri(context, uri) ?: return null
         return file.takeIf { it.exists() && it.isFile }
+    }
+
+    private fun findCurrentTemplateFile(rootDoc: DocumentFile): DocumentFile? {
+        return rootDoc.findFile(OrgPaths.templateFileName())
+            ?: rootDoc.findFile(OrgPaths.legacyTemplateFileName())
+    }
+
+    private fun migrateLegacyTemplateIfNeeded(rootDoc: DocumentFile) {
+        val hidden = rootDoc.findFile(OrgPaths.templateFileName())
+        if (hidden != null) return
+        val legacy = rootDoc.findFile(OrgPaths.legacyTemplateFileName()) ?: return
+        val rawText = readText(legacy.uri)
+        val target = createDocumentExactName(rootDoc, OrgPaths.templateFileName()) ?: return
+        resolver.openOutputStream(target.uri, "wt").use { output ->
+            if (output != null) {
+                val writer = OutputStreamWriter(output)
+                writer.write(rawText)
+                writer.flush()
+            }
+        }
+        legacy.delete()
     }
 
     private fun isUriUnderRoot(rootUri: Uri, fileUri: Uri): Boolean {

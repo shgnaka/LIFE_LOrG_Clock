@@ -92,6 +92,8 @@ import com.example.orgclock.ui.theme.StateSuccessBg
 import com.example.orgclock.ui.theme.StateSuccessFg
 import com.example.orgclock.ui.theme.StateWarningBg
 import com.example.orgclock.ui.theme.StateWarningFg
+import com.example.orgclock.template.ScheduleRuleType
+import com.example.orgclock.template.ScheduleWeekday
 import kotlinx.coroutines.delay
 import java.time.Duration
 import java.time.ZoneId
@@ -189,6 +191,7 @@ fun OrgClockScreen(
                 onCollapseAll = { onAction(OrgClockUiAction.CollapseAll) },
                 onExpandAll = { onAction(OrgClockUiAction.ExpandAll) },
                 onRefresh = { onAction(OrgClockUiAction.RefreshHeadings) },
+                onSyncTemplate = { onAction(OrgClockUiAction.SyncTemplateNow) },
                 onLongPressL2 = { onAction(OrgClockUiAction.OpenHistory(it)) },
                 onOpenCreateL1 = { onAction(OrgClockUiAction.OpenCreateL1Dialog) },
                 onOpenFilePicker = { onAction(OrgClockUiAction.OpenFilePicker) },
@@ -204,6 +207,12 @@ fun OrgClockScreen(
             Screen.Settings -> SettingsScreen(
                 status = state.status,
                 rootUri = state.rootUri,
+                autoGenerationEnabled = state.autoGenerationEnabled,
+                autoGenerationRuleType = state.autoGenerationRuleType,
+                autoGenerationHourInput = state.autoGenerationHourInput,
+                autoGenerationMinuteInput = state.autoGenerationMinuteInput,
+                autoGenerationDays = state.autoGenerationDays,
+                autoGenerationSaving = state.autoGenerationSaving,
                 notificationEnabled = state.notificationEnabled,
                 notificationDisplayMode = state.notificationDisplayMode,
                 notificationPermissionGranted = state.notificationPermissionGranted,
@@ -221,6 +230,12 @@ fun OrgClockScreen(
                 syncMetricsSummary = "submitted=${state.syncMetrics.commandsSubmittedTotal}, applied=${state.syncMetrics.commandsAppliedTotal}, retries=${state.syncMetrics.retryAttemptsTotal}, depth=${state.syncMetrics.queueDepth}",
                 syncDeliveryStates = state.syncDeliveryStates.takeLast(3),
                 onChangeRoot = onPickRoot,
+                onSetAutoGenerationEnabled = { onAction(OrgClockUiAction.SetAutoGenerationEnabled(it)) },
+                onSetAutoGenerationRuleType = { onAction(OrgClockUiAction.SetAutoGenerationRuleType(it)) },
+                onSetAutoGenerationHour = { onAction(OrgClockUiAction.SetAutoGenerationHour(it)) },
+                onSetAutoGenerationMinute = { onAction(OrgClockUiAction.SetAutoGenerationMinute(it)) },
+                onToggleAutoGenerationWeekday = { onAction(OrgClockUiAction.ToggleAutoGenerationWeekday(it)) },
+                onSaveAutoGenerationSchedule = { onAction(OrgClockUiAction.SaveAutoGenerationSchedule) },
                 onToggleNotificationEnabled = {
                     onAction(OrgClockUiAction.ToggleNotificationEnabled(it))
                 },
@@ -413,6 +428,7 @@ private fun HeadingListScreen(
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
     onRefresh: () -> Unit,
+    onSyncTemplate: () -> Unit,
     onLongPressL2: (HeadingViewItem) -> Unit,
     onOpenCreateL1: () -> Unit,
     onOpenFilePicker: () -> Unit,
@@ -455,6 +471,7 @@ private fun HeadingListScreen(
             onCollapseAll = onCollapseAll,
             onExpandAll = onExpandAll,
             onRefresh = onRefresh,
+            onSyncTemplate = onSyncTemplate,
             performanceMonitor = performanceMonitor,
             showPerfOverlay = showPerfOverlay,
         )
@@ -797,6 +814,7 @@ private fun HeadingListTopBar(
     onCollapseAll: () -> Unit,
     onExpandAll: () -> Unit,
     onRefresh: () -> Unit,
+    onSyncTemplate: () -> Unit,
     performanceMonitor: PerformanceMonitor,
     showPerfOverlay: Boolean,
 ) {
@@ -835,6 +853,12 @@ private fun HeadingListTopBar(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = stringResource(R.string.refresh),
                         )
+                    }
+                    Button(
+                        onClick = onSyncTemplate,
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(stringResource(R.string.sync_template))
                     }
                     BulkHeadingActionButton(
                         label = stringResource(R.string.expand_all_label),
@@ -885,6 +909,12 @@ private fun BulkHeadingActionButton(
 private fun SettingsScreen(
     status: UiStatus,
     rootUri: Uri?,
+    autoGenerationEnabled: Boolean,
+    autoGenerationRuleType: ScheduleRuleType,
+    autoGenerationHourInput: String,
+    autoGenerationMinuteInput: String,
+    autoGenerationDays: Set<ScheduleWeekday>,
+    autoGenerationSaving: Boolean,
     notificationEnabled: Boolean,
     notificationDisplayMode: NotificationDisplayMode,
     notificationPermissionGranted: Boolean,
@@ -902,6 +932,12 @@ private fun SettingsScreen(
     syncMetricsSummary: String,
     syncDeliveryStates: List<SyncDeliveryState>,
     onChangeRoot: () -> Unit,
+    onSetAutoGenerationEnabled: (Boolean) -> Unit,
+    onSetAutoGenerationRuleType: (ScheduleRuleType) -> Unit,
+    onSetAutoGenerationHour: (String) -> Unit,
+    onSetAutoGenerationMinute: (String) -> Unit,
+    onToggleAutoGenerationWeekday: (ScheduleWeekday) -> Unit,
+    onSaveAutoGenerationSchedule: () -> Unit,
     onToggleNotificationEnabled: (Boolean) -> Unit,
     onChangeNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
     onOpenAppNotificationSettings: () -> Unit,
@@ -932,6 +968,112 @@ private fun SettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onChangeRoot) { Text(stringResource(R.string.change_org_directory)) }
                     Button(onClick = onBack) { Text(stringResource(R.string.back)) }
+                }
+            }
+        }
+        SectionCard {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(stringResource(R.string.auto_generation_title), style = MaterialTheme.typography.titleMedium)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(stringResource(R.string.auto_generation_enabled), style = MaterialTheme.typography.bodyLarge)
+                    Switch(
+                        checked = autoGenerationEnabled,
+                        onCheckedChange = onSetAutoGenerationEnabled,
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { onSetAutoGenerationRuleType(ScheduleRuleType.Daily) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (autoGenerationRuleType == ScheduleRuleType.Daily) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                        ),
+                    ) {
+                        Text(stringResource(R.string.auto_generation_daily))
+                    }
+                    Button(
+                        onClick = { onSetAutoGenerationRuleType(ScheduleRuleType.Weekly) },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (autoGenerationRuleType == ScheduleRuleType.Weekly) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
+                        ),
+                    ) {
+                        Text(stringResource(R.string.auto_generation_weekly))
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = autoGenerationHourInput,
+                        onValueChange = onSetAutoGenerationHour,
+                        label = { Text(stringResource(R.string.auto_generation_hour)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        value = autoGenerationMinuteInput,
+                        onValueChange = onSetAutoGenerationMinute,
+                        label = { Text(stringResource(R.string.auto_generation_minute)) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (autoGenerationRuleType == ScheduleRuleType.Weekly) {
+                    val weekdayLabels = listOf(
+                        ScheduleWeekday.Monday to stringResource(R.string.weekday_mon),
+                        ScheduleWeekday.Tuesday to stringResource(R.string.weekday_tue),
+                        ScheduleWeekday.Wednesday to stringResource(R.string.weekday_wed),
+                        ScheduleWeekday.Thursday to stringResource(R.string.weekday_thu),
+                        ScheduleWeekday.Friday to stringResource(R.string.weekday_fri),
+                        ScheduleWeekday.Saturday to stringResource(R.string.weekday_sat),
+                        ScheduleWeekday.Sunday to stringResource(R.string.weekday_sun),
+                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        weekdayLabels.chunked(4).forEach { chunk ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                chunk.forEach { (weekday, label) ->
+                                    Button(
+                                        onClick = { onToggleAutoGenerationWeekday(weekday) },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (weekday in autoGenerationDays) {
+                                                StateSuccessFg
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                            },
+                                            contentColor = CalmOnAccent,
+                                        ),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    ) {
+                                        Text(label)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Text(
+                    stringResource(R.string.auto_generation_description),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Button(
+                    onClick = onSaveAutoGenerationSchedule,
+                    enabled = !autoGenerationSaving && rootUri != null,
+                ) {
+                    Text(
+                        stringResource(
+                            if (autoGenerationSaving) R.string.saving else R.string.save_auto_generation_schedule,
+                        ),
+                    )
                 }
             }
         }
