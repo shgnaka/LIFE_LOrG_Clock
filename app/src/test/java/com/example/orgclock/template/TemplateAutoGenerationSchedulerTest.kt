@@ -108,6 +108,50 @@ class TemplateAutoGenerationSchedulerTest {
     }
 
     @Test
+    fun runWorker_doesNotMarkSuccessWhenGenerationFails() = runTest {
+        val prefs = FakeSharedPreferences()
+        val store = RootScheduleStore(prefs)
+        val reporter = FakeFailureReporter()
+        val runtimeStore = FakeRuntimeStore().apply {
+            state = TemplateAutoGenerationRuntimeState(lastSuccessAtEpochMs = 123L)
+        }
+        val workScheduler = FakeWorkScheduler()
+        val repository = FakeTemplateRepository(
+            generationResult = TemplateGenerationResult.Failed(
+                reason = "File changed by another process.",
+                kind = TemplateGenerationFailureKind.SaveFailed,
+            ),
+        )
+        val rootUri = "content://orgclock/root"
+        store.save(
+            RootScheduleConfig(
+                rootUri = rootUri,
+                enabled = true,
+                hour = 9,
+                minute = 0,
+            ),
+        )
+        val rootUriRef = mock(android.net.Uri::class.java).apply {
+            doReturn(rootUri).`when`(this).toString()
+        }
+        val scheduler = TemplateAutoGenerationScheduler(
+            appContext = mock(android.content.Context::class.java),
+            scheduleStore = store,
+            failureReporter = reporter,
+            runtimeStore = runtimeStore,
+            repositoryFactory = { repository },
+            workScheduler = workScheduler,
+            logError = {},
+            nowProvider = { ZonedDateTime.of(2026, 3, 12, 9, 30, 0, 0, ZoneId.of("Asia/Tokyo")) },
+        )
+
+        scheduler.runWorker(rootUriRef)
+
+        assertEquals(123L, runtimeStore.state.lastSuccessAtEpochMs)
+        assertEquals("File changed by another process.", reporter.lastMessage)
+    }
+
+    @Test
     fun runCatchUpIfDue_generatesMissingTodayFileAndMarksStateOverdueFalse() = runTest {
         val prefs = FakeSharedPreferences()
         val store = RootScheduleStore(prefs)

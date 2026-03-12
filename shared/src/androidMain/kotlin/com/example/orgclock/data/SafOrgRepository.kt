@@ -304,20 +304,11 @@ class SafOrgRepository(
                 )
             }
 
-            when (val save = saveDaily(date, templateDoc.lines, expectedHash = "")) {
-                is SaveResult.Success -> TemplateGenerationResult.Generated
-                is SaveResult.Conflict -> TemplateGenerationResult.SkippedDailyAlreadyExists
-                is SaveResult.ValidationError -> TemplateGenerationResult.Failed(
-                    reason = save.reason,
-                    kind = TemplateGenerationFailureKind.SaveFailed,
-                    templateStatus = templateStatus,
-                )
-                is SaveResult.IoError -> TemplateGenerationResult.Failed(
-                    reason = save.reason,
-                    kind = TemplateGenerationFailureKind.SaveFailed,
-                    templateStatus = templateStatus,
-                )
-            }
+            val expectedHash = expectedHashForMissingDocument()
+            saveResultToTemplateGenerationResult(
+                save = saveDaily(date, templateDoc.lines, expectedHash = expectedHash),
+                templateStatus = templateStatus,
+            )
         }
     }
 
@@ -465,4 +456,33 @@ class SafOrgRepository(
     }
 
     companion object
+}
+
+internal fun expectedHashForMissingDocument(): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest("".toByteArray())
+    return digest.joinToString("") { "%02x".format(it) }
+}
+
+internal fun saveResultToTemplateGenerationResult(
+    save: SaveResult,
+    templateStatus: TemplateFileStatus,
+): TemplateGenerationResult {
+    return when (save) {
+        SaveResult.Success -> TemplateGenerationResult.Generated
+        is SaveResult.Conflict -> TemplateGenerationResult.Failed(
+            reason = save.reason,
+            kind = TemplateGenerationFailureKind.SaveFailed,
+            templateStatus = templateStatus,
+        )
+        is SaveResult.ValidationError -> TemplateGenerationResult.Failed(
+            reason = save.reason,
+            kind = TemplateGenerationFailureKind.SaveFailed,
+            templateStatus = templateStatus,
+        )
+        is SaveResult.IoError -> TemplateGenerationResult.Failed(
+            reason = save.reason,
+            kind = TemplateGenerationFailureKind.SaveFailed,
+            templateStatus = templateStatus,
+        )
+    }
 }
