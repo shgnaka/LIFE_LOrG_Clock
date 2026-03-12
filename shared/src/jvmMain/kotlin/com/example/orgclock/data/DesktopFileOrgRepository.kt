@@ -35,17 +35,15 @@ class DesktopFileOrgRepository(
     }
 
     override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = runCatching {
-        rootPath.listDirectoryEntries("*.org")
-            .filter { it.isRegularFile() }
-            .filter { OrgFileNames.isVisibleOrgFileName(it.name) }
-            .map { path ->
-                OrgFileEntry(
-                    fileId = path.absolutePathString(),
-                    displayName = path.name,
-                    modifiedAt = path.getLastModifiedTime().toMillis().takeIf { it > 0 }?.let(Instant::fromEpochMilliseconds),
-                )
-            }
-            .sortedByDescending { it.modifiedAt?.toEpochMilliseconds() ?: Long.MIN_VALUE }
+        listRootOrgEntries { OrgFileNames.isVisibleOrgFileName(it.name) }
+    }
+
+    override suspend fun listTemplateCandidateFiles(): Result<List<OrgFileEntry>> = runCatching {
+        listRootOrgEntries { it.name.endsWith(".org", ignoreCase = true) }
+            .sortedWith(
+                compareByDescending<OrgFileEntry> { OrgFileNames.isTemplateFileName(it.displayName) }
+                    .thenByDescending { it.modifiedAt?.toEpochMilliseconds() ?: Long.MIN_VALUE },
+            )
     }
 
     override suspend fun loadFile(fileId: String): Result<OrgDocument> = runCatching {
@@ -197,6 +195,20 @@ class DesktopFileOrgRepository(
     private fun isUnderRoot(path: Path): Boolean = path.startsWith(rootPath)
 
     private fun dailyPath(date: LocalDate): Path = rootPath.resolve("$date.org")
+
+    private fun listRootOrgEntries(include: (Path) -> Boolean): List<OrgFileEntry> {
+        return rootPath.listDirectoryEntries("*.org")
+            .filter { it.isRegularFile() }
+            .filter(include)
+            .map { path ->
+                OrgFileEntry(
+                    fileId = path.absolutePathString(),
+                    displayName = path.name,
+                    modifiedAt = path.getLastModifiedTime().toMillis().takeIf { it > 0 }?.let(Instant::fromEpochMilliseconds),
+                )
+            }
+            .sortedByDescending { it.modifiedAt?.toEpochMilliseconds() ?: Long.MIN_VALUE }
+    }
 
     private fun parseLines(rawText: String): List<String> {
         if (rawText.isEmpty()) return emptyList()

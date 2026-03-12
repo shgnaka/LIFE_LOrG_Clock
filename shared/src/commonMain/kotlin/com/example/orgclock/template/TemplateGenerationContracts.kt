@@ -20,8 +20,18 @@ enum class TemplateGenerationFailureKind {
     SaveFailed,
 }
 
+data class TemplateAutoGenerationRuntimeState(
+    val lastAttemptAtEpochMs: Long? = null,
+    val lastSuccessAtEpochMs: Long? = null,
+    val nextScheduledRunAtEpochMs: Long? = null,
+    val overdue: Boolean = false,
+    val lastFailureMessage: String? = null,
+)
+
 interface TemplateAutoGenerationRepository {
     suspend fun openRoot(rootReference: RootReference): Result<Unit>
+
+    suspend fun hasDailyFile(date: LocalDate): Result<Boolean>
 
     suspend fun createDailyFromTemplateIfMissing(
         date: LocalDate,

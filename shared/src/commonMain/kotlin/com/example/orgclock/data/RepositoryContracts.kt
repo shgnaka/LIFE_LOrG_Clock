@@ -24,6 +24,7 @@ sealed interface SaveResult {
 
 interface ClockRepository {
     suspend fun listOrgFiles(): Result<List<OrgFileEntry>>
+    suspend fun listTemplateCandidateFiles(): Result<List<OrgFileEntry>> = listOrgFiles()
     suspend fun loadFile(fileId: String): Result<OrgDocument>
 
     suspend fun saveFile(

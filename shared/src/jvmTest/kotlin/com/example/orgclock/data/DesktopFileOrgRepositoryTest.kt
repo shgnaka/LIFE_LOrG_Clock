@@ -55,6 +55,19 @@ class DesktopFileOrgRepositoryTest {
     }
 
     @Test
+    fun listTemplateCandidateFiles_includesHiddenTemplateFile() {
+        val root = tempRoot()
+        val hidden = write(root.resolve(".orgclock-template.org"), "* Hidden Template")
+        val other = write(root.resolve("notes.org"), "* Notes")
+        val repository = DesktopFileOrgRepository(root)
+
+        val files = runSuspend { repository.listTemplateCandidateFiles() }.getOrThrow()
+
+        assertEquals(listOf(hidden.absolutePathString(), other.absolutePathString()), files.map { it.fileId })
+        assertEquals(listOf(".orgclock-template.org", "notes.org"), files.map { it.displayName })
+    }
+
+    @Test
     fun saveFile_preservesExistingLineEndingsAndTrailingNewline() {
         val root = tempRoot()
         val path = write(root.resolve("2026-03-01.org"), "* M4\r\n** Task\r\n")
