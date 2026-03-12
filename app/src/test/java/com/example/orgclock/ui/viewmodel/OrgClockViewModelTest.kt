@@ -16,6 +16,7 @@ import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
@@ -938,6 +939,7 @@ class OrgClockViewModelTest {
             Result.failure(UnsupportedOperationException())
         },
         listFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },
+        listTemplateCandidateFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },
         listFilesWithOpenClock: suspend () -> Result<Set<String>> = { Result.success(emptySet()) },
         listHeadings: suspend (String) -> Result<List<HeadingViewItem>> = { Result.success(emptyList()) },
         startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult> = { _, headingPath ->
@@ -971,8 +973,10 @@ class OrgClockViewModelTest {
             )
         },
         loadTemplateAutoGenerationFailure: (RootReference) -> String? = { null },
+        loadAutoGenerationRuntimeState: suspend (RootReference) -> TemplateAutoGenerationRuntimeState = { TemplateAutoGenerationRuntimeState() },
         saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
+        runAutoGenerationCatchUp: suspend (RootReference) -> Unit = {},
         syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
         syncAddTrustedPeer: suspend (String) -> PeerProbeResult = { peerId ->
             PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
@@ -991,6 +995,7 @@ class OrgClockViewModelTest {
             saveRootReference = saveRootReference,
             openRoot = openRoot,
             listFiles = listFiles,
+            listTemplateCandidateFiles = listTemplateCandidateFiles,
             listFilesWithOpenClock = listFilesWithOpenClock,
             listHeadings = listHeadings,
             startClock = startClock,
@@ -1009,8 +1014,10 @@ class OrgClockViewModelTest {
             loadRootScheduleConfig = loadRootScheduleConfig,
             loadTemplateFileStatus = loadTemplateFileStatus,
             loadTemplateAutoGenerationFailure = loadTemplateAutoGenerationFailure,
+            loadAutoGenerationRuntimeState = loadAutoGenerationRuntimeState,
             saveRootScheduleConfig = saveRootScheduleConfig,
             syncRootScheduleConfig = syncRootScheduleConfig,
+            runAutoGenerationCatchUp = runAutoGenerationCatchUp,
             syncTemplateTaggedHeading = syncTemplateTaggedHeading,
             syncAddTrustedPeer = syncAddTrustedPeer,
             syncRevokePeer = syncRevokePeer,

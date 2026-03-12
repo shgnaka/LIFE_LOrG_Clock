@@ -40,6 +40,7 @@ import com.example.orgclock.sync.SyncRuntimeManager
 import com.example.orgclock.template.RootScheduleStore
 import com.example.orgclock.template.SharedPrefsTemplateAutoGenerationFailureReporter
 import com.example.orgclock.template.TemplateAutoGenerationEntryPoint
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeStore
 import com.example.orgclock.template.TemplateAutoGenerationScheduler
 import com.example.orgclock.template.TemplateSyncService
 import androidx.lifecycle.lifecycleScope
@@ -99,6 +100,9 @@ class DefaultAppGraph(
             permissionChecker = DefaultNotificationPermissionChecker(),
         )
     }
+    private val templateRuntimeStore by lazy {
+        TemplateAutoGenerationRuntimeStore(prefs)
+    }
     private val templateSyncService by lazy {
         TemplateSyncService(
             repository = safRepository,
@@ -113,6 +117,7 @@ class DefaultAppGraph(
             appContext = appContext,
             scheduleStore = rootScheduleStore,
             failureReporter = templateFailureReporter,
+            runtimeStore = templateRuntimeStore,
         )
     }
     private val runtimePrefs by lazy {
@@ -182,6 +187,7 @@ class DefaultAppGraph(
             },
             openRoot = { rootReference -> rootAccessGateway.openRoot(rootReference) },
             listFiles = { repository.listOrgFiles() },
+            listTemplateCandidateFiles = { repository.listTemplateCandidateFiles() },
             listFilesWithOpenClock = {
                 clockInScanner.scan(clockEnvironment.currentTimeZone()).map { scanResult ->
                     scanResult.entries.asSequence().map { it.fileId }.toSet()
@@ -274,11 +280,17 @@ class DefaultAppGraph(
             loadTemplateAutoGenerationFailure = { rootReference ->
                 templateFailureReporter.loadLastFailure(rootReference.rawValue)
             },
+            loadAutoGenerationRuntimeState = { rootReference ->
+                templateAutoGenerationScheduler.loadRuntimeState(Uri.parse(rootReference.rawValue))
+            },
             saveRootScheduleConfig = { config ->
                 rootScheduleStore.save(config)
             },
             syncRootScheduleConfig = { config ->
                 templateAutoGenerationScheduler.sync(Uri.parse(config.rootUri), config)
+            },
+            runAutoGenerationCatchUp = { rootReference ->
+                templateAutoGenerationScheduler.runCatchUpIfDue(Uri.parse(rootReference.rawValue))
             },
             syncTemplateTaggedHeading = { fileId ->
                 templateSyncService.syncFromFile(fileId)

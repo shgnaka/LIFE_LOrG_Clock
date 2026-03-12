@@ -67,6 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.example.orgclock.R
 import com.example.orgclock.data.OrgFileEntry
+import com.example.orgclock.data.OrgFileNames
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.ui.perf.PerformanceMonitor
@@ -83,6 +84,7 @@ import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncRuntimeMode
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
@@ -178,7 +180,7 @@ fun OrgClockScreen(
 
             Screen.FilePicker -> FilePickerScreen(
                 status = state.status,
-                files = state.files,
+                files = if (state.selectingTemplateFile) state.templateCandidateFiles else state.files,
                 filesWithOpenClock = state.filesWithOpenClock,
                 selectingTemplateFile = state.selectingTemplateFile,
                 zoneIdProvider = zoneIdProvider,
@@ -194,7 +196,15 @@ fun OrgClockScreen(
                 },
                 onOpenSettings = { onAction(OrgClockUiAction.OpenSettings) },
                 onBackFromTemplatePicker = { onAction(OrgClockUiAction.BackFromSettings) },
-                onRefreshFiles = { onAction(OrgClockUiAction.RefreshFiles) },
+                onRefreshFiles = {
+                    onAction(
+                        if (state.selectingTemplateFile) {
+                            OrgClockUiAction.RefreshTemplateCandidates
+                        } else {
+                            OrgClockUiAction.RefreshFiles
+                        },
+                    )
+                },
             )
 
             Screen.HeadingList -> HeadingListScreen(
@@ -233,6 +243,7 @@ fun OrgClockScreen(
                 autoGenerationHourInput = state.autoGenerationHourInput,
                 autoGenerationMinuteInput = state.autoGenerationMinuteInput,
                 autoGenerationDaysOfWeek = state.autoGenerationDaysOfWeek,
+                autoGenerationRuntimeState = state.autoGenerationRuntimeState,
                 templateFileStatus = state.templateFileStatus,
                 templateAutoGenerationFailure = state.templateAutoGenerationFailure,
                 syncFeatureVisible = state.syncFeatureVisible,
@@ -420,7 +431,13 @@ private fun FilePickerScreen(
 
         if (files.isEmpty()) {
             Text(
-                text = stringResource(R.string.empty_files_message),
+                text = stringResource(
+                    if (selectingTemplateFile) {
+                        R.string.template_picker_empty_message
+                    } else {
+                        R.string.empty_files_message
+                    },
+                ),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -451,6 +468,14 @@ private fun FilePickerScreen(
                                             .padding(start = 8.dp)
                                             .size(8.dp)
                                             .background(StateSuccessFg, CircleShape),
+                                    )
+                                }
+                                if (selectingTemplateFile && OrgFileNames.isTemplateFileName(file.displayName)) {
+                                    Text(
+                                        text = stringResource(R.string.template_default_badge),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(start = 8.dp),
                                     )
                                 }
                             }
@@ -964,6 +989,7 @@ private fun SettingsScreen(
     autoGenerationHourInput: String,
     autoGenerationMinuteInput: String,
     autoGenerationDaysOfWeek: Set<ScheduleWeekday>,
+    autoGenerationRuntimeState: TemplateAutoGenerationRuntimeState,
     templateFileStatus: TemplateFileStatus,
     templateAutoGenerationFailure: String?,
     syncFeatureVisible: Boolean,
@@ -1104,9 +1130,9 @@ private fun SettingsScreen(
                 Text(
                     text = stringResource(
                         if (templateFileStatus.referenceMode == TemplateReferenceMode.Explicit) {
-                            R.string.template_reference_explicit
+                            R.string.template_reference_selected
                         } else {
-                            R.string.template_reference_legacy
+                            R.string.template_reference_default
                         },
                     ),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1126,6 +1152,48 @@ private fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+                Text(
+                    text = stringResource(R.string.auto_generation_status_title),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                val neverText = stringResource(R.string.auto_generation_status_never)
+                Text(
+                    text = stringResource(
+                        R.string.auto_generation_status_next_run,
+                        formatTimestampForStatus(autoGenerationRuntimeState.nextScheduledRunAtEpochMs, neverText),
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.auto_generation_status_last_attempt,
+                        formatTimestampForStatus(autoGenerationRuntimeState.lastAttemptAtEpochMs, neverText),
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = stringResource(
+                        R.string.auto_generation_status_last_success,
+                        formatTimestampForStatus(autoGenerationRuntimeState.lastSuccessAtEpochMs, neverText),
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Text(
+                    text = autoGenerationStatusText(
+                        enabled = autoGenerationEnabled,
+                        runtimeState = autoGenerationRuntimeState,
+                    ),
+                    color = if (autoGenerationRuntimeState.overdue || !templateAutoGenerationFailure.isNullOrBlank()) {
+                        StateWarningFg
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
                 templateAutoGenerationFailure?.let { failure ->
                     Text(
                         text = stringResource(R.string.template_auto_generation_last_failure, failure),
@@ -1359,11 +1427,37 @@ private fun SettingsScreen(
 @Composable
 private fun templateStatusSummary(status: TemplateFileStatus): String {
     val name = status.displayName ?: stringResource(R.string.none)
-    return when (status.availability) {
-        TemplateAvailability.Available -> stringResource(R.string.template_status_available, name)
-        TemplateAvailability.Missing -> stringResource(R.string.template_status_missing, name)
-        TemplateAvailability.Unreadable -> stringResource(R.string.template_status_unreadable, name)
+    return when (status.referenceMode) {
+        TemplateReferenceMode.LegacyHiddenFile -> when (status.availability) {
+            TemplateAvailability.Available -> stringResource(R.string.template_status_default_available, name)
+            TemplateAvailability.Missing -> stringResource(R.string.template_status_default_missing, name)
+            TemplateAvailability.Unreadable -> stringResource(R.string.template_status_default_unreadable, name)
+        }
+        TemplateReferenceMode.Explicit -> when (status.availability) {
+            TemplateAvailability.Available -> stringResource(R.string.template_status_selected_available, name)
+            TemplateAvailability.Missing -> stringResource(R.string.template_status_selected_missing, name)
+            TemplateAvailability.Unreadable -> stringResource(R.string.template_status_selected_unreadable, name)
+        }
     }
+}
+
+@Composable
+private fun autoGenerationStatusText(
+    enabled: Boolean,
+    runtimeState: TemplateAutoGenerationRuntimeState,
+): String {
+    return when {
+        !enabled -> stringResource(R.string.auto_generation_status_disabled)
+        runtimeState.overdue -> stringResource(R.string.auto_generation_status_overdue)
+        !runtimeState.lastFailureMessage.isNullOrBlank() -> stringResource(R.string.auto_generation_status_failure)
+        runtimeState.lastSuccessAtEpochMs != null -> stringResource(R.string.auto_generation_status_success)
+        else -> stringResource(R.string.auto_generation_status_waiting)
+    }
+}
+
+@Composable
+private fun formatTimestampForStatus(epochMs: Long?, fallback: String): String {
+    return if (epochMs == null) fallback else formatEpochMillis(epochMs)
 }
 
 private fun formatEpochMillis(epochMs: Long?): String {

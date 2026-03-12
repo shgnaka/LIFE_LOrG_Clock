@@ -9,6 +9,7 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
@@ -98,6 +99,7 @@ class DesktopAppGraph(
             saveRootReference = { settingsStore.save(DesktopHostSettings(lastRootReference = it)) },
             openRoot = ::openRoot,
             listFiles = listFiles,
+            listTemplateCandidateFiles = { repository?.listTemplateCandidateFiles() ?: Result.failure(missingRootError()) },
             listFilesWithOpenClock = listFilesWithOpenClock,
             listHeadings = listHeadings,
             startClock = startClock,
@@ -116,8 +118,10 @@ class DesktopAppGraph(
             loadRootScheduleConfig = { rootReference -> RootScheduleConfig(rootUri = rootReference.rawValue) },
             loadTemplateFileStatus = { config -> loadDesktopTemplateFileStatus(config) },
             loadTemplateAutoGenerationFailure = { null },
+            loadAutoGenerationRuntimeState = { TemplateAutoGenerationRuntimeState() },
             saveRootScheduleConfig = {},
             syncRootScheduleConfig = {},
+            runAutoGenerationCatchUp = {},
             syncSnapshotFlow = disabledSyncSnapshotFlow,
             nowProvider = { clockEnvironment.now() },
             todayProvider = { clockEnvironment.today() },

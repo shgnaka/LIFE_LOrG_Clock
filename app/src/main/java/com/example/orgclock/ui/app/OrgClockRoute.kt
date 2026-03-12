@@ -27,6 +27,7 @@ import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
@@ -45,6 +46,7 @@ data class OrgClockRouteDependencies(
     val saveSavedRootReference: (RootReference) -> Unit,
     val openRoot: suspend (RootReference) -> Result<Unit>,
     val listFiles: suspend () -> Result<List<OrgFileEntry>>,
+    val listTemplateCandidateFiles: suspend () -> Result<List<OrgFileEntry>>,
     val listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     val listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
     val startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
@@ -63,8 +65,10 @@ data class OrgClockRouteDependencies(
     val loadRootScheduleConfig: (RootReference) -> RootScheduleConfig,
     val loadTemplateFileStatus: suspend (RootScheduleConfig) -> TemplateFileStatus,
     val loadTemplateAutoGenerationFailure: (RootReference) -> String?,
+    val loadAutoGenerationRuntimeState: suspend (RootReference) -> TemplateAutoGenerationRuntimeState,
     val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
+    val runAutoGenerationCatchUp: suspend (RootReference) -> Unit,
     val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     val syncNotificationService: (Boolean, NotificationDisplayMode) -> Unit,
     val stopNotificationService: () -> Unit,
@@ -205,6 +209,7 @@ private fun orgClockViewModelFactory(
                 saveRootReference = dependencies.saveSavedRootReference,
                 openRoot = dependencies.openRoot,
                 listFiles = dependencies.listFiles,
+                listTemplateCandidateFiles = dependencies.listTemplateCandidateFiles,
                 listFilesWithOpenClock = dependencies.listFilesWithOpenClock,
                 listHeadings = dependencies.listHeadings,
                 startClock = dependencies.startClock,
@@ -223,8 +228,10 @@ private fun orgClockViewModelFactory(
                 loadRootScheduleConfig = dependencies.loadRootScheduleConfig,
                 loadTemplateFileStatus = dependencies.loadTemplateFileStatus,
                 loadTemplateAutoGenerationFailure = dependencies.loadTemplateAutoGenerationFailure,
+                loadAutoGenerationRuntimeState = dependencies.loadAutoGenerationRuntimeState,
                 saveRootScheduleConfig = dependencies.saveRootScheduleConfig,
                 syncRootScheduleConfig = dependencies.syncRootScheduleConfig,
+                runAutoGenerationCatchUp = dependencies.runAutoGenerationCatchUp,
                 syncTemplateTaggedHeading = dependencies.syncTemplateTaggedHeading,
                 syncSnapshotFlow = dependencies.syncSnapshotFlow,
                 syncEnableStandardMode = dependencies.syncEnableStandardMode,

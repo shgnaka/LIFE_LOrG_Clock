@@ -13,6 +13,7 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
@@ -296,6 +297,49 @@ class OrgClockStoreTest {
         assertEquals(StatusMessageKey.HeadingCreated, store.uiState.value.status.text.key)
     }
 
+    @Test
+    fun openTemplateFilePicker_loadsTemplateCandidates() = runTest {
+        val hiddenTemplate = OrgFileEntry("template", ".orgclock-template.org", null)
+        val store = testStore(
+            scope = this,
+            listTemplateCandidateFiles = { Result.success(listOf(hiddenTemplate, OrgFileEntry("notes", "notes.org", null))) },
+        )
+
+        store.onAction(OrgClockUiAction.OpenTemplateFilePicker)
+        advanceUntilIdle()
+
+        assertTrue(store.uiState.value.selectingTemplateFile)
+        assertEquals(Screen.FilePicker, store.uiState.value.screen)
+        assertEquals(listOf(hiddenTemplate.displayName, "notes.org"), store.uiState.value.templateCandidateFiles.map { it.displayName })
+    }
+
+    @Test
+    fun refreshFiles_runsAutoGenerationCatchUpAndRefreshesRuntimeState() = runTest {
+        var catchUpCalls = 0
+        val runtimeState = TemplateAutoGenerationRuntimeState(
+            lastAttemptAtEpochMs = 100L,
+            lastSuccessAtEpochMs = 100L,
+            nextScheduledRunAtEpochMs = 200L,
+        )
+        val store = testStore(
+            scope = this,
+            loadSavedRootReference = { RootReference("/tmp/org-root") },
+            openRoot = { Result.success(Unit) },
+            listFiles = { Result.success(listOf(OrgFileEntry("f1", "2026-03-10.org", null))) },
+            listHeadings = { Result.success(sampleHeadings()) },
+            runAutoGenerationCatchUp = { catchUpCalls += 1 },
+            loadAutoGenerationRuntimeState = { runtimeState },
+        )
+
+        store.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.RefreshFiles)
+        advanceUntilIdle()
+
+        assertTrue(catchUpCalls >= 1)
+        assertEquals(runtimeState, store.uiState.value.autoGenerationRuntimeState)
+    }
+
     private fun sampleHeadings(): List<HeadingViewItem> {
         val root = HeadingViewItem(
             node = HeadingNode(
@@ -348,6 +392,7 @@ class OrgClockStoreTest {
         saveRootReference: (RootReference) -> Unit = {},
         openRoot: suspend (RootReference) -> Result<Unit> = { Result.failure(UnsupportedOperationException()) },
         listFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },
+        listTemplateCandidateFiles: suspend () -> Result<List<OrgFileEntry>> = { Result.success(emptyList()) },
         listFilesWithOpenClock: suspend () -> Result<Set<String>> = { Result.success(emptySet()) },
         listHeadings: suspend (String) -> Result<List<HeadingViewItem>> = { Result.success(emptyList()) },
         startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult> = { _, _ -> Result.success(ClockMutationResult()) },
@@ -370,8 +415,10 @@ class OrgClockStoreTest {
             )
         },
         loadTemplateAutoGenerationFailure: (RootReference) -> String? = { null },
+        loadAutoGenerationRuntimeState: suspend (RootReference) -> TemplateAutoGenerationRuntimeState = { TemplateAutoGenerationRuntimeState() },
         saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
+        runAutoGenerationCatchUp: suspend (RootReference) -> Unit = {},
     ): OrgClockStore {
         return OrgClockStore(
             scope = scope,
@@ -379,6 +426,7 @@ class OrgClockStoreTest {
             saveRootReference = saveRootReference,
             openRoot = openRoot,
             listFiles = listFiles,
+            listTemplateCandidateFiles = listTemplateCandidateFiles,
             listFilesWithOpenClock = listFilesWithOpenClock,
             listHeadings = listHeadings,
             startClock = startClock,
@@ -397,8 +445,10 @@ class OrgClockStoreTest {
             loadRootScheduleConfig = loadRootScheduleConfig,
             loadTemplateFileStatus = loadTemplateFileStatus,
             loadTemplateAutoGenerationFailure = loadTemplateAutoGenerationFailure,
+            loadAutoGenerationRuntimeState = loadAutoGenerationRuntimeState,
             saveRootScheduleConfig = saveRootScheduleConfig,
             syncRootScheduleConfig = syncRootScheduleConfig,
+            runAutoGenerationCatchUp = runAutoGenerationCatchUp,
             nowProvider = { Instant.parse("2026-03-10T09:00:00Z") },
             todayProvider = { LocalDate(2026, 3, 10) },
             timeZoneProvider = { TimeZone.UTC },

@@ -44,6 +44,7 @@ sealed interface OrgClockUiAction {
     data object OpenTemplateFilePicker : OrgClockUiAction
     data object OpenSettings : OrgClockUiAction
     data object BackFromSettings : OrgClockUiAction
+    data object RefreshTemplateCandidates : OrgClockUiAction
     data object ClearExplicitTemplateFile : OrgClockUiAction
     data class SelectTemplateFile(val file: OrgFileEntry) : OrgClockUiAction
     data class ToggleNotificationEnabled(val enabled: Boolean) : OrgClockUiAction
@@ -59,6 +60,8 @@ sealed interface OrgClockUiAction {
     data class UpdateAutoGenerationMinute(val value: String) : OrgClockUiAction
     data class ToggleAutoGenerationDay(val dayOfWeek: ScheduleWeekday) : OrgClockUiAction
     data object SaveAutoGenerationSchedule : OrgClockUiAction
+    data object RefreshAutoGenerationStatus : OrgClockUiAction
+    data object EvaluateAutoGenerationCatchUp : OrgClockUiAction
     data object RefreshSyncDebug : OrgClockUiAction
     data object SyncFlushNow : OrgClockUiAction
     data object SyncEnableStandard : OrgClockUiAction

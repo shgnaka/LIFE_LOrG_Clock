@@ -12,6 +12,7 @@ import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
+import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.time.toKotlinLocalDateCompat
@@ -29,6 +30,7 @@ class OrgClockViewModel(
     saveRootReference: (RootReference) -> Unit,
     openRoot: suspend (RootReference) -> Result<Unit>,
     listFiles: suspend () -> Result<List<OrgFileEntry>>,
+    listTemplateCandidateFiles: suspend () -> Result<List<OrgFileEntry>>,
     listFilesWithOpenClock: suspend () -> Result<Set<String>>,
     listHeadings: suspend (String) -> Result<List<HeadingViewItem>>,
     startClock: suspend (String, HeadingPath) -> Result<ClockMutationResult>,
@@ -47,8 +49,10 @@ class OrgClockViewModel(
     loadRootScheduleConfig: (RootReference) -> RootScheduleConfig,
     loadTemplateFileStatus: suspend (RootScheduleConfig) -> TemplateFileStatus,
     loadTemplateAutoGenerationFailure: (RootReference) -> String?,
+    loadAutoGenerationRuntimeState: suspend (RootReference) -> TemplateAutoGenerationRuntimeState,
     saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
+    runAutoGenerationCatchUp: suspend (RootReference) -> Unit,
     syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
     syncEnableStandardMode: suspend () -> Unit = {},
@@ -77,6 +81,7 @@ class OrgClockViewModel(
         saveRootReference = saveRootReference,
         openRoot = openRoot,
         listFiles = listFiles,
+        listTemplateCandidateFiles = listTemplateCandidateFiles,
         listFilesWithOpenClock = listFilesWithOpenClock,
         listHeadings = listHeadings,
         startClock = startClock,
@@ -103,8 +108,10 @@ class OrgClockViewModel(
         loadRootScheduleConfig = loadRootScheduleConfig,
         loadTemplateFileStatus = loadTemplateFileStatus,
         loadTemplateAutoGenerationFailure = loadTemplateAutoGenerationFailure,
+        loadAutoGenerationRuntimeState = loadAutoGenerationRuntimeState,
         saveRootScheduleConfig = saveRootScheduleConfig,
         syncRootScheduleConfig = syncRootScheduleConfig,
+        runAutoGenerationCatchUp = runAutoGenerationCatchUp,
         syncTemplateTaggedHeading = syncTemplateTaggedHeading,
         syncSnapshotFlow = syncSnapshotFlow,
         syncEnableStandardMode = syncEnableStandardMode,
