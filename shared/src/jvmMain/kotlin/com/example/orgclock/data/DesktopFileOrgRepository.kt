@@ -94,6 +94,18 @@ class DesktopFileOrgRepository(
             writeIntent = FileWriteIntent.UserEdit,
         )
 
+    fun createDefaultTemplateFile(contents: String = DEFAULT_TEMPLATE_CONTENTS): Result<OrgFileEntry> = runCatching {
+        val path = rootPath.resolve(TEMPLATE_FILE_NAME)
+        if (!path.exists()) {
+            path.writeText(contents, StandardCharsets.UTF_8)
+        }
+        OrgFileEntry(
+            fileId = path.absolutePathString(),
+            displayName = path.name,
+            modifiedAt = path.getLastModifiedTime().toMillis().takeIf { it > 0 }?.let(Instant::fromEpochMilliseconds),
+        )
+    }
+
     private fun saveToPath(
         path: Path,
         lines: List<String>,
@@ -248,5 +260,7 @@ class DesktopFileOrgRepository(
 
     private companion object {
         val BACKUP_STAMP_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
+        const val TEMPLATE_FILE_NAME = ".orgclock-template.org"
+        const val DEFAULT_TEMPLATE_CONTENTS = ""
     }
 }

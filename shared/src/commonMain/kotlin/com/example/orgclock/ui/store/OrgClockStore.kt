@@ -77,6 +77,7 @@ class OrgClockStore(
     private val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     private val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     private val runAutoGenerationCatchUp: suspend (RootReference) -> Unit,
+    private val createDefaultTemplateFileAction: suspend (RootReference) -> Result<String> = { Result.failure(UnsupportedOperationException("template file creation unavailable")) },
     private val externalChangeFlow: StateFlow<ExternalChangeNotice?> = NO_EXTERNAL_CHANGE_FLOW,
     private val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     private val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
@@ -228,6 +229,15 @@ class OrgClockStore(
             }
             true
         }
+        OrgClockUiAction.RefreshTemplateStatus -> {
+            uiState.value.rootReference?.let { rootReference ->
+                scope.launch {
+                    refreshTemplateState(rootReference, loadRootScheduleConfig(rootReference))
+                    refreshAutoGenerationRuntimeState(rootReference)
+                }
+            }
+            true
+        }
         OrgClockUiAction.RefreshTemplateCandidates -> {
             scope.launch { refreshTemplateCandidates() }
             true
@@ -238,6 +248,10 @@ class OrgClockStore(
         }
         is OrgClockUiAction.SelectTemplateFile -> {
             scope.launch { selectTemplateFile(action.file) }
+            true
+        }
+        OrgClockUiAction.CreateDefaultTemplateFile -> {
+            scope.launch { createDefaultTemplateFile() }
             true
         }
         else -> false
@@ -1240,6 +1254,27 @@ class OrgClockStore(
         _uiState.update {
             it.copy(
                 status = status(StatusMessageKey.TemplateFileSelectionCleared, StatusTone.Success),
+            )
+        }
+    }
+
+    private suspend fun createDefaultTemplateFile() {
+        val rootReference = uiState.value.rootReference ?: return
+        val result = createDefaultTemplateFileAction(rootReference)
+        if (result.isFailure) {
+            val reason = result.exceptionOrNull()?.message ?: "unknown"
+            _uiState.update {
+                it.copy(
+                    status = status(StatusMessageKey.TemplateFileCreateFailed, StatusTone.Error, reason),
+                )
+            }
+            return
+        }
+        refreshTemplateState(rootReference, loadRootScheduleConfig(rootReference))
+        refreshAutoGenerationRuntimeState(rootReference)
+        _uiState.update {
+            it.copy(
+                status = status(StatusMessageKey.TemplateFileCreated, StatusTone.Success, result.getOrThrow()),
             )
         }
     }

@@ -476,6 +476,67 @@ class OrgClockStoreTest {
     }
 
     @Test
+    fun refreshTemplateStatus_reloadsTemplateFileStatus() = runTest {
+        var currentConfig = RootScheduleConfig(rootUri = "/tmp/org-root")
+        var refreshes = 0
+        val store = testStore(
+            scope = this,
+            loadSavedRootReference = { RootReference("/tmp/org-root") },
+            openRoot = { Result.success(Unit) },
+            listFiles = { Result.success(emptyList()) },
+            loadRootScheduleConfig = { currentConfig },
+            loadTemplateFileStatus = { config ->
+                refreshes += 1
+                TemplateFileStatus(
+                    availability = if (config.templateFileUri == null) TemplateAvailability.Missing else TemplateAvailability.Available,
+                    referenceMode = if (config.templateFileUri == null) TemplateReferenceMode.LegacyHiddenFile else TemplateReferenceMode.Explicit,
+                    fileId = config.templateFileUri,
+                    displayName = config.templateFileUri ?: ".orgclock-template.org",
+                )
+            },
+        )
+
+        store.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        currentConfig = currentConfig.copy(templateFileUri = "/tmp/org-root/template.org")
+        store.onAction(OrgClockUiAction.RefreshTemplateStatus)
+        advanceUntilIdle()
+
+        assertTrue(refreshes >= 2)
+        assertEquals(TemplateReferenceMode.Explicit, store.uiState.value.templateFileStatus.referenceMode)
+        assertEquals("/tmp/org-root/template.org", store.uiState.value.templateFileStatus.fileId)
+    }
+
+    @Test
+    fun createDefaultTemplateFile_updatesStatusOnSuccess() = runTest {
+        val root = RootReference("/tmp/org-root")
+        val createdPath = "/tmp/org-root/.orgclock-template.org"
+        val store = testStore(
+            scope = this,
+            loadSavedRootReference = { root },
+            openRoot = { Result.success(Unit) },
+            listFiles = { Result.success(emptyList()) },
+            createDefaultTemplateFile = { Result.success(createdPath) },
+            loadTemplateFileStatus = {
+                TemplateFileStatus(
+                    availability = TemplateAvailability.Available,
+                    referenceMode = TemplateReferenceMode.LegacyHiddenFile,
+                    fileId = createdPath,
+                    displayName = ".orgclock-template.org",
+                )
+            },
+        )
+
+        store.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.CreateDefaultTemplateFile)
+        advanceUntilIdle()
+
+        assertEquals(StatusMessageKey.TemplateFileCreated, store.uiState.value.status.text.key)
+        assertEquals(createdPath, store.uiState.value.templateFileStatus.fileId)
+    }
+
+    @Test
     fun refreshFiles_runsAutoGenerationCatchUpAndRefreshesRuntimeState() = runTest {
         var catchUpCalls = 0
         val runtimeState = TemplateAutoGenerationRuntimeState(
@@ -608,6 +669,7 @@ class OrgClockStoreTest {
         saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         runAutoGenerationCatchUp: suspend (RootReference) -> Unit = {},
+        createDefaultTemplateFile: suspend (RootReference) -> Result<String> = { Result.failure(UnsupportedOperationException("template file creation unavailable")) },
         externalChangeFlow: StateFlow<ExternalChangeNotice?> = OrgClockStore.NO_EXTERNAL_CHANGE_FLOW,
     ): OrgClockStore {
         return OrgClockStore(
@@ -639,6 +701,7 @@ class OrgClockStoreTest {
             saveRootScheduleConfig = saveRootScheduleConfig,
             syncRootScheduleConfig = syncRootScheduleConfig,
             runAutoGenerationCatchUp = runAutoGenerationCatchUp,
+            createDefaultTemplateFileAction = createDefaultTemplateFile,
             externalChangeFlow = externalChangeFlow,
             nowProvider = { Instant.parse("2026-03-10T09:00:00Z") },
             todayProvider = { LocalDate(2026, 3, 10) },

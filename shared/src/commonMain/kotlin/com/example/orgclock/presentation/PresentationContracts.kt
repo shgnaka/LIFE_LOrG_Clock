@@ -51,6 +51,8 @@ enum class StatusMessageKey {
     AutoGenerationScheduleSaved,
     TemplateFileSelected,
     TemplateFileSelectionCleared,
+    TemplateFileCreated,
+    TemplateFileCreateFailed,
     ExternalFilesChanged,
     SelectedFileChangedExternally,
     SelectedFileNoLongerAvailable,

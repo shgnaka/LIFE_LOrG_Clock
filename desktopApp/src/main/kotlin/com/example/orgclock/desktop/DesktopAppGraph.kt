@@ -130,6 +130,7 @@ class DesktopAppGraph(
             saveRootScheduleConfig = { config -> rootScheduleStore.save(config) },
             syncRootScheduleConfig = { config -> rootScheduleStore.save(config) },
             runAutoGenerationCatchUp = {},
+            createDefaultTemplateFileAction = { rootReference -> createDefaultTemplateFile(rootReference) },
             externalChangeFlow = if (watchRootChanges) externalChangeFlow else OrgClockStore.NO_EXTERNAL_CHANGE_FLOW,
             syncSnapshotFlow = disabledSyncSnapshotFlow,
             nowProvider = { clockEnvironment.now() },
@@ -207,6 +208,13 @@ class DesktopAppGraph(
             fileId = candidate.toString(),
             displayName = displayName,
         )
+    }
+
+    private fun createDefaultTemplateFile(rootReference: RootReference): Result<String> = runCatching {
+        attachRoot(rootReference)
+        val desktopRepository = repository as? DesktopFileOrgRepository
+            ?: error("Desktop template creation requires DesktopFileOrgRepository")
+        desktopRepository.createDefaultTemplateFile().getOrThrow().fileId
     }
 
     private fun missingRootError(): IllegalStateException =

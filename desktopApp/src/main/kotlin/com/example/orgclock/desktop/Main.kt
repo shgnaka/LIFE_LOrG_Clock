@@ -58,6 +58,8 @@ import com.example.orgclock.presentation.Screen
 import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.presentation.StatusTone
 import com.example.orgclock.presentation.UiStatus
+import com.example.orgclock.template.TemplateAvailability
+import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
@@ -165,9 +167,10 @@ private fun DesktopHostCard(
             when (state.screen) {
                 Screen.RootSetup -> RootSetupPane(onPickRoot = onPickRoot)
                 Screen.FilePicker -> FilePickerPane(
-                    files = state.files,
-                    filesWithOpenClock = state.filesWithOpenClock,
+                    state = state,
                     onSelectFile = { onAction(OrgClockUiAction.SelectFile(it)) },
+                    onBackToSettings = { onAction(OrgClockUiAction.BackFromSettings) },
+                    onRefreshTemplateCandidates = { onAction(OrgClockUiAction.RefreshTemplateCandidates) },
                 )
                 Screen.HeadingList -> HeadingListPane(
                     state = state,
@@ -178,6 +181,7 @@ private fun DesktopHostCard(
                     onChangeRoot = onPickRoot,
                     onBack = { onAction(OrgClockUiAction.BackFromSettings) },
                     onReloadFiles = { onAction(OrgClockUiAction.RefreshFiles) },
+                    onAction = onAction,
                 )
             }
         }
@@ -232,11 +236,38 @@ private fun RootSetupPane(onPickRoot: () -> Unit) {
 
 @Composable
 private fun FilePickerPane(
-    files: List<OrgFileEntry>,
-    filesWithOpenClock: Set<String>,
+    state: OrgClockUiState,
     onSelectFile: (OrgFileEntry) -> Unit,
+    onBackToSettings: () -> Unit,
+    onRefreshTemplateCandidates: () -> Unit,
 ) {
+    val selectingTemplateFile = state.selectingTemplateFile
+    val files = if (selectingTemplateFile) state.templateCandidateFiles else state.files
+
     if (files.isEmpty()) {
+        if (selectingTemplateFile) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Choose a template file",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "No template candidates are available yet. Add an .org file in the selected root, or create the default hidden template from Settings.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFD3E6D6),
+                )
+                SettingsActionRow {
+                    Button(onClick = onRefreshTemplateCandidates) {
+                        Text("Refresh candidates")
+                    }
+                    Button(onClick = onBackToSettings) {
+                        Text("Back to settings")
+                    }
+                }
+            }
+            return
+        }
         Text(
             text = "No daily org file matched today yet. You can keep this window open and reload after adding one.",
             style = MaterialTheme.typography.bodyMedium,
@@ -247,16 +278,37 @@ private fun FilePickerPane(
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            text = "Choose a file",
+            text = if (selectingTemplateFile) "Choose a template file" else "Choose a file",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
+        Text(
+            text = if (selectingTemplateFile) {
+                "Pick the template source used for desktop template-aware flows. The default hidden file is highlighted when present."
+            } else {
+                "Open the daily org file you want to inspect and edit."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFFD3E6D6),
+        )
+        if (selectingTemplateFile) {
+            SettingsActionRow {
+                Button(onClick = onRefreshTemplateCandidates) {
+                    Text("Refresh candidates")
+                }
+                Button(onClick = onBackToSettings) {
+                    Text("Back to settings")
+                }
+            }
+        }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(files, key = { it.fileId }) { file ->
-                val running = file.fileId in filesWithOpenClock
                 FileRow(
                     file = file,
-                    running = running,
+                    running = !selectingTemplateFile && file.fileId in state.filesWithOpenClock,
+                    badgeLabel = if (selectingTemplateFile && file.displayName == ".orgclock-template.org") "default hidden file" else null,
+                    stateLabel = if (selectingTemplateFile) "candidate" else null,
+                    actionLabel = if (selectingTemplateFile) "Use template" else "Open",
                     onClick = { onSelectFile(file) },
                 )
             }
@@ -268,6 +320,9 @@ private fun FilePickerPane(
 private fun FileRow(
     file: OrgFileEntry,
     running: Boolean,
+    badgeLabel: String? = null,
+    stateLabel: String? = null,
+    actionLabel: String = "Open",
     onClick: () -> Unit,
 ) {
     Row(
@@ -281,6 +336,13 @@ private fun FileRow(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(text = file.displayName, style = MaterialTheme.typography.bodyLarge)
+            badgeLabel?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF8FE0A8),
+                )
+            }
             Text(
                 text = file.fileId,
                 style = MaterialTheme.typography.bodySmall,
@@ -289,12 +351,12 @@ private fun FileRow(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = if (running) "running" else "idle",
+                text = stateLabel ?: if (running) "running" else "idle",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (running) Color(0xFF8FE0A8) else Color(0xFFD3E6D6),
             )
             Button(onClick = onClick) {
-                Text("Open")
+                Text(actionLabel)
             }
         }
     }
@@ -430,6 +492,7 @@ private fun SettingsPane(
     onChangeRoot: () -> Unit,
     onBack: () -> Unit,
     onReloadFiles: () -> Unit,
+    onAction: (OrgClockUiAction) -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -440,6 +503,10 @@ private fun SettingsPane(
             state = state,
             onChangeRoot = onChangeRoot,
             onReloadFiles = onReloadFiles,
+        )
+        TemplateSettingsCard(
+            state = state,
+            onAction = onAction,
         )
         FileMonitoringSettingsCard(
             state = state,
@@ -505,12 +572,12 @@ private fun SettingsCard(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
-        Text(
-            text = description,
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color(0xFFD3E6D6),
-        )
-        content()
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFD3E6D6),
+            )
+            content()
             footer?.let {
                 HorizontalDivider(color = Color(0xFF3B564F))
                 Text(
@@ -613,6 +680,77 @@ private fun OrgRootSettingsCard(
                 enabled = state.rootReference != null,
             ) {
                 Text("Reload files")
+            }
+        }
+    }
+}
+
+@Composable
+private fun TemplateSettingsCard(
+    state: OrgClockUiState,
+    onAction: (OrgClockUiAction) -> Unit,
+) {
+    val status = state.templateFileStatus
+    val source = when (status.referenceMode) {
+        TemplateReferenceMode.Explicit -> "Explicit file"
+        TemplateReferenceMode.LegacyHiddenFile -> "Default hidden file"
+    }
+    val availability = when (status.availability) {
+        TemplateAvailability.Available -> "Available"
+        TemplateAvailability.Missing -> "Missing"
+        TemplateAvailability.Unreadable -> "Unreadable"
+    }
+    val message = when (status.availability) {
+        TemplateAvailability.Available -> "The template file is ready for desktop template-aware flows."
+        TemplateAvailability.Missing -> "No template file is available for the current desktop root."
+        TemplateAvailability.Unreadable -> "A template file was found, but the desktop host cannot read it."
+    }
+    val tone = when (status.availability) {
+        TemplateAvailability.Available -> SettingsMessageTone.Success
+        TemplateAvailability.Missing -> SettingsMessageTone.Warning
+        TemplateAvailability.Unreadable -> SettingsMessageTone.Warning
+    }
+    val canCreateDefaultTemplate = status.referenceMode == TemplateReferenceMode.LegacyHiddenFile &&
+        status.availability == TemplateAvailability.Missing &&
+        state.rootReference != null
+
+    SettingsCard(
+        title = "Templates",
+        description = "Choose the template source for desktop flows, reset back to the default hidden file, or refresh the resolved template status.",
+        footer = "Desktop stores the selected template per root and falls back to `.orgclock-template.org` when no explicit file is configured.",
+    ) {
+        SettingsFieldRow(label = "Template source", value = source)
+        SettingsFieldRow(
+            label = "Resolved path",
+            value = status.fileId ?: state.rootReference?.rawValue?.let { "$it/.orgclock-template.org" } ?: "No template file resolved",
+        )
+        SettingsFieldRow(label = "Availability", value = availability)
+        status.detailMessage?.takeIf { it.isNotBlank() }?.let { detail ->
+            SettingsFieldRow(label = "Detail", value = detail)
+        }
+        SettingsMessageBlock(text = message, tone = tone)
+        SettingsActionRow {
+            Button(
+                onClick = { onAction(OrgClockUiAction.OpenTemplateFilePicker) },
+                enabled = state.rootReference != null,
+            ) {
+                Text("Choose template file")
+            }
+            if (status.referenceMode == TemplateReferenceMode.Explicit) {
+                Button(onClick = { onAction(OrgClockUiAction.ClearExplicitTemplateFile) }) {
+                    Text("Use default hidden file")
+                }
+            }
+            Button(
+                onClick = { onAction(OrgClockUiAction.RefreshTemplateStatus) },
+                enabled = state.rootReference != null,
+            ) {
+                Text("Refresh template status")
+            }
+            if (canCreateDefaultTemplate) {
+                Button(onClick = { onAction(OrgClockUiAction.CreateDefaultTemplateFile) }) {
+                    Text("Create default template file")
+                }
             }
         }
     }
@@ -1143,6 +1281,10 @@ private fun StatusChip(status: UiStatus) {
         StatusMessageKey.HeadingCreated -> "Heading created."
         StatusMessageKey.HeadingTitleEmpty -> "Heading title is required."
         StatusMessageKey.EndTimeMustBeAfterStart -> "End time must be after start time."
+        StatusMessageKey.TemplateFileSelected -> "Template file selected: ${status.text.args.firstOrNull().orEmpty()}."
+        StatusMessageKey.TemplateFileSelectionCleared -> "Reverted to the default hidden template file."
+        StatusMessageKey.TemplateFileCreated -> "Created default template file: ${status.text.args.firstOrNull().orEmpty()}."
+        StatusMessageKey.TemplateFileCreateFailed -> "Template file creation failed: ${status.text.args.firstOrNull().orEmpty()}"
         StatusMessageKey.ExternalFilesChanged -> "Org files changed on disk. Reload from disk to refresh."
         StatusMessageKey.SelectedFileChangedExternally -> "Selected file changed on disk. Reload from disk to refresh."
         StatusMessageKey.SelectedFileNoLongerAvailable -> "Selected file is no longer available: ${status.text.args.firstOrNull().orEmpty()}"

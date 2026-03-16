@@ -180,6 +180,31 @@ class DesktopAppGraphTest {
         assertEquals(StatusMessageKey.TemplateFileSelectionCleared, store.uiState.value.status.text.key)
     }
 
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun creatingDefaultTemplateFile_makesHiddenTemplateAvailable() = runTest {
+        val root = tempRoot()
+        write(root.resolve("2026-03-10.org"), "* Work\n** Task\n")
+        val graph = DesktopAppGraph(
+            settingsStore = DesktopSettingsStore(testNode()).also {
+                it.save(DesktopHostSettings(lastRootReference = RootReference(root.toString())))
+            },
+            rootScheduleStore = DesktopRootScheduleStore(testNode()),
+            clockEnvironment = fixedClockEnvironment(),
+            watchRootChanges = false,
+        )
+        val store = graph.createStore(this)
+
+        store.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.CreateDefaultTemplateFile)
+        advanceUntilIdle()
+
+        assertEquals(StatusMessageKey.TemplateFileCreated, store.uiState.value.status.text.key)
+        assertEquals(TemplateReferenceMode.LegacyHiddenFile, store.uiState.value.templateFileStatus.referenceMode)
+        assertEquals(root.resolve(".orgclock-template.org").toString(), store.uiState.value.templateFileStatus.fileId)
+    }
+
     private fun tempRoot(): Path = createTempDirectory("desktop-graph-test").also(tempRoots::add)
 
     private fun testNode(): Preferences =
