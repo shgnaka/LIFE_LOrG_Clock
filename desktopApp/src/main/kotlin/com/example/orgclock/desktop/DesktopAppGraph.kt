@@ -32,6 +32,7 @@ import kotlin.io.path.name
 
 class DesktopAppGraph(
     private val settingsStore: DesktopSettingsStore = DesktopSettingsStore(),
+    private val rootScheduleStore: DesktopRootScheduleStore = DesktopRootScheduleStore(),
     private val clockEnvironment: ClockEnvironment = DesktopSystemClockEnvironment,
     private val repositoryFactory: (Path) -> ClockRepository = ::DesktopFileOrgRepository,
     private val coordinatorFactory: () -> FileOperationCoordinator = ::InMemoryFileOperationCoordinator,
@@ -122,12 +123,12 @@ class DesktopAppGraph(
             loadNotificationDisplayMode = { NotificationDisplayMode.ActiveOnly },
             saveNotificationDisplayMode = { },
             notificationPermissionGrantedProvider = { false },
-            loadRootScheduleConfig = { rootReference -> RootScheduleConfig(rootUri = rootReference.rawValue) },
+            loadRootScheduleConfig = { rootReference -> rootScheduleStore.load(rootReference.rawValue) },
             loadTemplateFileStatus = { config -> loadDesktopTemplateFileStatus(config) },
             loadTemplateAutoGenerationFailure = { null },
             loadAutoGenerationRuntimeState = { TemplateAutoGenerationRuntimeState() },
-            saveRootScheduleConfig = {},
-            syncRootScheduleConfig = {},
+            saveRootScheduleConfig = { config -> rootScheduleStore.save(config) },
+            syncRootScheduleConfig = { config -> rootScheduleStore.save(config) },
             runAutoGenerationCatchUp = {},
             externalChangeFlow = if (watchRootChanges) externalChangeFlow else OrgClockStore.NO_EXTERNAL_CHANGE_FLOW,
             syncSnapshotFlow = disabledSyncSnapshotFlow,
