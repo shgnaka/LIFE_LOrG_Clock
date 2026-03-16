@@ -3,10 +3,13 @@ package com.example.orgclock.desktop
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.presentation.Screen
 import com.example.orgclock.presentation.StatusMessageKey
+import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.ui.state.OrgClockUiAction
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.datetime.Instant
+import kotlinx.datetime.TimeZone
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -46,7 +49,10 @@ class DesktopAppGraphTest {
         val store = DesktopSettingsStore(testNode())
         store.save(DesktopHostSettings(lastRootReference = RootReference(root.toString())))
 
-        val graph = DesktopAppGraph(settingsStore = store)
+        val graph = DesktopAppGraph(
+            settingsStore = store,
+            clockEnvironment = fixedClockEnvironment(),
+        )
         val orgClockStore = graph.createStore(this)
         orgClockStore.onAction(OrgClockUiAction.Initialize)
         advanceUntilIdle()
@@ -65,7 +71,10 @@ class DesktopAppGraphTest {
         val root = tempRoot()
         write(root.resolve("2026-03-10.org"), "* Work\n** Task\n")
         val settingsStore = DesktopSettingsStore(testNode())
-        val graph = DesktopAppGraph(settingsStore = settingsStore)
+        val graph = DesktopAppGraph(
+            settingsStore = settingsStore,
+            clockEnvironment = fixedClockEnvironment(),
+        )
         val store = graph.createStore(this)
 
         store.onAction(OrgClockUiAction.Initialize)
@@ -98,5 +107,11 @@ class DesktopAppGraphTest {
 
     private fun write(path: Path, text: String) {
         Files.writeString(path, text, StandardCharsets.UTF_8)
+    }
+
+    private fun fixedClockEnvironment(): ClockEnvironment = object : ClockEnvironment {
+        override fun now(): Instant = Instant.parse("2026-03-10T09:00:00Z")
+
+        override fun currentTimeZone(): TimeZone = TimeZone.UTC
     }
 }

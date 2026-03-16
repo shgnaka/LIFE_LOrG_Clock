@@ -234,7 +234,7 @@ class OrgClockStoreTest {
         assertEquals(1, store.uiState.value.historyEntries.size)
         assertNull(store.uiState.value.deletingEntry)
         assertFalse(store.uiState.value.deletingInProgress)
-        assertEquals(StatusMessageKey.ClockHistoryUpdated, store.uiState.value.status.text.key)
+        assertEquals(StatusMessageKey.ClockHistoryDeleted, store.uiState.value.status.text.key)
         assertTrue(headingLoads >= 2)
     }
 
@@ -270,7 +270,7 @@ class OrgClockStoreTest {
             edited,
         )
         assertNull(store.uiState.value.editingEntry)
-        assertEquals(StatusMessageKey.ClockHistoryDeleted, store.uiState.value.status.text.key)
+        assertEquals(StatusMessageKey.ClockHistoryUpdated, store.uiState.value.status.text.key)
     }
 
     @Test

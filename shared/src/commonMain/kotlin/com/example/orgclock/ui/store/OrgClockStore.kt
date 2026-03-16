@@ -675,11 +675,11 @@ class OrgClockStore(
         }
         val result = try { editClosedClock(file.fileId, entry.headingPath, entry.clockLineIndex, updatedStart, updatedEnd) } finally { finishEditSave() }
         if (result.isSuccess) {
-            _uiState.update { it.copy(status = status(StatusMessageKey.ClockHistoryDeleted, StatusTone.Success), editingEntry = null, editingDraft = null) }
+            _uiState.update { it.copy(status = status(StatusMessageKey.ClockHistoryUpdated, StatusTone.Success), editingEntry = null, editingDraft = null) }
             reloadHistoryIfNeeded()
             refreshSelectedFileHeadings()
         } else {
-            _uiState.update { it.copy(status = status(StatusMessageKey.DeleteFailed, StatusTone.Error, result.exceptionOrNull()?.message ?: "")) }
+            _uiState.update { it.copy(status = status(StatusMessageKey.UpdateFailed, StatusTone.Error, result.exceptionOrNull()?.message ?: "")) }
         }
     }
 
@@ -730,11 +730,11 @@ class OrgClockStore(
         val entry = state.deletingEntry ?: return
         val result = try { deleteClosedClock(file.fileId, entry.headingPath, entry.clockLineIndex) } finally { finishDelete() }
         if (result.isSuccess) {
-            _uiState.update { it.copy(deletingEntry = null, deletingInProgress = false, status = status(StatusMessageKey.ClockHistoryUpdated, StatusTone.Success)) }
+            _uiState.update { it.copy(deletingEntry = null, deletingInProgress = false, status = status(StatusMessageKey.ClockHistoryDeleted, StatusTone.Success)) }
             reloadHistoryIfNeeded()
             refreshSelectedFileHeadings()
         } else {
-            _uiState.update { it.copy(deletingInProgress = false, status = status(StatusMessageKey.UpdateFailed, StatusTone.Error, result.exceptionOrNull()?.message ?: "")) }
+            _uiState.update { it.copy(deletingInProgress = false, status = status(StatusMessageKey.DeleteFailed, StatusTone.Error, result.exceptionOrNull()?.message ?: "")) }
         }
     }
 
