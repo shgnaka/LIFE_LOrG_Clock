@@ -153,6 +153,12 @@ private fun DesktopHostCard(
                 onPickRoot = onPickRoot,
                 onAction = onAction,
             )
+            if (state.externalChangePending) {
+                ExternalChangeBanner(
+                    state = state,
+                    onReload = { onAction(OrgClockUiAction.RefreshFiles) },
+                )
+            }
             HorizontalDivider(color = Color(0xFF3B564F))
             when (state.screen) {
                 Screen.RootSetup -> RootSetupPane(onPickRoot = onPickRoot)
@@ -461,7 +467,10 @@ private fun DesktopDialogs(
             title = target.node.title,
             entries = state.historyEntries,
             loading = state.historyLoading,
+            externalChangePending = state.externalChangePending,
+            externalChangeAffectsSelectedFile = state.externalChangeAffectsSelectedFile,
             onDismiss = { onAction(OrgClockUiAction.DismissHistory) },
+            onReload = { onAction(OrgClockUiAction.RefreshFiles) },
             onEdit = { onAction(OrgClockUiAction.BeginEdit(it)) },
             onDelete = { onAction(OrgClockUiAction.BeginDelete(it)) },
         )
@@ -501,11 +510,48 @@ private fun DesktopDialogs(
 }
 
 @Composable
+private fun ExternalChangeBanner(
+    state: OrgClockUiState,
+    onReload: () -> Unit,
+) {
+    val text = when {
+        state.externalChangeAffectsSelectedFile -> {
+            "The selected file changed on disk. Reload from disk to refresh headings and history."
+        }
+        state.externalChangeChangedFileIds.isNotEmpty() -> {
+            "Org files changed on disk. Reload from disk to refresh the desktop view."
+        }
+        else -> {
+            "A filesystem change was detected. Reload from disk to refresh the desktop view."
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFFF2D38A), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFFF2D38A),
+        )
+        Button(onClick = onReload) {
+            Text("Reload from disk")
+        }
+    }
+}
+
+@Composable
 private fun HistoryDialog(
     title: String,
     entries: List<ClosedClockEntry>,
     loading: Boolean,
+    externalChangePending: Boolean,
+    externalChangeAffectsSelectedFile: Boolean,
     onDismiss: () -> Unit,
+    onReload: () -> Unit,
     onEdit: (ClosedClockEntry) -> Unit,
     onDelete: (ClosedClockEntry) -> Unit,
 ) {
@@ -517,6 +563,20 @@ private fun HistoryDialog(
                 modifier = Modifier.fillMaxWidth().height(360.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                if (externalChangePending) {
+                    Text(
+                        text = if (externalChangeAffectsSelectedFile) {
+                            "This history view may be stale because the selected file changed on disk."
+                        } else {
+                            "This history view may be stale because org files changed on disk."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF2D38A),
+                    )
+                    Button(onClick = onReload) {
+                        Text("Reload from disk")
+                    }
+                }
                 when {
                     loading -> Text("Loading clock history...")
                     entries.isEmpty() -> Text("No closed clocks yet.")
@@ -758,6 +818,9 @@ private fun StatusChip(status: UiStatus) {
         StatusMessageKey.HeadingCreated -> "Heading created."
         StatusMessageKey.HeadingTitleEmpty -> "Heading title is required."
         StatusMessageKey.EndTimeMustBeAfterStart -> "End time must be after start time."
+        StatusMessageKey.ExternalFilesChanged -> "Org files changed on disk. Reload from disk to refresh."
+        StatusMessageKey.SelectedFileChangedExternally -> "Selected file changed on disk. Reload from disk to refresh."
+        StatusMessageKey.SelectedFileNoLongerAvailable -> "Selected file is no longer available: ${status.text.args.firstOrNull().orEmpty()}"
         else -> "${status.text.key}: ${status.text.args.joinToString()}"
     }
     val color = when (status.tone) {

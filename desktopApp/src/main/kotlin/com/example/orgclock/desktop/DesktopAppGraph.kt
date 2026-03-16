@@ -16,6 +16,7 @@ import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.today
 import com.example.orgclock.ui.store.OrgClockStore
+import com.example.orgclock.ui.state.ExternalChangeNotice
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -34,13 +35,19 @@ class DesktopAppGraph(
     private val clockEnvironment: ClockEnvironment = DesktopSystemClockEnvironment,
     private val repositoryFactory: (Path) -> ClockRepository = ::DesktopFileOrgRepository,
     private val coordinatorFactory: () -> FileOperationCoordinator = ::InMemoryFileOperationCoordinator,
+    private val watchRootChanges: Boolean = true,
 ) {
     private var currentRootPath: Path? = null
     private var repository: ClockRepository? = null
     private var clockService: ClockService? = null
     private var openClockScanner: DesktopOpenClockScanner? = null
+    private var rootWatcher: DesktopRootWatcher? = null
+    private var scope: CoroutineScope? = null
+    private val externalChangeFlow = MutableStateFlow<ExternalChangeNotice?>(null)
+    private var externalChangeRevision = 0L
 
     fun createStore(scope: CoroutineScope): OrgClockStore {
+        this.scope = scope
         val listFiles: suspend () -> Result<List<com.example.orgclock.data.OrgFileEntry>> = {
             repository?.listOrgFiles() ?: Result.failure(missingRootError())
         }
@@ -122,6 +129,7 @@ class DesktopAppGraph(
             saveRootScheduleConfig = {},
             syncRootScheduleConfig = {},
             runAutoGenerationCatchUp = {},
+            externalChangeFlow = if (watchRootChanges) externalChangeFlow else OrgClockStore.NO_EXTERNAL_CHANGE_FLOW,
             syncSnapshotFlow = disabledSyncSnapshotFlow,
             nowProvider = { clockEnvironment.now() },
             todayProvider = { clockEnvironment.today() },
@@ -144,6 +152,16 @@ class DesktopAppGraph(
         this.repository = repository
         this.clockService = clockService
         this.openClockScanner = DesktopOpenClockScanner(repository)
+        rootWatcher?.stop()
+        scope?.takeIf { watchRootChanges }?.let { scope ->
+            rootWatcher = DesktopRootWatcher(
+                rootPath = normalized,
+                scope = scope,
+                onChange = { notice ->
+                    externalChangeFlow.value = notice.copy(revision = ++externalChangeRevision)
+                },
+            ).also { it.start() }
+        }
     }
 
     private fun normalizeRoot(rootReference: RootReference): Path {

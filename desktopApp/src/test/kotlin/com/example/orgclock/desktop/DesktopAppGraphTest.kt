@@ -52,6 +52,7 @@ class DesktopAppGraphTest {
         val graph = DesktopAppGraph(
             settingsStore = store,
             clockEnvironment = fixedClockEnvironment(),
+            watchRootChanges = false,
         )
         val orgClockStore = graph.createStore(this)
         orgClockStore.onAction(OrgClockUiAction.Initialize)
@@ -74,6 +75,7 @@ class DesktopAppGraphTest {
         val graph = DesktopAppGraph(
             settingsStore = settingsStore,
             clockEnvironment = fixedClockEnvironment(),
+            watchRootChanges = false,
         )
         val store = graph.createStore(this)
 

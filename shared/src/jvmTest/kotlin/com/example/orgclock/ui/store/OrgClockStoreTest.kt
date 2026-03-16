@@ -18,10 +18,15 @@ import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.OrgClockUiAction
+import com.example.orgclock.ui.state.ExternalChangeNotice
 import com.example.orgclock.ui.state.Screen
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -68,6 +73,77 @@ class OrgClockStoreTest {
         assertEquals(StatusMessageKey.LoadedFile, state.status.text.key)
         assertEquals("2026-03-10.org", state.selectedFile?.displayName)
         assertEquals(setOf("f1"), state.filesWithOpenClock)
+    }
+
+    @Test
+    fun externalChange_marksStateStale_andRefreshKeepsSelectedFileWhenItStillExists() = runTest {
+        val externalChanges = MutableStateFlow<ExternalChangeNotice?>(null)
+        val selectedFile = OrgFileEntry("f2", "projects.org", null)
+        val storeScope = CoroutineScope(coroutineContext + Job())
+        val store = testStore(
+            scope = storeScope,
+            listFiles = {
+                Result.success(
+                    listOf(
+                        OrgFileEntry("f1", "2026-03-10.org", null),
+                        selectedFile,
+                    ),
+                )
+            },
+            listHeadings = { fileId ->
+                Result.success(
+                    if (fileId == "f2") sampleProjectHeadings() else sampleHeadings()
+                )
+            },
+            externalChangeFlow = externalChanges,
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(selectedFile))
+        advanceUntilIdle()
+
+        externalChanges.value = ExternalChangeNotice(
+            revision = 1,
+            changedFileIds = setOf("f2"),
+        )
+        advanceUntilIdle()
+
+        assertTrue(store.uiState.value.externalChangePending)
+        assertTrue(store.uiState.value.externalChangeAffectsSelectedFile)
+        assertEquals(StatusMessageKey.SelectedFileChangedExternally, store.uiState.value.status.text.key)
+
+        store.onAction(OrgClockUiAction.RefreshFiles)
+        advanceUntilIdle()
+
+        assertFalse(store.uiState.value.externalChangePending)
+        assertEquals("f2", store.uiState.value.selectedFile?.fileId)
+        assertEquals(Screen.HeadingList, store.uiState.value.screen)
+        storeScope.cancel()
+    }
+
+    @Test
+    fun refreshFiles_whenSelectedFileWasRemoved_routesToFilePickerWithWarning() = runTest {
+        var listed = listOf(
+            OrgFileEntry("f1", "2026-03-10.org", null),
+            OrgFileEntry("f2", "projects.org", null),
+        )
+        val selectedFile = OrgFileEntry("f2", "projects.org", null)
+        val store = testStore(
+            scope = this,
+            listFiles = { Result.success(listed) },
+            listHeadings = { Result.success(sampleProjectHeadings()) },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(selectedFile))
+        advanceUntilIdle()
+
+        listed = listOf(OrgFileEntry("f1", "2026-03-10.org", null))
+        store.onAction(OrgClockUiAction.RefreshFiles)
+        advanceUntilIdle()
+
+        assertEquals(Screen.FilePicker, store.uiState.value.screen)
+        assertEquals(StatusMessageKey.SelectedFileNoLongerAvailable, store.uiState.value.status.text.key)
+        assertEquals("projects.org", store.uiState.value.status.text.args.single())
+        assertNull(store.uiState.value.selectedFile)
     }
 
     @Test
@@ -376,6 +452,33 @@ class OrgClockStoreTest {
         }
     }
 
+    private fun sampleProjectHeadings(): List<HeadingViewItem> {
+        return listOf(
+            HeadingViewItem(
+                node = HeadingNode(
+                    lineIndex = 0,
+                    level = 1,
+                    title = "Projects",
+                    path = HeadingPath.parse("Projects"),
+                    parentL1 = "Projects",
+                ),
+                canStart = false,
+                openClock = null,
+            ),
+            HeadingViewItem(
+                node = HeadingNode(
+                    lineIndex = 1,
+                    level = 2,
+                    title = "Backlog",
+                    path = HeadingPath.parse("Projects/Backlog"),
+                    parentL1 = "Projects",
+                ),
+                canStart = true,
+                openClock = null,
+            ),
+        )
+    }
+
     private fun sampleClosedEntry(clockLineIndex: Int): ClosedClockEntry {
         return ClosedClockEntry(
             headingPath = HeadingPath.parse("Work/Project A"),
@@ -419,6 +522,7 @@ class OrgClockStoreTest {
         saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         runAutoGenerationCatchUp: suspend (RootReference) -> Unit = {},
+        externalChangeFlow: StateFlow<ExternalChangeNotice?> = OrgClockStore.NO_EXTERNAL_CHANGE_FLOW,
     ): OrgClockStore {
         return OrgClockStore(
             scope = scope,
@@ -449,6 +553,7 @@ class OrgClockStoreTest {
             saveRootScheduleConfig = saveRootScheduleConfig,
             syncRootScheduleConfig = syncRootScheduleConfig,
             runAutoGenerationCatchUp = runAutoGenerationCatchUp,
+            externalChangeFlow = externalChangeFlow,
             nowProvider = { Instant.parse("2026-03-10T09:00:00Z") },
             todayProvider = { LocalDate(2026, 3, 10) },
             timeZoneProvider = { TimeZone.UTC },

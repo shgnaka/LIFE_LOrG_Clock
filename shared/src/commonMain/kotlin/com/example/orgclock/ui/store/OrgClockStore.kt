@@ -25,6 +25,7 @@ import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
+import com.example.orgclock.ui.state.ExternalChangeNotice
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.PeerUiItem
@@ -76,6 +77,7 @@ class OrgClockStore(
     private val saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     private val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     private val runAutoGenerationCatchUp: suspend (RootReference) -> Unit,
+    private val externalChangeFlow: StateFlow<ExternalChangeNotice?> = NO_EXTERNAL_CHANGE_FLOW,
     private val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     private val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
     private val syncEnableStandardMode: suspend () -> Unit = {},
@@ -118,8 +120,16 @@ class OrgClockStore(
     private val deleteMutex = Mutex()
     private var autoGenerationCatchUpInFlight = false
     private val autoGenerationCatchUpMutex = Mutex()
+    private var lastExternalChangeRevision = 0L
 
     init {
+        if (externalChangeFlow !== NO_EXTERNAL_CHANGE_FLOW) {
+            scope.launch {
+                externalChangeFlow.collectLatest { notice ->
+                    applyExternalChangeNotice(notice)
+                }
+            }
+        }
         if (syncFeatureEnabled) {
             scope.launch {
                 syncSnapshotFlow.collectLatest { snapshot ->
@@ -502,6 +512,9 @@ class OrgClockStore(
                     deletingEntry = null,
                     deletingInProgress = false,
                     createHeadingDialog = null,
+                    externalChangePending = false,
+                    externalChangeChangedFileIds = emptySet(),
+                    externalChangeAffectsSelectedFile = false,
                     screen = Screen.HeadingList,
                     status = if (updateStatus) status(StatusMessageKey.LoadedFile, StatusTone.Success, file.displayName) else it.status,
                 )
@@ -514,6 +527,7 @@ class OrgClockStore(
 
     private suspend fun refreshFilesAndRoute() {
         uiState.value.rootReference?.let { evaluateAutoGeneration(it) }
+        val preferredFile = uiState.value.selectedFile
         val result = listFiles()
         if (result.isFailure) {
             val reason = result.exceptionOrNull()?.message ?: ""
@@ -521,14 +535,53 @@ class OrgClockStore(
             return
         }
         val listed = result.getOrThrow()
-        _uiState.update { it.copy(files = listed) }
+        _uiState.update {
+            it.copy(
+                files = listed,
+                externalChangePending = false,
+                externalChangeChangedFileIds = emptySet(),
+                externalChangeAffectsSelectedFile = false,
+            )
+        }
         refreshFilesWithOpenClock()
+        val preferred = preferredFile?.let { selected -> listed.firstOrNull { it.fileId == selected.fileId } }
         val today = listed.firstOrNull { it.displayName == "${todayProvider()}.org" }
-        if (today != null) {
+        if (preferred != null) {
+            loadHeadingsFor(preferred)
+        } else if (preferredFile != null) {
+            _uiState.update {
+                it.copy(
+                    selectedFile = null,
+                    headings = emptyList(),
+                    selectedHeadingPath = null,
+                    pendingClockOps = emptySet(),
+                    collapsedL1 = emptySet(),
+                    historyTarget = null,
+                    historyEntries = emptyList(),
+                    historyLoading = false,
+                    editingEntry = null,
+                    editingDraft = null,
+                    editingInProgress = false,
+                    deletingEntry = null,
+                    deletingInProgress = false,
+                    createHeadingDialog = null,
+                    screen = Screen.FilePicker,
+                    status = status(StatusMessageKey.SelectedFileNoLongerAvailable, StatusTone.Warning, preferredFile.displayName),
+                )
+            }
+        } else if (today != null) {
             loadHeadingsFor(today)
         } else {
             _uiState.update {
-                it.copy(selectedFile = null, headings = emptyList(), selectedHeadingPath = null, screen = Screen.FilePicker, status = status(StatusMessageKey.TodayFileNotFound, StatusTone.Warning))
+                it.copy(
+                    selectedFile = null,
+                    headings = emptyList(),
+                    selectedHeadingPath = null,
+                    pendingClockOps = emptySet(),
+                    collapsedL1 = emptySet(),
+                    screen = Screen.FilePicker,
+                    status = status(StatusMessageKey.TodayFileNotFound, StatusTone.Warning),
+                )
             }
         }
         uiState.value.rootReference?.let { refreshAutoGenerationRuntimeState(it) }
@@ -553,6 +606,32 @@ class OrgClockStore(
 
     private suspend fun refreshFilesWithOpenClock() {
         listFilesWithOpenClock().getOrNull()?.let { fileIds -> _uiState.update { it.copy(filesWithOpenClock = fileIds) } }
+    }
+
+    private fun applyExternalChangeNotice(notice: ExternalChangeNotice?) {
+        if (notice == null || notice.revision <= lastExternalChangeRevision) return
+        lastExternalChangeRevision = notice.revision
+        _uiState.update { state ->
+            val selectedFile = state.selectedFile
+            val affectsSelected = selectedFile != null && selectedFile.fileId in notice.changedFileIds
+            state.copy(
+                externalChangePending = true,
+                externalChangeChangedFileIds = notice.changedFileIds,
+                externalChangeAffectsSelectedFile = affectsSelected,
+                status = when {
+                    affectsSelected -> status(
+                        StatusMessageKey.SelectedFileChangedExternally,
+                        StatusTone.Warning,
+                        selectedFile.displayName,
+                    )
+                    else -> status(
+                        StatusMessageKey.ExternalFilesChanged,
+                        StatusTone.Warning,
+                        notice.changedFileIds.size.toString(),
+                    )
+                },
+            )
+        }
     }
 
     private suspend fun applyRoot(rootReference: RootReference) {
@@ -1095,7 +1174,8 @@ class OrgClockStore(
         }
     }
 
-    private companion object {
+    companion object {
         val DAILY_ORG_FILE_REGEX = Regex("^\\d{4}-\\d{2}-\\d{2}\\.org$")
+        val NO_EXTERNAL_CHANGE_FLOW: StateFlow<ExternalChangeNotice?> = MutableStateFlow(null)
     }
 }
