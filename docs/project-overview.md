@@ -86,6 +86,8 @@ Linux パッケージ出力の検証:
 
 Desktop MVP の手動確認観点は `docs/desktop-manual-smoke-test.md` を参照してください。
 
+desktop 配布物の設定保存場所や stale root の復旧手順は `docs/desktop-ops-runbook.md` を参照してください。
+
 ### Desktop MVP limitations
 
 現時点の desktop host は MVP 段階です。以下は未対応、または Android 専用です。
