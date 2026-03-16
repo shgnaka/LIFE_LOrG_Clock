@@ -275,8 +275,10 @@ class OrgClockStore(
                     editingEntry = null,
                     editingDraft = null,
                     editingInProgress = false,
+                    editFailureMessage = null,
                     deletingEntry = null,
                     deletingInProgress = false,
+                    deleteFailureMessage = null,
                 )
             }
             true
@@ -293,23 +295,24 @@ class OrgClockStore(
                         endHour = action.entry.end.toLocalDateTime(timeZone).hour,
                         endMinute = normalizeMinuteToStep(action.entry.end.toLocalDateTime(timeZone).minute),
                     ),
+                    editFailureMessage = null,
                 )
             }
             true
         }
         OrgClockUiAction.CancelEdit -> {
             finishEditSave()
-            _uiState.update { it.copy(editingEntry = null, editingDraft = null, editingInProgress = false) }
+            _uiState.update { it.copy(editingEntry = null, editingDraft = null, editingInProgress = false, editFailureMessage = null) }
             true
         }
         is OrgClockUiAction.BeginDelete -> {
             finishDelete()
-            _uiState.update { it.copy(deletingEntry = action.entry, deletingInProgress = false) }
+            _uiState.update { it.copy(deletingEntry = action.entry, deletingInProgress = false, deleteFailureMessage = null) }
             true
         }
         OrgClockUiAction.CancelDelete -> {
             finishDelete()
-            _uiState.update { it.copy(deletingEntry = null, deletingInProgress = false) }
+            _uiState.update { it.copy(deletingEntry = null, deletingInProgress = false, deleteFailureMessage = null) }
             true
         }
         OrgClockUiAction.ConfirmDelete -> {
@@ -495,28 +498,47 @@ class OrgClockStore(
         val loaded = listHeadings(file.fileId)
         if (loaded.isSuccess) {
             val headings = loaded.getOrThrow()
+            val previousState = uiState.value
+            val sameFile = previousState.selectedFile?.fileId == file.fileId
+            val preservedHistoryTarget = if (sameFile) {
+                previousState.historyTarget?.let { target ->
+                    headings.firstOrNull { it.node.path == target.node.path }
+                }
+            } else {
+                null
+            }
             _uiState.update {
-                val sameFile = it.selectedFile?.fileId == file.fileId
                 it.copy(
                     selectedFile = file,
                     headings = headings,
                     selectedHeadingPath = if (sameFile) it.selectedHeadingPath?.takeIf { path -> headings.any { heading -> heading.node.path == path } } else null,
                     pendingClockOps = if (sameFile) it.pendingClockOps.filterTo(mutableSetOf()) { path -> headings.any { heading -> heading.node.path == path } } else emptySet(),
                     collapsedL1 = emptySet(),
-                    historyTarget = null,
-                    historyEntries = emptyList(),
-                    historyLoading = false,
-                    editingEntry = null,
-                    editingDraft = null,
+                    historyTarget = preservedHistoryTarget,
+                    historyEntries = if (preservedHistoryTarget != null) it.historyEntries else emptyList(),
+                    historyLoading = preservedHistoryTarget != null,
+                    editingEntry = if (preservedHistoryTarget != null) it.editingEntry else null,
+                    editingDraft = if (preservedHistoryTarget != null) it.editingDraft else null,
                     editingInProgress = false,
-                    deletingEntry = null,
+                    editFailureMessage = if (preservedHistoryTarget != null) it.editFailureMessage else null,
+                    deletingEntry = if (preservedHistoryTarget != null) it.deletingEntry else null,
                     deletingInProgress = false,
+                    deleteFailureMessage = if (preservedHistoryTarget != null) it.deleteFailureMessage else null,
                     createHeadingDialog = null,
                     externalChangePending = false,
                     externalChangeChangedFileIds = emptySet(),
                     externalChangeAffectsSelectedFile = false,
                     screen = Screen.HeadingList,
                     status = if (updateStatus) status(StatusMessageKey.LoadedFile, StatusTone.Success, file.displayName) else it.status,
+                )
+            }
+            if (preservedHistoryTarget != null) {
+                reloadHistoryContext(
+                    file = file,
+                    target = preservedHistoryTarget,
+                    previousEditingEntry = previousState.editingEntry,
+                    previousEditingDraft = previousState.editingDraft,
+                    previousDeletingEntry = previousState.deletingEntry,
                 )
             }
         } else {
@@ -680,6 +702,51 @@ class OrgClockStore(
         }
     }
 
+    private suspend fun reloadHistoryContext(
+        file: OrgFileEntry,
+        target: HeadingViewItem,
+        previousEditingEntry: ClosedClockEntry?,
+        previousEditingDraft: ClockEditDraft?,
+        previousDeletingEntry: ClosedClockEntry?,
+    ) {
+        val result = listClosedClocks(file.fileId, target.node.path)
+        if (result.isFailure) {
+            val reason = result.exceptionOrNull()?.message ?: ""
+            _uiState.update {
+                it.copy(
+                    historyEntries = emptyList(),
+                    historyLoading = false,
+                    status = status(StatusMessageKey.FailedLoadingHistory, StatusTone.Error, reason),
+                )
+            }
+            return
+        }
+        val entries = result.getOrThrow()
+        val reboundEditingEntry = previousEditingEntry?.let { entries.findMatchingClosedClock(it) }
+        val reboundDeletingEntry = previousDeletingEntry?.let { entries.findMatchingClosedClock(it) }
+        _uiState.update { current ->
+            current.copy(
+                historyEntries = entries,
+                historyLoading = false,
+                editingEntry = reboundEditingEntry,
+                editingDraft = if (reboundEditingEntry != null) previousEditingDraft else null,
+                editingInProgress = false,
+                editFailureMessage = when {
+                    reboundEditingEntry != null -> current.editFailureMessage
+                    previousEditingEntry != null -> "The edited clock entry changed on disk. Review the refreshed history and reopen Edit."
+                    else -> null
+                },
+                deletingEntry = reboundDeletingEntry,
+                deletingInProgress = false,
+                deleteFailureMessage = when {
+                    reboundDeletingEntry != null -> current.deleteFailureMessage
+                    previousDeletingEntry != null -> "The deleted clock entry changed on disk. Review the refreshed history before retrying."
+                    else -> null
+                },
+            )
+        }
+    }
+
     private suspend fun startClock(path: HeadingPath) {
         val file = uiState.value.selectedFile ?: run { finishClockMutation(path); return }
         val item = uiState.value.headings.firstOrNull { it.node.path == path } ?: run { finishClockMutation(path); return }
@@ -748,17 +815,35 @@ class OrgClockStore(
         val updatedStart = LocalDateTime(startDate, LocalTime(draft.startHour, draft.startMinute)).toInstant(timeZone)
         val updatedEnd = LocalDateTime(endDate, LocalTime(draft.endHour, draft.endMinute)).toInstant(timeZone)
         if (updatedEnd < updatedStart) {
-            _uiState.update { it.copy(status = status(StatusMessageKey.EndTimeMustBeAfterStart, StatusTone.Warning)) }
+            _uiState.update {
+                it.copy(
+                    status = status(StatusMessageKey.EndTimeMustBeAfterStart, StatusTone.Warning),
+                    editFailureMessage = "End time must be after start time.",
+                )
+            }
             finishEditSave()
             return
         }
         val result = try { editClosedClock(file.fileId, entry.headingPath, entry.clockLineIndex, updatedStart, updatedEnd) } finally { finishEditSave() }
         if (result.isSuccess) {
-            _uiState.update { it.copy(status = status(StatusMessageKey.ClockHistoryUpdated, StatusTone.Success), editingEntry = null, editingDraft = null) }
+            _uiState.update {
+                it.copy(
+                    status = status(StatusMessageKey.ClockHistoryUpdated, StatusTone.Success),
+                    editingEntry = null,
+                    editingDraft = null,
+                    editFailureMessage = null,
+                )
+            }
             reloadHistoryIfNeeded()
             refreshSelectedFileHeadings()
         } else {
-            _uiState.update { it.copy(status = status(StatusMessageKey.UpdateFailed, StatusTone.Error, result.exceptionOrNull()?.message ?: "")) }
+            val message = result.exceptionOrNull()?.message ?: ""
+            _uiState.update {
+                it.copy(
+                    status = status(StatusMessageKey.UpdateFailed, StatusTone.Error, message),
+                    editFailureMessage = message.ifBlank { "Failed to update clock history." },
+                )
+            }
         }
     }
 
@@ -809,11 +894,25 @@ class OrgClockStore(
         val entry = state.deletingEntry ?: return
         val result = try { deleteClosedClock(file.fileId, entry.headingPath, entry.clockLineIndex) } finally { finishDelete() }
         if (result.isSuccess) {
-            _uiState.update { it.copy(deletingEntry = null, deletingInProgress = false, status = status(StatusMessageKey.ClockHistoryDeleted, StatusTone.Success)) }
+            _uiState.update {
+                it.copy(
+                    deletingEntry = null,
+                    deletingInProgress = false,
+                    deleteFailureMessage = null,
+                    status = status(StatusMessageKey.ClockHistoryDeleted, StatusTone.Success),
+                )
+            }
             reloadHistoryIfNeeded()
             refreshSelectedFileHeadings()
         } else {
-            _uiState.update { it.copy(deletingInProgress = false, status = status(StatusMessageKey.DeleteFailed, StatusTone.Error, result.exceptionOrNull()?.message ?: "")) }
+            val message = result.exceptionOrNull()?.message ?: ""
+            _uiState.update {
+                it.copy(
+                    deletingInProgress = false,
+                    deleteFailureMessage = message.ifBlank { "Failed to delete clock history." },
+                    status = status(StatusMessageKey.DeleteFailed, StatusTone.Error, message),
+                )
+            }
         }
     }
 
@@ -967,6 +1066,17 @@ class OrgClockStore(
     private fun finishDelete() {
         withGuard(deleteMutex) { deleteInFlight = false }
         _uiState.update { it.copy(deletingInProgress = false) }
+    }
+
+    private fun List<ClosedClockEntry>.findMatchingClosedClock(entry: ClosedClockEntry): ClosedClockEntry? {
+        return firstOrNull {
+            it.headingPath == entry.headingPath &&
+                it.start == entry.start &&
+                it.end == entry.end
+        } ?: firstOrNull {
+            it.headingPath == entry.headingPath &&
+                it.clockLineIndex == entry.clockLineIndex
+        }
     }
 
     private fun beginAutoGenerationCatchUp(): Boolean {

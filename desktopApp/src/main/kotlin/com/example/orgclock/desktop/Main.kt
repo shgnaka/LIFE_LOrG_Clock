@@ -469,6 +469,8 @@ private fun DesktopDialogs(
             loading = state.historyLoading,
             externalChangePending = state.externalChangePending,
             externalChangeAffectsSelectedFile = state.externalChangeAffectsSelectedFile,
+            editFailureMessage = state.editFailureMessage,
+            deleteFailureMessage = state.deleteFailureMessage,
             onDismiss = { onAction(OrgClockUiAction.DismissHistory) },
             onReload = { onAction(OrgClockUiAction.RefreshFiles) },
             onEdit = { onAction(OrgClockUiAction.BeginEdit(it)) },
@@ -491,7 +493,10 @@ private fun DesktopDialogs(
             entry = editingEntry,
             draft = editingDraft,
             inProgress = state.editingInProgress,
+            failureMessage = state.editFailureMessage,
+            externalChangePending = state.externalChangePending,
             onDismiss = { onAction(OrgClockUiAction.CancelEdit) },
+            onReload = { onAction(OrgClockUiAction.RefreshFiles) },
             onSetStartHour = { onAction(OrgClockUiAction.SelectStartHour(it)) },
             onSetStartMinute = { onAction(OrgClockUiAction.SelectStartMinute(it)) },
             onSetEndHour = { onAction(OrgClockUiAction.SelectEndHour(it)) },
@@ -503,7 +508,10 @@ private fun DesktopDialogs(
         DeleteConfirmDialog(
             entry = entry,
             inProgress = state.deletingInProgress,
+            failureMessage = state.deleteFailureMessage,
+            externalChangePending = state.externalChangePending,
             onDismiss = { onAction(OrgClockUiAction.CancelDelete) },
+            onReload = { onAction(OrgClockUiAction.RefreshFiles) },
             onConfirm = { onAction(OrgClockUiAction.ConfirmDelete) },
         )
     }
@@ -550,6 +558,8 @@ private fun HistoryDialog(
     loading: Boolean,
     externalChangePending: Boolean,
     externalChangeAffectsSelectedFile: Boolean,
+    editFailureMessage: String?,
+    deleteFailureMessage: String?,
     onDismiss: () -> Unit,
     onReload: () -> Unit,
     onEdit: (ClosedClockEntry) -> Unit,
@@ -576,6 +586,20 @@ private fun HistoryDialog(
                     Button(onClick = onReload) {
                         Text("Reload from disk")
                     }
+                }
+                editFailureMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF5A3A3),
+                    )
+                }
+                deleteFailureMessage?.takeIf { it != editFailureMessage }?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF5A3A3),
+                    )
                 }
                 when {
                     loading -> Text("Loading clock history...")
@@ -669,7 +693,10 @@ private fun EditClockDialog(
     entry: ClosedClockEntry,
     draft: ClockEditDraft,
     inProgress: Boolean,
+    failureMessage: String?,
+    externalChangePending: Boolean,
     onDismiss: () -> Unit,
+    onReload: () -> Unit,
     onSetStartHour: (Int) -> Unit,
     onSetStartMinute: (Int) -> Unit,
     onSetEndHour: (Int) -> Unit,
@@ -687,6 +714,20 @@ private fun EditClockDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(formatClockEntry(entry), style = MaterialTheme.typography.bodyMedium)
+                failureMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF5A3A3),
+                    )
+                }
+                if (externalChangePending) {
+                    Text(
+                        text = "The file changed on disk. Reload from disk to refresh this entry before retrying.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF2D38A),
+                    )
+                }
                 TimeFieldRow(
                     label = "Start",
                     hourValue = startHourText,
@@ -723,8 +764,15 @@ private fun EditClockDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !inProgress) {
-                Text("Cancel")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (externalChangePending) {
+                    TextButton(onClick = onReload, enabled = !inProgress) {
+                        Text("Reload")
+                    }
+                }
+                TextButton(onClick = onDismiss, enabled = !inProgress) {
+                    Text("Cancel")
+                }
             }
         },
     )
@@ -768,14 +816,33 @@ private fun TimeFieldRow(
 private fun DeleteConfirmDialog(
     entry: ClosedClockEntry,
     inProgress: Boolean,
+    failureMessage: String?,
+    externalChangePending: Boolean,
     onDismiss: () -> Unit,
+    onReload: () -> Unit,
     onConfirm: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Delete clock entry?") },
         text = {
-            Text(formatClockEntry(entry), style = MaterialTheme.typography.bodyMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(formatClockEntry(entry), style = MaterialTheme.typography.bodyMedium)
+                failureMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF5A3A3),
+                    )
+                }
+                if (externalChangePending) {
+                    Text(
+                        text = "The file changed on disk. Reload from disk to refresh this entry before retrying.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF2D38A),
+                    )
+                }
+            }
         },
         confirmButton = {
             Button(onClick = onConfirm, enabled = !inProgress) {
@@ -783,8 +850,15 @@ private fun DeleteConfirmDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !inProgress) {
-                Text("Cancel")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (externalChangePending) {
+                    TextButton(onClick = onReload, enabled = !inProgress) {
+                        Text("Reload")
+                    }
+                }
+                TextButton(onClick = onDismiss, enabled = !inProgress) {
+                    Text("Cancel")
+                }
             }
         },
     )
@@ -809,12 +883,14 @@ private fun StatusChip(status: UiStatus) {
         StatusMessageKey.FailedOpenRoot -> "Saved root could not be opened: ${status.text.args.firstOrNull().orEmpty()}"
         StatusMessageKey.FailedListingFiles -> "File listing failed: ${status.text.args.firstOrNull().orEmpty()}"
         StatusMessageKey.FailedLoadingHeadings -> "Heading load failed: ${status.text.args.firstOrNull().orEmpty()}"
-        StatusMessageKey.FailedLoadingHistory -> "Clock history failed to load."
+        StatusMessageKey.FailedLoadingHistory -> "Clock history failed to load: ${status.text.args.firstOrNull().orEmpty()}"
         StatusMessageKey.ClockStarted -> "Clock started."
         StatusMessageKey.ClockStopped -> "Clock stopped."
         StatusMessageKey.ClockCancelled -> "Open clock cancelled."
         StatusMessageKey.ClockHistoryUpdated -> "Clock history updated."
         StatusMessageKey.ClockHistoryDeleted -> "Clock history deleted."
+        StatusMessageKey.UpdateFailed -> "Clock history update failed: ${status.text.args.firstOrNull().orEmpty()}"
+        StatusMessageKey.DeleteFailed -> "Clock history delete failed: ${status.text.args.firstOrNull().orEmpty()}"
         StatusMessageKey.HeadingCreated -> "Heading created."
         StatusMessageKey.HeadingTitleEmpty -> "Heading title is required."
         StatusMessageKey.EndTimeMustBeAfterStart -> "End time must be after start time."

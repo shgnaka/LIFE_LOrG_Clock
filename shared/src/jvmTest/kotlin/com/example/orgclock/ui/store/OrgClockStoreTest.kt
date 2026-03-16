@@ -350,6 +350,92 @@ class OrgClockStoreTest {
     }
 
     @Test
+    fun saveEdit_failure_keepsDraftAndFailureMessageForRetry() = runTest {
+        val entry = sampleClosedEntry(clockLineIndex = 3)
+        val store = testStore(
+            scope = this,
+            listHeadings = { Result.success(sampleHeadings()) },
+            listClosedClocks = { _, _ -> Result.success(listOf(entry)) },
+            editClosedClock = { _, _, _, _, _ ->
+                Result.failure(IllegalStateException("File changed by another process."))
+            },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-03-10.org", null)))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.OpenHistory(sampleHeadings()[1]))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.BeginEdit(entry))
+        store.onAction(OrgClockUiAction.SelectStartMinute(5))
+        store.onAction(OrgClockUiAction.SaveEdit)
+        advanceUntilIdle()
+
+        val state = store.uiState.value
+        assertEquals(entry, state.editingEntry)
+        assertEquals(5, state.editingDraft?.startMinute)
+        assertEquals("File changed by another process.", state.editFailureMessage)
+        assertEquals(StatusMessageKey.UpdateFailed, state.status.text.key)
+    }
+
+    @Test
+    fun delete_failure_keepsEntryAndFailureMessageForRetry() = runTest {
+        val entry = sampleClosedEntry(clockLineIndex = 3)
+        val store = testStore(
+            scope = this,
+            listHeadings = { Result.success(sampleHeadings()) },
+            listClosedClocks = { _, _ -> Result.success(listOf(entry)) },
+            deleteClosedClock = { _, _, _ ->
+                Result.failure(IllegalStateException("Disk I/O error"))
+            },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-03-10.org", null)))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.OpenHistory(sampleHeadings()[1]))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.BeginDelete(entry))
+        store.onAction(OrgClockUiAction.ConfirmDelete)
+        advanceUntilIdle()
+
+        val state = store.uiState.value
+        assertEquals(entry, state.deletingEntry)
+        assertEquals("Disk I/O error", state.deleteFailureMessage)
+        assertEquals(StatusMessageKey.DeleteFailed, state.status.text.key)
+    }
+
+    @Test
+    fun refreshFiles_rebindsHistoryEditContextAndKeepsDraft() = runTest {
+        val originalEntry = sampleClosedEntry(clockLineIndex = 3)
+        val refreshedEntry = sampleClosedEntry(clockLineIndex = 7)
+        var historyLoads = 0
+        val store = testStore(
+            scope = this,
+            listFiles = { Result.success(listOf(OrgFileEntry("f1", "2026-03-10.org", null))) },
+            listHeadings = { Result.success(sampleHeadings()) },
+            listClosedClocks = { _, _ ->
+                historyLoads += 1
+                Result.success(if (historyLoads == 1) listOf(originalEntry) else listOf(refreshedEntry))
+            },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-03-10.org", null)))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.OpenHistory(sampleHeadings()[1]))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.BeginEdit(originalEntry))
+        store.onAction(OrgClockUiAction.SelectEndMinute(35))
+        store.onAction(OrgClockUiAction.RefreshFiles)
+        advanceUntilIdle()
+
+        val state = store.uiState.value
+        assertEquals(HeadingPath.parse("Work/Project A"), state.historyTarget?.node?.path)
+        assertEquals(1, state.historyEntries.size)
+        assertEquals(refreshedEntry, state.editingEntry)
+        assertEquals(35, state.editingDraft?.endMinute)
+        assertNull(state.editFailureMessage)
+    }
+
+    @Test
     fun submitCreateL2Heading_callsUseCaseAndClosesDialog() = runTest {
         var called = false
         val store = testStore(
