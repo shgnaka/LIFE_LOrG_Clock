@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -172,9 +174,10 @@ private fun DesktopHostCard(
                     onAction = onAction,
                 )
                 Screen.Settings -> SettingsPane(
-                    rootReference = state.rootReference,
+                    state = state,
                     onChangeRoot = onPickRoot,
                     onBack = { onAction(OrgClockUiAction.BackFromSettings) },
+                    onReloadFiles = { onAction(OrgClockUiAction.RefreshFiles) },
                 )
             }
         }
@@ -423,36 +426,282 @@ private fun HeadingRow(
 
 @Composable
 private fun SettingsPane(
-    rootReference: RootReference?,
+    state: OrgClockUiState,
     onChangeRoot: () -> Unit,
     onBack: () -> Unit,
+    onReloadFiles: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "Desktop settings",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SettingsHeader(onBack = onBack)
+        OrgRootSettingsCard(
+            state = state,
+            onChangeRoot = onChangeRoot,
+            onReloadFiles = onReloadFiles,
         )
+        FileMonitoringSettingsCard(
+            state = state,
+            onReloadFiles = onReloadFiles,
+        )
+        AboutDesktopSettingsCard()
+    }
+}
+
+private enum class SettingsMessageTone {
+    Info,
+    Warning,
+    Success,
+}
+
+@Composable
+private fun SettingsHeader(onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Desktop settings",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Review desktop-specific configuration and runtime status.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFD3E6D6),
+            )
+        }
+        Button(onClick = onBack) {
+            Text("Back")
+        }
+    }
+}
+
+@Composable
+private fun SettingsCard(
+    title: String,
+    description: String,
+    footer: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF1C3A34),
+            contentColor = Color(0xFFF8F5ED),
+        ),
+        border = BorderStroke(1.dp, Color(0xFF3B564F)),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
         Text(
-            text = rootReference?.rawValue ?: "No root selected",
+            text = description,
             style = MaterialTheme.typography.bodyMedium,
             color = Color(0xFFD3E6D6),
         )
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
+        content()
+            footer?.let {
+                HorizontalDivider(color = Color(0xFF3B564F))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFD3E6D6),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsFieldRow(
+    label: String,
+    value: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color(0xFFB9D3C2),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFFF8F5ED),
+        )
+    }
+}
+
+@Composable
+private fun SettingsMessageBlock(
+    text: String,
+    tone: SettingsMessageTone = SettingsMessageTone.Info,
+) {
+    val color = when (tone) {
+        SettingsMessageTone.Info -> Color(0xFFD3E6D6)
+        SettingsMessageTone.Warning -> Color(0xFFF2D38A)
+        SettingsMessageTone.Success -> Color(0xFF8FE0A8)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, color, RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = color,
+        )
+    }
+}
+
+@Composable
+private fun SettingsActionRow(
+    content: @Composable () -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        content = { content() },
+    )
+}
+
+@Composable
+private fun OrgRootSettingsCard(
+    state: OrgClockUiState,
+    onChangeRoot: () -> Unit,
+    onReloadFiles: () -> Unit,
+) {
+    SettingsCard(
+        title = "Org Root",
+        description = "Choose and review the local org directory used by the desktop host.",
+        footer = "Desktop uses a local directory instead of Android's document tree permission flow.",
+    ) {
+        SettingsFieldRow(
+            label = "Current root",
+            value = state.rootReference?.rawValue ?: "No root selected",
+        )
+        SettingsFieldRow(
+            label = "Status",
+            value = if (state.rootReference != null) "Configured" else "Not configured",
+        )
+        SettingsFieldRow(
+            label = "Persistence",
+            value = if (state.rootReference != null) {
+                "This root will be restored on the next launch."
+            } else {
+                "No saved root is available yet."
+            },
+        )
+        SettingsActionRow {
             Button(onClick = onChangeRoot) {
                 Text("Change root")
             }
-            Button(onClick = onBack) {
-                Text("Back")
+            Button(
+                onClick = onReloadFiles,
+                enabled = state.rootReference != null,
+            ) {
+                Text("Reload files")
             }
         }
-        Text(
-            text = "Notification, permission, sync runtime, and mobile perf controls stay hidden on desktop.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFFD3E6D6),
+    }
+}
+
+@Composable
+private fun FileMonitoringSettingsCard(
+    state: OrgClockUiState,
+    onReloadFiles: () -> Unit,
+) {
+    val changedFiles = if (state.externalChangeChangedFileIds.isNotEmpty()) {
+        state.externalChangeChangedFileIds.joinToString(", ")
+    } else {
+        "No recent file changes"
+    }
+    val message = when {
+        state.externalChangeAffectsSelectedFile -> {
+            "The selected file changed on disk. Reload to refresh headings and history."
+        }
+        state.externalChangePending -> {
+            "Org files changed on disk. Reload to refresh the desktop view."
+        }
+        else -> null
+    }
+
+    SettingsCard(
+        title = "File Monitoring",
+        description = "Desktop watches the selected root for external .org file changes and surfaces reload guidance.",
+        footer = "Desktop monitoring is local filesystem-based and is separate from Android background sync.",
+    ) {
+        SettingsFieldRow(
+            label = "Monitoring",
+            value = if (state.rootReference != null) "Watching for .org changes" else "Waiting for a root directory",
+        )
+        SettingsFieldRow(
+            label = "Watched directory",
+            value = state.rootReference?.rawValue ?: "No directory selected",
+        )
+        SettingsFieldRow(
+            label = "Reload guidance",
+            value = if (state.externalChangePending) "Reload recommended" else "No external changes detected",
+        )
+        SettingsFieldRow(
+            label = "Changed files",
+            value = changedFiles,
+        )
+        message?.let {
+            SettingsMessageBlock(
+                text = it,
+                tone = SettingsMessageTone.Warning,
+            )
+        }
+        SettingsActionRow {
+            Button(
+                onClick = onReloadFiles,
+                enabled = state.rootReference != null,
+            ) {
+                Text("Reload from disk")
+            }
+        }
+    }
+}
+
+@Composable
+private fun AboutDesktopSettingsCard() {
+    SettingsCard(
+        title = "About Desktop",
+        description = "This desktop host focuses on shared clock flows, local file access, and Linux-first validation.",
+        footer = "Desktop prioritizes launchability, shared domain validation, and packaging over Android feature parity.",
+    ) {
+        SettingsFieldRow(
+            label = "Desktop host role",
+            value = "Compose Desktop host for shared Org Clock flows",
+        )
+        SettingsFieldRow(
+            label = "Available on desktop",
+            value = "Root selection, file browsing, heading actions, history edit/delete, external change detection",
+        )
+        SettingsFieldRow(
+            label = "Not available on desktop",
+            value = "Android notifications, notification permission flow, foreground service, WorkManager, sync runtime controls",
+        )
+        SettingsFieldRow(
+            label = "Package",
+            value = "org-clock-desktop",
+        )
+        SettingsFieldRow(
+            label = "Platform focus",
+            value = "Linux-first desktop MVP",
         )
     }
 }
