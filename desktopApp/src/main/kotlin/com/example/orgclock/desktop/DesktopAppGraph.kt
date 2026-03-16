@@ -105,6 +105,7 @@ class DesktopAppGraph(
             scope = scope,
             loadSavedRootReference = { settingsStore.load().lastRootReference },
             saveRootReference = { settingsStore.save(DesktopHostSettings(lastRootReference = it)) },
+            clearSavedRootReference = { settingsStore.clear() },
             openRoot = ::openRoot,
             listFiles = listFiles,
             listTemplateCandidateFiles = { repository?.listTemplateCandidateFiles() ?: Result.failure(missingRootError()) },

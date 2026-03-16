@@ -17,6 +17,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.prefs.Preferences
 import kotlin.io.path.createTempDirectory
+import kotlin.io.path.exists
 import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -29,6 +30,7 @@ class DesktopAppGraphTest {
     @AfterTest
     fun cleanup() {
         tempRoots.asReversed().forEach { root ->
+            if (!root.exists()) return@forEach
             Files.walk(root).use { paths ->
                 paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
             }
@@ -203,6 +205,29 @@ class DesktopAppGraphTest {
         assertEquals(StatusMessageKey.TemplateFileCreated, store.uiState.value.status.text.key)
         assertEquals(TemplateReferenceMode.LegacyHiddenFile, store.uiState.value.templateFileStatus.referenceMode)
         assertEquals(root.resolve(".orgclock-template.org").toString(), store.uiState.value.templateFileStatus.fileId)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun staleSavedRoot_isClearedAndReturnsToRootSetup() = runTest {
+        val root = tempRoot()
+        val settingsStore = DesktopSettingsStore(testNode())
+        settingsStore.save(DesktopHostSettings(lastRootReference = RootReference(root.toString())))
+        Files.deleteIfExists(root)
+
+        val graph = DesktopAppGraph(
+            settingsStore = settingsStore,
+            rootScheduleStore = DesktopRootScheduleStore(testNode()),
+            clockEnvironment = fixedClockEnvironment(),
+            watchRootChanges = false,
+        )
+        val store = graph.createStore(this)
+
+        store.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+
+        assertEquals(Screen.RootSetup, store.uiState.value.screen)
+        assertEquals(null, settingsStore.load().lastRootReference)
     }
 
     private fun tempRoot(): Path = createTempDirectory("desktop-graph-test").also(tempRoots::add)

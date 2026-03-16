@@ -13,22 +13,29 @@ import java.nio.file.StandardWatchEventKinds.ENTRY_DELETE
 import java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY
 import java.nio.file.StandardWatchEventKinds.OVERFLOW
 import java.nio.file.WatchService
+import java.nio.file.WatchKey
 import kotlin.io.path.extension
+import kotlin.io.path.exists
+import kotlin.io.path.isDirectory
 
 class DesktopRootWatcher(
     private val rootPath: Path,
     private val scope: CoroutineScope,
     private val onChange: (ExternalChangeNotice) -> Unit,
     private val watchServiceFactory: () -> WatchService = { FileSystems.getDefault().newWatchService() },
+    private val registerRootDirectory: (Path, WatchService) -> WatchKey = { path, watchService ->
+        path.register(watchService, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY, OVERFLOW)
+    },
 ) {
     private var job: Job? = null
     private var watchService: WatchService? = null
+    private var watchKey: WatchKey? = null
     private var revision = 0L
 
     fun start() {
         stop()
         val watchService = watchServiceFactory()
-        rootPath.register(watchService, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY, OVERFLOW)
+        watchKey = registerRoot(watchService)
         this.watchService = watchService
         job = scope.launch(Dispatchers.IO) {
             while (isActive) {
@@ -50,7 +57,11 @@ class DesktopRootWatcher(
                         absolute.toString().takeIf { absolute.extension.equals("org", ignoreCase = true) }
                     }
                     .toSet()
-                key.reset()
+                val reset = runCatching { key.reset() }.getOrDefault(false)
+                if (!reset) {
+                    overflowed = true
+                    watchKey = runCatching { registerRoot(watchService) }.getOrNull()
+                }
                 if (!overflowed && changedFileIds.isEmpty()) continue
                 onChange(
                     ExternalChangeNotice(
@@ -65,7 +76,14 @@ class DesktopRootWatcher(
     fun stop() {
         job?.cancel()
         job = null
+        watchKey?.cancel()
+        watchKey = null
         watchService?.close()
         watchService = null
+    }
+
+    private fun registerRoot(watchService: WatchService): WatchKey {
+        require(rootPath.exists() && rootPath.isDirectory()) { "Selected root must remain an existing directory" }
+        return registerRootDirectory(rootPath, watchService)
     }
 }

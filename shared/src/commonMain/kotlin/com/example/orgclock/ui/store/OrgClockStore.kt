@@ -52,6 +52,7 @@ class OrgClockStore(
     private val scope: CoroutineScope,
     private val loadSavedRootReference: () -> RootReference?,
     private val saveRootReference: (RootReference) -> Unit,
+    private val clearSavedRootReference: () -> Unit = {},
     private val openRoot: suspend (RootReference) -> Result<Unit>,
     private val listFiles: suspend () -> Result<List<OrgFileEntry>>,
     private val listTemplateCandidateFiles: suspend () -> Result<List<OrgFileEntry>>,
@@ -504,7 +505,7 @@ class OrgClockStore(
             _uiState.update { it.copy(screen = Screen.RootSetup) }
             return
         }
-        applyRoot(saved)
+        applyRoot(saved, clearSavedRootOnFailure = true)
     }
 
     private suspend fun loadHeadingsFor(file: OrgFileEntry, updateStatus: Boolean = true) {
@@ -670,10 +671,16 @@ class OrgClockStore(
         }
     }
 
-    private suspend fun applyRoot(rootReference: RootReference) {
+    private suspend fun applyRoot(
+        rootReference: RootReference,
+        clearSavedRootOnFailure: Boolean = false,
+    ) {
         val opened = openRoot(rootReference)
         if (opened.isFailure) {
             val reason = opened.exceptionOrNull()?.message ?: ""
+            if (clearSavedRootOnFailure) {
+                clearSavedRootReference()
+            }
             _uiState.update { it.copy(status = status(StatusMessageKey.FailedOpenRoot, StatusTone.Error, reason), screen = Screen.RootSetup) }
             return
         }

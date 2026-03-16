@@ -67,6 +67,7 @@ import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import java.io.File
 import javax.swing.JFileChooser
 
 fun main() = application {
@@ -818,7 +819,7 @@ private fun FileMonitoringSettingsCard(
 private fun AboutDesktopSettingsCard() {
     SettingsCard(
         title = "About Desktop",
-        description = "This desktop host focuses on shared clock flows, local file access, and Linux-first validation.",
+        description = "This desktop host focuses on shared clock flows, local file access, and cross-platform desktop validation.",
         footer = "Desktop prioritizes launchability, shared domain validation, and packaging over Android feature parity.",
     ) {
         SettingsFieldRow(
@@ -839,7 +840,7 @@ private fun AboutDesktopSettingsCard() {
         )
         SettingsFieldRow(
             label = "Platform focus",
-            value = "Linux-first desktop MVP",
+            value = "Windows and Linux desktop MVP",
         )
     }
 }
@@ -1311,10 +1312,14 @@ private fun formatClockEntry(entry: ClosedClockEntry): String {
 }
 
 private fun chooseRootDirectory(currentRoot: RootReference?): RootReference? {
-    val chooser = JFileChooser(currentRoot?.rawValue).apply {
+    val initialDirectory = currentRoot?.rawValue
+        ?.let(::File)
+        ?.takeIf { it.exists() && it.isDirectory }
+    val chooser = JFileChooser().apply {
         dialogTitle = "Select Org Clock root"
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
         isAcceptAllFileFilterUsed = false
+        currentDirectory = initialDirectory
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile?.toPath()?.toAbsolutePath()?.normalize()?.toString()?.let(::RootReference)
