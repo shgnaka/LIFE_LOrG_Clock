@@ -41,6 +41,11 @@ internal fun statusText(status: UiStatus): String {
         StatusMessageKey.AutoGenerationScheduleSaved -> R.string.status_auto_generation_schedule_saved
         StatusMessageKey.TemplateFileSelected -> R.string.status_template_file_selected
         StatusMessageKey.TemplateFileSelectionCleared -> R.string.status_template_file_selection_cleared
+        StatusMessageKey.TemplateFileCreated -> R.string.status_template_file_created
+        StatusMessageKey.TemplateFileCreateFailed -> R.string.status_template_file_create_failed
+        StatusMessageKey.ExternalFilesChanged -> R.string.status_external_files_changed
+        StatusMessageKey.SelectedFileChangedExternally -> R.string.status_selected_file_changed_externally
+        StatusMessageKey.SelectedFileNoLongerAvailable -> R.string.status_selected_file_no_longer_available
         StatusMessageKey.SyncPeerAddFailed -> R.string.status_sync_peer_add_failed
         StatusMessageKey.SyncPeerAdded -> R.string.status_sync_peer_added
         StatusMessageKey.SyncPeerRemoved -> R.string.status_sync_peer_removed
