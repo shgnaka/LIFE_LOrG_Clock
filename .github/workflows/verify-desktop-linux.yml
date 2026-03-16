@@ -53,17 +53,20 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew --stacktrace verifyDesktopCompile
+          mkdir -p artifacts/desktop-linux
+          ./gradlew --stacktrace verifyDesktopCurrentOs 2>&1 | tee artifacts/desktop-linux/verify-desktop-current-os.log
 
       - name: Verify Linux packaging
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew --stacktrace packageDesktopLinux
+          ./gradlew --stacktrace packageDesktopCurrentOs 2>&1 | tee artifacts/desktop-linux/package-desktop-current-os.log
 
       - name: Upload desktop artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: desktop-linux-binaries
-          path: desktopApp/build/compose/binaries/main
+          path: |
+            desktopApp/build/compose/binaries/main
+            artifacts/desktop-linux

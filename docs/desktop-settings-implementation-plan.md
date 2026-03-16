@@ -219,7 +219,7 @@ private enum class SettingsMessageTone {
 
 説明文:
 
-- `This desktop host focuses on shared clock flows, local file access, and Linux-first validation.`
+- `This desktop host focuses on shared clock flows, local file access, and cross-platform desktop validation.`
 
 表示項目:
 
@@ -232,7 +232,7 @@ private enum class SettingsMessageTone {
 4. `Package`
    - `org-clock-desktop`
 5. `Platform focus`
-   - `Linux-first desktop MVP`
+   - `Windows and Linux desktop MVP`
 
 フッター:
 

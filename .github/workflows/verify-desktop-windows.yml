@@ -1,0 +1,86 @@
+name: Verify Desktop Windows
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/verify-desktop-linux.yml"
+      - ".github/workflows/verify-desktop-windows.yml"
+      - "desktopApp/**"
+      - "shared/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "docs/project-overview.md"
+      - "docs/desktop-manual-smoke-test.md"
+      - "docs/desktop-ops-runbook.md"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/verify-desktop-linux.yml"
+      - ".github/workflows/verify-desktop-windows.yml"
+      - "desktopApp/**"
+      - "shared/**"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
+      - "docs/project-overview.md"
+      - "docs/desktop-manual-smoke-test.md"
+      - "docs/desktop-ops-runbook.md"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop-windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Verify desktop compile
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts/desktop-windows | Out-Null
+          & .\gradlew.bat --stacktrace verifyDesktopCurrentOs *>&1 | Tee-Object -FilePath artifacts/desktop-windows/verify-desktop-current-os.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify desktop tests
+        shell: pwsh
+        run: |
+          & .\gradlew.bat --stacktrace :desktopApp:test *>&1 | Tee-Object -FilePath artifacts/desktop-windows/desktop-tests.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Verify Windows packaging
+        shell: pwsh
+        run: |
+          & .\gradlew.bat --stacktrace packageDesktopCurrentOs *>&1 | Tee-Object -FilePath artifacts/desktop-windows/package-desktop-current-os.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload desktop artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-binaries
+          path: |
+            desktopApp/build/compose/binaries/main
+            artifacts/desktop-windows

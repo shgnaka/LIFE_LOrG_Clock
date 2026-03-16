@@ -1,6 +1,6 @@
 # Desktop Ops Runbook
 
-Desktop host は保存済み root を `java.util.prefs.Preferences` に保持します。実装上の保存先 node は `com/example/orgclock/desktop`、保持する key は `last_root` です。
+Desktop host は保存済み root を `java.util.prefs.Preferences` に保持します。実装上の保存先 node は `com/example/orgclock/desktop`、保持する key は `last_root` です。Desktop は Windows / Linux の両方を運用対象とします。
 
 コード上の根拠:
 
@@ -12,6 +12,7 @@ Desktop host は保存済み root を `java.util.prefs.Preferences` に保持し
 - 現状の desktop host では永続設定はこの `last_root` のみ
 
 desktop host の再起動や再インストール後も、この user-level preference が残っていれば前回の root を再利用します。
+ただし、保存済み root がすでに存在しない場合は、起動時に自動で root setup へ戻し、保存済み `last_root` もクリアして再選択しやすくします。
 
 ## 設定保存場所の確認
 
@@ -53,6 +54,12 @@ Oracle の Preferences API ドキュメントでは、Windows では preferences
 2. `HKEY_CURRENT_USER` 配下を対象に `orgclock` または `last_root` を検索する
 3. Org Clock desktop の設定 node / value を確認する
 
+インストーラ運用メモ:
+
+1. Windows package は `./gradlew packageDesktopCurrentOs` で生成する
+2. 生成物は `desktopApp/build/compose/binaries/main/` 配下の `.msi`
+3. uninstall 後も `Preferences` の保存値は残る可能性がある
+
 ## 無効な保存済み root の reset / 再設定
 
 ### まず試す手順
@@ -66,6 +73,8 @@ Oracle の Preferences API ドキュメントでは、Windows では preferences
 ### root が stale で起動時に毎回失敗する場合
 
 `last_root` を削除してから再起動します。削除対象は `com/example/orgclock/desktop` node の `last_root` だけです。
+
+現在の desktop host は、起動時に保存済み root が見つからない場合は自動で Root Setup に戻して保存済み `last_root` を削除します。それでも復旧しない場合のみ、以下の手動リセットを行ってください。
 
 Linux の例:
 
@@ -100,6 +109,8 @@ Windows の例:
 2. そのディレクトリに対して読み取り権限があるか
 3. reinstall 直後でも古い `last_root` を引き継いでいないか
 4. root を再選択後に `LoadedFile` まで進むか
+5. Windows では外部エディタ保存後に `Reload from disk` 導線が出るか
+6. Windows では `.msi` uninstall 後も settings が残っていないか誤解していないか
 
 ## 関連資料
 

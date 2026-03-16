@@ -8,4 +8,4 @@
 - [プロジェクト全体概要](docs/project-overview.md)
 - [Android 実機インストール手順](docs/install-debug-guide.md)
 - [Android 手動スモークテスト](docs/manual-smoke-test.md)
-- [Desktop MVP 手動スモークテスト](docs/desktop-manual-smoke-test.md)
+- [Desktop MVP 手動スモークテスト（Windows / Linux）](docs/desktop-manual-smoke-test.md)
