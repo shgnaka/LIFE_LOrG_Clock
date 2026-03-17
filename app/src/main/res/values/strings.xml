@@ -127,6 +127,11 @@
     <string name="status_auto_generation_schedule_saved">自動生成スケジュールを保存しました</string>
     <string name="status_template_file_selected">テンプレートファイルを設定しました: %1$s</string>
     <string name="status_template_file_selection_cleared">既定の隠しテンプレートに戻しました</string>
+    <string name="status_template_file_created">既定の隠しテンプレートを作成しました: %1$s</string>
+    <string name="status_template_file_create_failed">テンプレートファイルの作成に失敗: %1$s</string>
+    <string name="status_external_files_changed">外部で org ファイルが更新されました (%1$s件)</string>
+    <string name="status_selected_file_changed_externally">選択中のファイルが外部で更新されました: %1$s</string>
+    <string name="status_selected_file_no_longer_available">選択中のファイルが見つかりません: %1$s</string>
     <string name="notif_summary_no_active">稼働中の見出しはありません</string>
     <string name="notif_summary_scan_degraded">一部ファイルの読込に失敗しました（%1$d件）。アプリを開いて状態を確認してください</string>
     <string name="notif_summary_first_entry">%1$s / %2$s 開始 / %3$d分経過（タップでアプリを開く）</string>

@@ -8,6 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -56,6 +58,8 @@ import com.example.orgclock.presentation.Screen
 import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.presentation.StatusTone
 import com.example.orgclock.presentation.UiStatus
+import com.example.orgclock.template.TemplateAvailability
+import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
@@ -63,6 +67,7 @@ import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
+import java.io.File
 import javax.swing.JFileChooser
 
 fun main() = application {
@@ -153,22 +158,31 @@ private fun DesktopHostCard(
                 onPickRoot = onPickRoot,
                 onAction = onAction,
             )
+            if (state.externalChangePending) {
+                ExternalChangeBanner(
+                    state = state,
+                    onReload = { onAction(OrgClockUiAction.RefreshFiles) },
+                )
+            }
             HorizontalDivider(color = Color(0xFF3B564F))
             when (state.screen) {
                 Screen.RootSetup -> RootSetupPane(onPickRoot = onPickRoot)
                 Screen.FilePicker -> FilePickerPane(
-                    files = state.files,
-                    filesWithOpenClock = state.filesWithOpenClock,
+                    state = state,
                     onSelectFile = { onAction(OrgClockUiAction.SelectFile(it)) },
+                    onBackToSettings = { onAction(OrgClockUiAction.BackFromSettings) },
+                    onRefreshTemplateCandidates = { onAction(OrgClockUiAction.RefreshTemplateCandidates) },
                 )
                 Screen.HeadingList -> HeadingListPane(
                     state = state,
                     onAction = onAction,
                 )
                 Screen.Settings -> SettingsPane(
-                    rootReference = state.rootReference,
+                    state = state,
                     onChangeRoot = onPickRoot,
                     onBack = { onAction(OrgClockUiAction.BackFromSettings) },
+                    onReloadFiles = { onAction(OrgClockUiAction.RefreshFiles) },
+                    onAction = onAction,
                 )
             }
         }
@@ -223,11 +237,38 @@ private fun RootSetupPane(onPickRoot: () -> Unit) {
 
 @Composable
 private fun FilePickerPane(
-    files: List<OrgFileEntry>,
-    filesWithOpenClock: Set<String>,
+    state: OrgClockUiState,
     onSelectFile: (OrgFileEntry) -> Unit,
+    onBackToSettings: () -> Unit,
+    onRefreshTemplateCandidates: () -> Unit,
 ) {
+    val selectingTemplateFile = state.selectingTemplateFile
+    val files = if (selectingTemplateFile) state.templateCandidateFiles else state.files
+
     if (files.isEmpty()) {
+        if (selectingTemplateFile) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Choose a template file",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = "No template candidates are available yet. Add an .org file in the selected root, or create the default hidden template from Settings.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFD3E6D6),
+                )
+                SettingsActionRow {
+                    Button(onClick = onRefreshTemplateCandidates) {
+                        Text("Refresh candidates")
+                    }
+                    Button(onClick = onBackToSettings) {
+                        Text("Back to settings")
+                    }
+                }
+            }
+            return
+        }
         Text(
             text = "No daily org file matched today yet. You can keep this window open and reload after adding one.",
             style = MaterialTheme.typography.bodyMedium,
@@ -238,16 +279,37 @@ private fun FilePickerPane(
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            text = "Choose a file",
+            text = if (selectingTemplateFile) "Choose a template file" else "Choose a file",
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold,
         )
+        Text(
+            text = if (selectingTemplateFile) {
+                "Pick the template source used for desktop template-aware flows. The default hidden file is highlighted when present."
+            } else {
+                "Open the daily org file you want to inspect and edit."
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFFD3E6D6),
+        )
+        if (selectingTemplateFile) {
+            SettingsActionRow {
+                Button(onClick = onRefreshTemplateCandidates) {
+                    Text("Refresh candidates")
+                }
+                Button(onClick = onBackToSettings) {
+                    Text("Back to settings")
+                }
+            }
+        }
         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(files, key = { it.fileId }) { file ->
-                val running = file.fileId in filesWithOpenClock
                 FileRow(
                     file = file,
-                    running = running,
+                    running = !selectingTemplateFile && file.fileId in state.filesWithOpenClock,
+                    badgeLabel = if (selectingTemplateFile && file.displayName == ".orgclock-template.org") "default hidden file" else null,
+                    stateLabel = if (selectingTemplateFile) "candidate" else null,
+                    actionLabel = if (selectingTemplateFile) "Use template" else "Open",
                     onClick = { onSelectFile(file) },
                 )
             }
@@ -259,6 +321,9 @@ private fun FilePickerPane(
 private fun FileRow(
     file: OrgFileEntry,
     running: Boolean,
+    badgeLabel: String? = null,
+    stateLabel: String? = null,
+    actionLabel: String = "Open",
     onClick: () -> Unit,
 ) {
     Row(
@@ -272,6 +337,13 @@ private fun FileRow(
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(text = file.displayName, style = MaterialTheme.typography.bodyLarge)
+            badgeLabel?.let {
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF8FE0A8),
+                )
+            }
             Text(
                 text = file.fileId,
                 style = MaterialTheme.typography.bodySmall,
@@ -280,12 +352,12 @@ private fun FileRow(
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
-                text = if (running) "running" else "idle",
+                text = stateLabel ?: if (running) "running" else "idle",
                 style = MaterialTheme.typography.bodySmall,
                 color = if (running) Color(0xFF8FE0A8) else Color(0xFFD3E6D6),
             )
             Button(onClick = onClick) {
-                Text("Open")
+                Text(actionLabel)
             }
         }
     }
@@ -417,36 +489,358 @@ private fun HeadingRow(
 
 @Composable
 private fun SettingsPane(
-    rootReference: RootReference?,
+    state: OrgClockUiState,
     onChangeRoot: () -> Unit,
     onBack: () -> Unit,
+    onReloadFiles: () -> Unit,
+    onAction: (OrgClockUiAction) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            text = "Desktop settings",
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        SettingsHeader(onBack = onBack)
+        OrgRootSettingsCard(
+            state = state,
+            onChangeRoot = onChangeRoot,
+            onReloadFiles = onReloadFiles,
         )
-        Text(
-            text = rootReference?.rawValue ?: "No root selected",
-            style = MaterialTheme.typography.bodyMedium,
-            color = Color(0xFFD3E6D6),
+        TemplateSettingsCard(
+            state = state,
+            onAction = onAction,
         )
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        FileMonitoringSettingsCard(
+            state = state,
+            onReloadFiles = onReloadFiles,
+        )
+        AboutDesktopSettingsCard()
+    }
+}
+
+private enum class SettingsMessageTone {
+    Info,
+    Warning,
+    Success,
+}
+
+@Composable
+private fun SettingsHeader(onBack: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "Desktop settings",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "Review desktop-specific configuration and runtime status.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFD3E6D6),
+            )
+        }
+        Button(onClick = onBack) {
+            Text("Back")
+        }
+    }
+}
+
+@Composable
+private fun SettingsCard(
+    title: String,
+    description: String,
+    footer: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = Color(0xFF1C3A34),
+            contentColor = Color(0xFFF8F5ED),
+        ),
+        border = BorderStroke(1.dp, Color(0xFF3B564F)),
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFFD3E6D6),
+            )
+            content()
+            footer?.let {
+                HorizontalDivider(color = Color(0xFF3B564F))
+                Text(
+                    text = it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFD3E6D6),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsFieldRow(
+    label: String,
+    value: String,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = Color(0xFFB9D3C2),
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFFF8F5ED),
+        )
+    }
+}
+
+@Composable
+private fun SettingsMessageBlock(
+    text: String,
+    tone: SettingsMessageTone = SettingsMessageTone.Info,
+) {
+    val color = when (tone) {
+        SettingsMessageTone.Info -> Color(0xFFD3E6D6)
+        SettingsMessageTone.Warning -> Color(0xFFF2D38A)
+        SettingsMessageTone.Success -> Color(0xFF8FE0A8)
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, color, RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = color,
+        )
+    }
+}
+
+@Composable
+private fun SettingsActionRow(
+    content: @Composable () -> Unit,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        content = { content() },
+    )
+}
+
+@Composable
+private fun OrgRootSettingsCard(
+    state: OrgClockUiState,
+    onChangeRoot: () -> Unit,
+    onReloadFiles: () -> Unit,
+) {
+    SettingsCard(
+        title = "Org Root",
+        description = "Choose and review the local org directory used by the desktop host.",
+        footer = "Desktop uses a local directory instead of Android's document tree permission flow.",
+    ) {
+        SettingsFieldRow(
+            label = "Current root",
+            value = state.rootReference?.rawValue ?: "No root selected",
+        )
+        SettingsFieldRow(
+            label = "Status",
+            value = if (state.rootReference != null) "Configured" else "Not configured",
+        )
+        SettingsFieldRow(
+            label = "Persistence",
+            value = if (state.rootReference != null) {
+                "This root will be restored on the next launch."
+            } else {
+                "No saved root is available yet."
+            },
+        )
+        SettingsActionRow {
             Button(onClick = onChangeRoot) {
                 Text("Change root")
             }
-            Button(onClick = onBack) {
-                Text("Back")
+            Button(
+                onClick = onReloadFiles,
+                enabled = state.rootReference != null,
+            ) {
+                Text("Reload files")
             }
         }
-        Text(
-            text = "Notification, permission, sync runtime, and mobile perf controls stay hidden on desktop.",
-            style = MaterialTheme.typography.bodySmall,
-            color = Color(0xFFD3E6D6),
+    }
+}
+
+@Composable
+private fun TemplateSettingsCard(
+    state: OrgClockUiState,
+    onAction: (OrgClockUiAction) -> Unit,
+) {
+    val status = state.templateFileStatus
+    val source = when (status.referenceMode) {
+        TemplateReferenceMode.Explicit -> "Explicit file"
+        TemplateReferenceMode.LegacyHiddenFile -> "Default hidden file"
+    }
+    val availability = when (status.availability) {
+        TemplateAvailability.Available -> "Available"
+        TemplateAvailability.Missing -> "Missing"
+        TemplateAvailability.Unreadable -> "Unreadable"
+    }
+    val message = when (status.availability) {
+        TemplateAvailability.Available -> "The template file is ready for desktop template-aware flows."
+        TemplateAvailability.Missing -> "No template file is available for the current desktop root."
+        TemplateAvailability.Unreadable -> "A template file was found, but the desktop host cannot read it."
+    }
+    val tone = when (status.availability) {
+        TemplateAvailability.Available -> SettingsMessageTone.Success
+        TemplateAvailability.Missing -> SettingsMessageTone.Warning
+        TemplateAvailability.Unreadable -> SettingsMessageTone.Warning
+    }
+    val canCreateDefaultTemplate = status.referenceMode == TemplateReferenceMode.LegacyHiddenFile &&
+        status.availability == TemplateAvailability.Missing &&
+        state.rootReference != null
+
+    SettingsCard(
+        title = "Templates",
+        description = "Choose the template source for desktop flows, reset back to the default hidden file, or refresh the resolved template status.",
+        footer = "Desktop stores the selected template per root and falls back to `.orgclock-template.org` when no explicit file is configured.",
+    ) {
+        SettingsFieldRow(label = "Template source", value = source)
+        SettingsFieldRow(
+            label = "Resolved path",
+            value = status.fileId ?: state.rootReference?.rawValue?.let { "$it/.orgclock-template.org" } ?: "No template file resolved",
+        )
+        SettingsFieldRow(label = "Availability", value = availability)
+        status.detailMessage?.takeIf { it.isNotBlank() }?.let { detail ->
+            SettingsFieldRow(label = "Detail", value = detail)
+        }
+        SettingsMessageBlock(text = message, tone = tone)
+        SettingsActionRow {
+            Button(
+                onClick = { onAction(OrgClockUiAction.OpenTemplateFilePicker) },
+                enabled = state.rootReference != null,
+            ) {
+                Text("Choose template file")
+            }
+            if (status.referenceMode == TemplateReferenceMode.Explicit) {
+                Button(onClick = { onAction(OrgClockUiAction.ClearExplicitTemplateFile) }) {
+                    Text("Use default hidden file")
+                }
+            }
+            Button(
+                onClick = { onAction(OrgClockUiAction.RefreshTemplateStatus) },
+                enabled = state.rootReference != null,
+            ) {
+                Text("Refresh template status")
+            }
+            if (canCreateDefaultTemplate) {
+                Button(onClick = { onAction(OrgClockUiAction.CreateDefaultTemplateFile) }) {
+                    Text("Create default template file")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FileMonitoringSettingsCard(
+    state: OrgClockUiState,
+    onReloadFiles: () -> Unit,
+) {
+    val changedFiles = if (state.externalChangeChangedFileIds.isNotEmpty()) {
+        state.externalChangeChangedFileIds.joinToString(", ")
+    } else {
+        "No recent file changes"
+    }
+    val message = when {
+        state.externalChangeAffectsSelectedFile -> {
+            "The selected file changed on disk. Reload to refresh headings and history."
+        }
+        state.externalChangePending -> {
+            "Org files changed on disk. Reload to refresh the desktop view."
+        }
+        else -> null
+    }
+
+    SettingsCard(
+        title = "File Monitoring",
+        description = "Desktop watches the selected root for external .org file changes and surfaces reload guidance.",
+        footer = "Desktop monitoring is local filesystem-based and is separate from Android background sync.",
+    ) {
+        SettingsFieldRow(
+            label = "Monitoring",
+            value = if (state.rootReference != null) "Watching for .org changes" else "Waiting for a root directory",
+        )
+        SettingsFieldRow(
+            label = "Watched directory",
+            value = state.rootReference?.rawValue ?: "No directory selected",
+        )
+        SettingsFieldRow(
+            label = "Reload guidance",
+            value = if (state.externalChangePending) "Reload recommended" else "No external changes detected",
+        )
+        SettingsFieldRow(
+            label = "Changed files",
+            value = changedFiles,
+        )
+        message?.let {
+            SettingsMessageBlock(
+                text = it,
+                tone = SettingsMessageTone.Warning,
+            )
+        }
+        SettingsActionRow {
+            Button(
+                onClick = onReloadFiles,
+                enabled = state.rootReference != null,
+            ) {
+                Text("Reload from disk")
+            }
+        }
+    }
+}
+
+@Composable
+private fun AboutDesktopSettingsCard() {
+    SettingsCard(
+        title = "About Desktop",
+        description = "This desktop host focuses on shared clock flows, local file access, and cross-platform desktop validation.",
+        footer = "Desktop prioritizes launchability, shared domain validation, and packaging over Android feature parity.",
+    ) {
+        SettingsFieldRow(
+            label = "Desktop host role",
+            value = "Compose Desktop host for shared Org Clock flows",
+        )
+        SettingsFieldRow(
+            label = "Available on desktop",
+            value = "Root selection, file browsing, heading actions, history edit/delete, external change detection",
+        )
+        SettingsFieldRow(
+            label = "Not available on desktop",
+            value = "Android notifications, notification permission flow, foreground service, WorkManager, sync runtime controls",
+        )
+        SettingsFieldRow(
+            label = "Package",
+            value = "org-clock-desktop",
+        )
+        SettingsFieldRow(
+            label = "Platform focus",
+            value = "Windows and Linux desktop MVP",
         )
     }
 }
@@ -461,7 +855,12 @@ private fun DesktopDialogs(
             title = target.node.title,
             entries = state.historyEntries,
             loading = state.historyLoading,
+            externalChangePending = state.externalChangePending,
+            externalChangeAffectsSelectedFile = state.externalChangeAffectsSelectedFile,
+            editFailureMessage = state.editFailureMessage,
+            deleteFailureMessage = state.deleteFailureMessage,
             onDismiss = { onAction(OrgClockUiAction.DismissHistory) },
+            onReload = { onAction(OrgClockUiAction.RefreshFiles) },
             onEdit = { onAction(OrgClockUiAction.BeginEdit(it)) },
             onDelete = { onAction(OrgClockUiAction.BeginDelete(it)) },
         )
@@ -482,7 +881,10 @@ private fun DesktopDialogs(
             entry = editingEntry,
             draft = editingDraft,
             inProgress = state.editingInProgress,
+            failureMessage = state.editFailureMessage,
+            externalChangePending = state.externalChangePending,
             onDismiss = { onAction(OrgClockUiAction.CancelEdit) },
+            onReload = { onAction(OrgClockUiAction.RefreshFiles) },
             onSetStartHour = { onAction(OrgClockUiAction.SelectStartHour(it)) },
             onSetStartMinute = { onAction(OrgClockUiAction.SelectStartMinute(it)) },
             onSetEndHour = { onAction(OrgClockUiAction.SelectEndHour(it)) },
@@ -494,9 +896,46 @@ private fun DesktopDialogs(
         DeleteConfirmDialog(
             entry = entry,
             inProgress = state.deletingInProgress,
+            failureMessage = state.deleteFailureMessage,
+            externalChangePending = state.externalChangePending,
             onDismiss = { onAction(OrgClockUiAction.CancelDelete) },
+            onReload = { onAction(OrgClockUiAction.RefreshFiles) },
             onConfirm = { onAction(OrgClockUiAction.ConfirmDelete) },
         )
+    }
+}
+
+@Composable
+private fun ExternalChangeBanner(
+    state: OrgClockUiState,
+    onReload: () -> Unit,
+) {
+    val text = when {
+        state.externalChangeAffectsSelectedFile -> {
+            "The selected file changed on disk. Reload from disk to refresh headings and history."
+        }
+        state.externalChangeChangedFileIds.isNotEmpty() -> {
+            "Org files changed on disk. Reload from disk to refresh the desktop view."
+        }
+        else -> {
+            "A filesystem change was detected. Reload from disk to refresh the desktop view."
+        }
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, Color(0xFFF2D38A), RoundedCornerShape(14.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFFF2D38A),
+        )
+        Button(onClick = onReload) {
+            Text("Reload from disk")
+        }
     }
 }
 
@@ -505,7 +944,12 @@ private fun HistoryDialog(
     title: String,
     entries: List<ClosedClockEntry>,
     loading: Boolean,
+    externalChangePending: Boolean,
+    externalChangeAffectsSelectedFile: Boolean,
+    editFailureMessage: String?,
+    deleteFailureMessage: String?,
     onDismiss: () -> Unit,
+    onReload: () -> Unit,
     onEdit: (ClosedClockEntry) -> Unit,
     onDelete: (ClosedClockEntry) -> Unit,
 ) {
@@ -517,6 +961,34 @@ private fun HistoryDialog(
                 modifier = Modifier.fillMaxWidth().height(360.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                if (externalChangePending) {
+                    Text(
+                        text = if (externalChangeAffectsSelectedFile) {
+                            "This history view may be stale because the selected file changed on disk."
+                        } else {
+                            "This history view may be stale because org files changed on disk."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF2D38A),
+                    )
+                    Button(onClick = onReload) {
+                        Text("Reload from disk")
+                    }
+                }
+                editFailureMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF5A3A3),
+                    )
+                }
+                deleteFailureMessage?.takeIf { it != editFailureMessage }?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF5A3A3),
+                    )
+                }
                 when {
                     loading -> Text("Loading clock history...")
                     entries.isEmpty() -> Text("No closed clocks yet.")
@@ -609,7 +1081,10 @@ private fun EditClockDialog(
     entry: ClosedClockEntry,
     draft: ClockEditDraft,
     inProgress: Boolean,
+    failureMessage: String?,
+    externalChangePending: Boolean,
     onDismiss: () -> Unit,
+    onReload: () -> Unit,
     onSetStartHour: (Int) -> Unit,
     onSetStartMinute: (Int) -> Unit,
     onSetEndHour: (Int) -> Unit,
@@ -627,6 +1102,20 @@ private fun EditClockDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(formatClockEntry(entry), style = MaterialTheme.typography.bodyMedium)
+                failureMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF5A3A3),
+                    )
+                }
+                if (externalChangePending) {
+                    Text(
+                        text = "The file changed on disk. Reload from disk to refresh this entry before retrying.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF2D38A),
+                    )
+                }
                 TimeFieldRow(
                     label = "Start",
                     hourValue = startHourText,
@@ -663,8 +1152,15 @@ private fun EditClockDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !inProgress) {
-                Text("Cancel")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (externalChangePending) {
+                    TextButton(onClick = onReload, enabled = !inProgress) {
+                        Text("Reload")
+                    }
+                }
+                TextButton(onClick = onDismiss, enabled = !inProgress) {
+                    Text("Cancel")
+                }
             }
         },
     )
@@ -708,14 +1204,33 @@ private fun TimeFieldRow(
 private fun DeleteConfirmDialog(
     entry: ClosedClockEntry,
     inProgress: Boolean,
+    failureMessage: String?,
+    externalChangePending: Boolean,
     onDismiss: () -> Unit,
+    onReload: () -> Unit,
     onConfirm: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Delete clock entry?") },
         text = {
-            Text(formatClockEntry(entry), style = MaterialTheme.typography.bodyMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(formatClockEntry(entry), style = MaterialTheme.typography.bodyMedium)
+                failureMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF5A3A3),
+                    )
+                }
+                if (externalChangePending) {
+                    Text(
+                        text = "The file changed on disk. Reload from disk to refresh this entry before retrying.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFFF2D38A),
+                    )
+                }
+            }
         },
         confirmButton = {
             Button(onClick = onConfirm, enabled = !inProgress) {
@@ -723,8 +1238,15 @@ private fun DeleteConfirmDialog(
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss, enabled = !inProgress) {
-                Text("Cancel")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (externalChangePending) {
+                    TextButton(onClick = onReload, enabled = !inProgress) {
+                        Text("Reload")
+                    }
+                }
+                TextButton(onClick = onDismiss, enabled = !inProgress) {
+                    Text("Cancel")
+                }
             }
         },
     )
@@ -749,15 +1271,24 @@ private fun StatusChip(status: UiStatus) {
         StatusMessageKey.FailedOpenRoot -> "Saved root could not be opened: ${status.text.args.firstOrNull().orEmpty()}"
         StatusMessageKey.FailedListingFiles -> "File listing failed: ${status.text.args.firstOrNull().orEmpty()}"
         StatusMessageKey.FailedLoadingHeadings -> "Heading load failed: ${status.text.args.firstOrNull().orEmpty()}"
-        StatusMessageKey.FailedLoadingHistory -> "Clock history failed to load."
+        StatusMessageKey.FailedLoadingHistory -> "Clock history failed to load: ${status.text.args.firstOrNull().orEmpty()}"
         StatusMessageKey.ClockStarted -> "Clock started."
         StatusMessageKey.ClockStopped -> "Clock stopped."
         StatusMessageKey.ClockCancelled -> "Open clock cancelled."
         StatusMessageKey.ClockHistoryUpdated -> "Clock history updated."
         StatusMessageKey.ClockHistoryDeleted -> "Clock history deleted."
+        StatusMessageKey.UpdateFailed -> "Clock history update failed: ${status.text.args.firstOrNull().orEmpty()}"
+        StatusMessageKey.DeleteFailed -> "Clock history delete failed: ${status.text.args.firstOrNull().orEmpty()}"
         StatusMessageKey.HeadingCreated -> "Heading created."
         StatusMessageKey.HeadingTitleEmpty -> "Heading title is required."
         StatusMessageKey.EndTimeMustBeAfterStart -> "End time must be after start time."
+        StatusMessageKey.TemplateFileSelected -> "Template file selected: ${status.text.args.firstOrNull().orEmpty()}."
+        StatusMessageKey.TemplateFileSelectionCleared -> "Reverted to the default hidden template file."
+        StatusMessageKey.TemplateFileCreated -> "Created default template file: ${status.text.args.firstOrNull().orEmpty()}."
+        StatusMessageKey.TemplateFileCreateFailed -> "Template file creation failed: ${status.text.args.firstOrNull().orEmpty()}"
+        StatusMessageKey.ExternalFilesChanged -> "Org files changed on disk. Reload from disk to refresh."
+        StatusMessageKey.SelectedFileChangedExternally -> "Selected file changed on disk. Reload from disk to refresh."
+        StatusMessageKey.SelectedFileNoLongerAvailable -> "Selected file is no longer available: ${status.text.args.firstOrNull().orEmpty()}"
         else -> "${status.text.key}: ${status.text.args.joinToString()}"
     }
     val color = when (status.tone) {
@@ -781,10 +1312,14 @@ private fun formatClockEntry(entry: ClosedClockEntry): String {
 }
 
 private fun chooseRootDirectory(currentRoot: RootReference?): RootReference? {
-    val chooser = JFileChooser(currentRoot?.rawValue).apply {
+    val initialDirectory = currentRoot?.rawValue
+        ?.let(::File)
+        ?.takeIf { it.exists() && it.isDirectory }
+    val chooser = JFileChooser().apply {
         dialogTitle = "Select Org Clock root"
         fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
         isAcceptAllFileFilterUsed = false
+        currentDirectory = initialDirectory
     }
     return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
         chooser.selectedFile?.toPath()?.toAbsolutePath()?.normalize()?.toString()?.let(::RootReference)

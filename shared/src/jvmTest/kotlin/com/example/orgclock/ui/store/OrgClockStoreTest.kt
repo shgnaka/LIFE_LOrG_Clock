@@ -18,10 +18,15 @@ import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.OrgClockUiAction
+import com.example.orgclock.ui.state.ExternalChangeNotice
 import com.example.orgclock.ui.state.Screen
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -68,6 +73,77 @@ class OrgClockStoreTest {
         assertEquals(StatusMessageKey.LoadedFile, state.status.text.key)
         assertEquals("2026-03-10.org", state.selectedFile?.displayName)
         assertEquals(setOf("f1"), state.filesWithOpenClock)
+    }
+
+    @Test
+    fun externalChange_marksStateStale_andRefreshKeepsSelectedFileWhenItStillExists() = runTest {
+        val externalChanges = MutableStateFlow<ExternalChangeNotice?>(null)
+        val selectedFile = OrgFileEntry("f2", "projects.org", null)
+        val storeScope = CoroutineScope(coroutineContext + Job())
+        val store = testStore(
+            scope = storeScope,
+            listFiles = {
+                Result.success(
+                    listOf(
+                        OrgFileEntry("f1", "2026-03-10.org", null),
+                        selectedFile,
+                    ),
+                )
+            },
+            listHeadings = { fileId ->
+                Result.success(
+                    if (fileId == "f2") sampleProjectHeadings() else sampleHeadings()
+                )
+            },
+            externalChangeFlow = externalChanges,
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(selectedFile))
+        advanceUntilIdle()
+
+        externalChanges.value = ExternalChangeNotice(
+            revision = 1,
+            changedFileIds = setOf("f2"),
+        )
+        advanceUntilIdle()
+
+        assertTrue(store.uiState.value.externalChangePending)
+        assertTrue(store.uiState.value.externalChangeAffectsSelectedFile)
+        assertEquals(StatusMessageKey.SelectedFileChangedExternally, store.uiState.value.status.text.key)
+
+        store.onAction(OrgClockUiAction.RefreshFiles)
+        advanceUntilIdle()
+
+        assertFalse(store.uiState.value.externalChangePending)
+        assertEquals("f2", store.uiState.value.selectedFile?.fileId)
+        assertEquals(Screen.HeadingList, store.uiState.value.screen)
+        storeScope.cancel()
+    }
+
+    @Test
+    fun refreshFiles_whenSelectedFileWasRemoved_routesToFilePickerWithWarning() = runTest {
+        var listed = listOf(
+            OrgFileEntry("f1", "2026-03-10.org", null),
+            OrgFileEntry("f2", "projects.org", null),
+        )
+        val selectedFile = OrgFileEntry("f2", "projects.org", null)
+        val store = testStore(
+            scope = this,
+            listFiles = { Result.success(listed) },
+            listHeadings = { Result.success(sampleProjectHeadings()) },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(selectedFile))
+        advanceUntilIdle()
+
+        listed = listOf(OrgFileEntry("f1", "2026-03-10.org", null))
+        store.onAction(OrgClockUiAction.RefreshFiles)
+        advanceUntilIdle()
+
+        assertEquals(Screen.FilePicker, store.uiState.value.screen)
+        assertEquals(StatusMessageKey.SelectedFileNoLongerAvailable, store.uiState.value.status.text.key)
+        assertEquals("projects.org", store.uiState.value.status.text.args.single())
+        assertNull(store.uiState.value.selectedFile)
     }
 
     @Test
@@ -234,7 +310,7 @@ class OrgClockStoreTest {
         assertEquals(1, store.uiState.value.historyEntries.size)
         assertNull(store.uiState.value.deletingEntry)
         assertFalse(store.uiState.value.deletingInProgress)
-        assertEquals(StatusMessageKey.ClockHistoryUpdated, store.uiState.value.status.text.key)
+        assertEquals(StatusMessageKey.ClockHistoryDeleted, store.uiState.value.status.text.key)
         assertTrue(headingLoads >= 2)
     }
 
@@ -270,7 +346,93 @@ class OrgClockStoreTest {
             edited,
         )
         assertNull(store.uiState.value.editingEntry)
-        assertEquals(StatusMessageKey.ClockHistoryDeleted, store.uiState.value.status.text.key)
+        assertEquals(StatusMessageKey.ClockHistoryUpdated, store.uiState.value.status.text.key)
+    }
+
+    @Test
+    fun saveEdit_failure_keepsDraftAndFailureMessageForRetry() = runTest {
+        val entry = sampleClosedEntry(clockLineIndex = 3)
+        val store = testStore(
+            scope = this,
+            listHeadings = { Result.success(sampleHeadings()) },
+            listClosedClocks = { _, _ -> Result.success(listOf(entry)) },
+            editClosedClock = { _, _, _, _, _ ->
+                Result.failure(IllegalStateException("File changed by another process."))
+            },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-03-10.org", null)))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.OpenHistory(sampleHeadings()[1]))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.BeginEdit(entry))
+        store.onAction(OrgClockUiAction.SelectStartMinute(5))
+        store.onAction(OrgClockUiAction.SaveEdit)
+        advanceUntilIdle()
+
+        val state = store.uiState.value
+        assertEquals(entry, state.editingEntry)
+        assertEquals(5, state.editingDraft?.startMinute)
+        assertEquals("File changed by another process.", state.editFailureMessage)
+        assertEquals(StatusMessageKey.UpdateFailed, state.status.text.key)
+    }
+
+    @Test
+    fun delete_failure_keepsEntryAndFailureMessageForRetry() = runTest {
+        val entry = sampleClosedEntry(clockLineIndex = 3)
+        val store = testStore(
+            scope = this,
+            listHeadings = { Result.success(sampleHeadings()) },
+            listClosedClocks = { _, _ -> Result.success(listOf(entry)) },
+            deleteClosedClock = { _, _, _ ->
+                Result.failure(IllegalStateException("Disk I/O error"))
+            },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-03-10.org", null)))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.OpenHistory(sampleHeadings()[1]))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.BeginDelete(entry))
+        store.onAction(OrgClockUiAction.ConfirmDelete)
+        advanceUntilIdle()
+
+        val state = store.uiState.value
+        assertEquals(entry, state.deletingEntry)
+        assertEquals("Disk I/O error", state.deleteFailureMessage)
+        assertEquals(StatusMessageKey.DeleteFailed, state.status.text.key)
+    }
+
+    @Test
+    fun refreshFiles_rebindsHistoryEditContextAndKeepsDraft() = runTest {
+        val originalEntry = sampleClosedEntry(clockLineIndex = 3)
+        val refreshedEntry = sampleClosedEntry(clockLineIndex = 7)
+        var historyLoads = 0
+        val store = testStore(
+            scope = this,
+            listFiles = { Result.success(listOf(OrgFileEntry("f1", "2026-03-10.org", null))) },
+            listHeadings = { Result.success(sampleHeadings()) },
+            listClosedClocks = { _, _ ->
+                historyLoads += 1
+                Result.success(if (historyLoads == 1) listOf(originalEntry) else listOf(refreshedEntry))
+            },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-03-10.org", null)))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.OpenHistory(sampleHeadings()[1]))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.BeginEdit(originalEntry))
+        store.onAction(OrgClockUiAction.SelectEndMinute(35))
+        store.onAction(OrgClockUiAction.RefreshFiles)
+        advanceUntilIdle()
+
+        val state = store.uiState.value
+        assertEquals(HeadingPath.parse("Work/Project A"), state.historyTarget?.node?.path)
+        assertEquals(1, state.historyEntries.size)
+        assertEquals(refreshedEntry, state.editingEntry)
+        assertEquals(35, state.editingDraft?.endMinute)
+        assertNull(state.editFailureMessage)
     }
 
     @Test
@@ -311,6 +473,67 @@ class OrgClockStoreTest {
         assertTrue(store.uiState.value.selectingTemplateFile)
         assertEquals(Screen.FilePicker, store.uiState.value.screen)
         assertEquals(listOf(hiddenTemplate.displayName, "notes.org"), store.uiState.value.templateCandidateFiles.map { it.displayName })
+    }
+
+    @Test
+    fun refreshTemplateStatus_reloadsTemplateFileStatus() = runTest {
+        var currentConfig = RootScheduleConfig(rootUri = "/tmp/org-root")
+        var refreshes = 0
+        val store = testStore(
+            scope = this,
+            loadSavedRootReference = { RootReference("/tmp/org-root") },
+            openRoot = { Result.success(Unit) },
+            listFiles = { Result.success(emptyList()) },
+            loadRootScheduleConfig = { currentConfig },
+            loadTemplateFileStatus = { config ->
+                refreshes += 1
+                TemplateFileStatus(
+                    availability = if (config.templateFileUri == null) TemplateAvailability.Missing else TemplateAvailability.Available,
+                    referenceMode = if (config.templateFileUri == null) TemplateReferenceMode.LegacyHiddenFile else TemplateReferenceMode.Explicit,
+                    fileId = config.templateFileUri,
+                    displayName = config.templateFileUri ?: ".orgclock-template.org",
+                )
+            },
+        )
+
+        store.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        currentConfig = currentConfig.copy(templateFileUri = "/tmp/org-root/template.org")
+        store.onAction(OrgClockUiAction.RefreshTemplateStatus)
+        advanceUntilIdle()
+
+        assertTrue(refreshes >= 2)
+        assertEquals(TemplateReferenceMode.Explicit, store.uiState.value.templateFileStatus.referenceMode)
+        assertEquals("/tmp/org-root/template.org", store.uiState.value.templateFileStatus.fileId)
+    }
+
+    @Test
+    fun createDefaultTemplateFile_updatesStatusOnSuccess() = runTest {
+        val root = RootReference("/tmp/org-root")
+        val createdPath = "/tmp/org-root/.orgclock-template.org"
+        val store = testStore(
+            scope = this,
+            loadSavedRootReference = { root },
+            openRoot = { Result.success(Unit) },
+            listFiles = { Result.success(emptyList()) },
+            createDefaultTemplateFile = { Result.success(createdPath) },
+            loadTemplateFileStatus = {
+                TemplateFileStatus(
+                    availability = TemplateAvailability.Available,
+                    referenceMode = TemplateReferenceMode.LegacyHiddenFile,
+                    fileId = createdPath,
+                    displayName = ".orgclock-template.org",
+                )
+            },
+        )
+
+        store.onAction(OrgClockUiAction.Initialize)
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.CreateDefaultTemplateFile)
+        advanceUntilIdle()
+
+        assertEquals(StatusMessageKey.TemplateFileCreated, store.uiState.value.status.text.key)
+        assertEquals(createdPath, store.uiState.value.templateFileStatus.fileId)
     }
 
     @Test
@@ -376,6 +599,33 @@ class OrgClockStoreTest {
         }
     }
 
+    private fun sampleProjectHeadings(): List<HeadingViewItem> {
+        return listOf(
+            HeadingViewItem(
+                node = HeadingNode(
+                    lineIndex = 0,
+                    level = 1,
+                    title = "Projects",
+                    path = HeadingPath.parse("Projects"),
+                    parentL1 = "Projects",
+                ),
+                canStart = false,
+                openClock = null,
+            ),
+            HeadingViewItem(
+                node = HeadingNode(
+                    lineIndex = 1,
+                    level = 2,
+                    title = "Backlog",
+                    path = HeadingPath.parse("Projects/Backlog"),
+                    parentL1 = "Projects",
+                ),
+                canStart = true,
+                openClock = null,
+            ),
+        )
+    }
+
     private fun sampleClosedEntry(clockLineIndex: Int): ClosedClockEntry {
         return ClosedClockEntry(
             headingPath = HeadingPath.parse("Work/Project A"),
@@ -419,6 +669,8 @@ class OrgClockStoreTest {
         saveRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit = {},
         runAutoGenerationCatchUp: suspend (RootReference) -> Unit = {},
+        createDefaultTemplateFile: suspend (RootReference) -> Result<String> = { Result.failure(UnsupportedOperationException("template file creation unavailable")) },
+        externalChangeFlow: StateFlow<ExternalChangeNotice?> = OrgClockStore.NO_EXTERNAL_CHANGE_FLOW,
     ): OrgClockStore {
         return OrgClockStore(
             scope = scope,
@@ -449,6 +701,8 @@ class OrgClockStoreTest {
             saveRootScheduleConfig = saveRootScheduleConfig,
             syncRootScheduleConfig = syncRootScheduleConfig,
             runAutoGenerationCatchUp = runAutoGenerationCatchUp,
+            createDefaultTemplateFileAction = createDefaultTemplateFile,
+            externalChangeFlow = externalChangeFlow,
             nowProvider = { Instant.parse("2026-03-10T09:00:00Z") },
             todayProvider = { LocalDate(2026, 3, 10) },
             timeZoneProvider = { TimeZone.UTC },

@@ -181,8 +181,8 @@ class OrgClockScreenTest {
         }
 
         composeRule.onNodeWithText("自動生成ステータス").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("状態: 予定超過だが未実行").assertIsDisplayed()
-        composeRule.onNodeWithText("Last auto-generation issue: worker delayed").assertIsDisplayed()
+        composeRule.onNodeWithText("状態: 予定超過だが未実行").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Last auto-generation issue: worker delayed").performScrollTo().assertIsDisplayed()
     }
 
     @Test

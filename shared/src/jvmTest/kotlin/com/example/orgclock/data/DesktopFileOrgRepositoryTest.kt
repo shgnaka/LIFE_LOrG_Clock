@@ -68,6 +68,18 @@ class DesktopFileOrgRepositoryTest {
     }
 
     @Test
+    fun createDefaultTemplateFile_createsHiddenTemplateFileWhenMissing() {
+        val root = tempRoot()
+        val repository = DesktopFileOrgRepository(root)
+
+        val created = repository.createDefaultTemplateFile().getOrThrow()
+
+        assertEquals(root.resolve(".orgclock-template.org").absolutePathString(), created.fileId)
+        assertTrue(Files.exists(root.resolve(".orgclock-template.org")))
+        assertEquals("", root.resolve(".orgclock-template.org").readText(StandardCharsets.UTF_8))
+    }
+
+    @Test
     fun saveFile_preservesExistingLineEndingsAndTrailingNewline() {
         val root = tempRoot()
         val path = write(root.resolve("2026-03-01.org"), "* M4\r\n** Task\r\n")
