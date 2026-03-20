@@ -34,14 +34,19 @@ class DesktopPeerTrustStore(
     override fun isTrusted(peerId: String): Boolean {
         val normalized = peerId.trim()
         if (normalized.isBlank()) return false
-        return getTrustRecord(normalized)?.isActive == true ||
-            trustedPeerIds().contains(normalized)
+        val current = readRecord(normalized)
+        if (current != null) return current.isActive
+        return trustedPeerIds().contains(normalized)
     }
 
     override fun listTrusted(): List<String> {
-        val legacy = trustedPeerIds().asSequence().filter { it.isNotBlank() }
-        val records = listTrustRecords().asSequence().filter { it.isActive }.map { it.peerId }
-        return (legacy + records).distinct().sorted().toList()
+        val records = listTrustRecords()
+        val recordIds = records.asSequence().map { it.peerId }.toSet()
+        val activeRecords = records.asSequence().filter { it.isActive }.map { it.peerId }
+        val legacy = trustedPeerIds().asSequence()
+            .filter { it.isNotBlank() }
+            .filterNot { it in recordIds }
+        return (legacy + activeRecords).distinct().sorted().toList()
     }
 
     override fun trust(peerId: String) {
@@ -78,7 +83,7 @@ class DesktopPeerTrustStore(
     override fun trust(record: PeerTrustRecord) {
         val normalized = record.peerId.trim()
         if (normalized.isBlank()) return
-        persistRecord(record, isActive = true)
+        persistRecord(record.copy(activeTrust = true), isActive = true)
     }
 
     override fun getTrustRecord(peerId: String): PeerTrustRecord? {
@@ -110,7 +115,7 @@ class DesktopPeerTrustStore(
         val normalized = peerId.trim()
         if (normalized.isBlank()) return
         val current = readRecord(normalized) ?: return
-        trust(current.repair(Clock.System.now()))
+        persistRecord(current.repair(Clock.System.now()), isActive = true)
     }
 
     override fun getTrustedPublicKey(peerId: String): String? {
@@ -137,6 +142,9 @@ class DesktopPeerTrustStore(
         val revokedAt = preferences.getLong(recordPeerRevokedAtKey(peerId), MISSING_EPOCH_MILLIS)
             .takeIf { it != MISSING_EPOCH_MILLIS }
             ?.let { Instant.fromEpochMilliseconds(it) }
+        val activeTrust = preferences.get(recordPeerActiveTrustKey(peerId), null)
+            ?.toBooleanStrictOrNull()
+            ?: (revokedAt == null)
         return PeerTrustRecord(
             peerId = peerId,
             deviceId = deviceId,
@@ -147,6 +155,7 @@ class DesktopPeerTrustStore(
             registeredAt = Instant.fromEpochMilliseconds(registeredAt),
             lastSeenAt = lastSeenAt,
             revokedAt = revokedAt,
+            activeTrust = activeTrust,
         )
     }
 
@@ -171,6 +180,7 @@ class DesktopPeerTrustStore(
         preferences.putLong(recordPeerRegisteredAtKey(normalized), record.registeredAt.toEpochMilliseconds())
         preferences.putLong(recordPeerLastSeenAtKey(normalized), record.lastSeenAt?.toEpochMilliseconds() ?: MISSING_EPOCH_MILLIS)
         preferences.putLong(recordPeerRevokedAtKey(normalized), record.revokedAt?.toEpochMilliseconds() ?: MISSING_EPOCH_MILLIS)
+        preferences.put(recordPeerActiveTrustKey(normalized), record.isActive.toString())
         preferences.flush()
     }
 
@@ -192,6 +202,7 @@ class DesktopPeerTrustStore(
     private fun recordPeerRegisteredAtKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_registered_at"
     private fun recordPeerLastSeenAtKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_last_seen_at"
     private fun recordPeerRevokedAtKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_revoked_at"
+    private fun recordPeerActiveTrustKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_active_trust"
 
     private fun sanitize(peerId: String): String {
         return peerId.trim()

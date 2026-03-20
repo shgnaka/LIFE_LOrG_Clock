@@ -31,6 +31,7 @@ class PeerTrustModelsTest {
         assertEquals(request.requestedAt, record.registeredAt)
         assertEquals(request.requestedAt, record.lastSeenAt)
         assertTrue(record.isActive)
+        assertTrue(record.activeTrust)
     }
 
     @Test
@@ -72,6 +73,8 @@ class PeerTrustModelsTest {
         assertFalse(repaired.isRevoked)
         assertTrue(repaired.isActive)
         assertEquals(Instant.parse("2026-03-12T09:00:00Z"), repaired.lastSeenAt)
+        assertEquals(revoked.revokedAt, repaired.revokedAt)
+        assertTrue(repaired.activeTrust)
     }
 
     @Test

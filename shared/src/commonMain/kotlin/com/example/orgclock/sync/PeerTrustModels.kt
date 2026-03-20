@@ -45,6 +45,7 @@ data class PeerTrustRecord(
     val registeredAt: Instant,
     val lastSeenAt: Instant? = null,
     val revokedAt: Instant? = null,
+    val activeTrust: Boolean = true,
 ) {
     init {
         require(peerId.isNotBlank()) { "Peer ID cannot be blank." }
@@ -54,16 +55,16 @@ data class PeerTrustRecord(
     }
 
     val isRevoked: Boolean
-        get() = revokedAt != null
+        get() = !activeTrust
 
     val isActive: Boolean
-        get() = !isRevoked
+        get() = activeTrust
 
     fun markSeen(at: Instant): PeerTrustRecord = copy(lastSeenAt = at)
 
-    fun revoke(at: Instant): PeerTrustRecord = copy(revokedAt = at)
+    fun revoke(at: Instant): PeerTrustRecord = copy(revokedAt = at, activeTrust = false)
 
-    fun repair(at: Instant): PeerTrustRecord = copy(revokedAt = null, lastSeenAt = at)
+    fun repair(at: Instant): PeerTrustRecord = copy(activeTrust = true, lastSeenAt = at)
 }
 
 fun PeerRegistrationRequest.toPeerTrustRecord(): PeerTrustRecord {
