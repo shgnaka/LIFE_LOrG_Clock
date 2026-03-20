@@ -9,6 +9,8 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.sync.ClockEventStoreSnapshot
+import com.example.orgclock.sync.PeerRegistrationRequest
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
@@ -56,6 +58,10 @@ class OrgClockViewModel(
     createDefaultTemplateFile: suspend (RootReference) -> Result<String> = { Result.failure(UnsupportedOperationException("template file creation unavailable")) },
     syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
+    clockEventSyncSnapshotFlow: StateFlow<ClockEventStoreSnapshot> = OrgClockStore.NO_CLOCK_EVENT_SYNC_SNAPSHOT_FLOW,
+    syncPairTrustedPeer: suspend (PeerRegistrationRequest) -> PeerProbeResult = { request ->
+        PeerProbeResult(peerId = request.peerId, reachable = false, checkedAtEpochMs = 0L, reason = "sync unavailable")
+    },
     syncEnableStandardMode: suspend () -> Unit = {},
     syncEnableActiveMode: suspend () -> Unit = {},
     syncStopRuntime: suspend () -> Unit = {},
@@ -116,6 +122,8 @@ class OrgClockViewModel(
         createDefaultTemplateFileAction = createDefaultTemplateFile,
         syncTemplateTaggedHeading = syncTemplateTaggedHeading,
         syncSnapshotFlow = syncSnapshotFlow,
+        clockEventSyncSnapshotFlow = clockEventSyncSnapshotFlow,
+        syncPairTrustedPeer = syncPairTrustedPeer,
         syncEnableStandardMode = syncEnableStandardMode,
         syncEnableActiveMode = syncEnableActiveMode,
         syncStopRuntime = syncStopRuntime,

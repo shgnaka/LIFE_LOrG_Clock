@@ -56,6 +56,13 @@ open class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        lifecycleScope.launch {
+            appGraph.androidEventSyncRuntime().onAppResumed()
+        }
+    }
+
     companion object {
         private const val TAG = "MainActivity"
         private const val EXTRA_SYNC_COMMAND_PAYLOAD = "sync_command_payload"

@@ -495,6 +495,41 @@ class ClockServiceTest {
     }
 
     @Test
+    fun startClock_mapsRoundTripMismatchToTypedRecoveryFailure() = runBlocking {
+        val repo = object : ClockRepository {
+            override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())
+            override suspend fun loadFile(fileId: String): Result<OrgDocument> = Result.failure(UnsupportedOperationException())
+            override suspend fun saveFile(
+                fileId: String,
+                lines: List<String>,
+                expectedHash: String,
+                writeIntent: FileWriteIntent,
+            ): SaveResult = SaveResult.ValidationError("unsupported")
+
+            override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> {
+                val lines = listOf("* Work", "** Project A")
+                return Result.success(OrgDocument(date, lines, "hash"))
+            }
+
+            override suspend fun saveDaily(date: LocalDate, lines: List<String>, expectedHash: String): SaveResult {
+                return SaveResult.RoundTripMismatch("saved content changed after read-back")
+            }
+        }
+        val service = ClockService(repo)
+
+        val result = service.startClock(
+            ZonedDateTime.of(2026, 2, 15, 10, 0, 0, 0, ZoneId.of("Asia/Tokyo")),
+            HeadingPath.parse("Work/Project A"),
+        )
+
+        assertTrue(result.isFailure)
+        val ex = result.exceptionOrNull()
+        assertTrue(ex is ClockOperationException)
+        assertEquals(ClockOperationCode.SaveRoundTripMismatch, (ex as ClockOperationException).code)
+        assertEquals("saved content changed after read-back", ex.message)
+    }
+
+    @Test
     fun startClock_retryConflict_thenSecondConflict_returnsTypedConflict() = runBlocking {
         val repo = object : ClockRepository {
             override suspend fun listOrgFiles(): Result<List<OrgFileEntry>> = Result.failure(UnsupportedOperationException())

@@ -12,6 +12,7 @@ class SyncMaintenanceWorker(
         val service = SyncRuntimeEntryPoint.syncIntegrationService ?: return Result.success()
         return runCatching {
             service.flushNow()
+            AndroidEventSyncRuntimeEntryPoint.runtime?.flushNow("maintenance")
         }.fold(
             onSuccess = { Result.success() },
             onFailure = { Result.retry() },

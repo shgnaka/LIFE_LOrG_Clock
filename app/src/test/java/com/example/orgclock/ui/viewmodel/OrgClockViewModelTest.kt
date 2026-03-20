@@ -13,6 +13,7 @@ import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.sync.PeerProbeResult
+import com.example.orgclock.sync.PeerRegistrationRequest
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
@@ -832,16 +833,20 @@ class OrgClockViewModelTest {
     fun syncAddPeer_success_clearsInputAndShowsSuccess() = runTest {
         val vm = testViewModel(
             syncFeatureEnabled = true,
-            syncAddTrustedPeer = { peerId ->
-                PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
+            syncPairTrustedPeer = { request ->
+                PeerProbeResult(peerId = request.peerId, reachable = true, checkedAtEpochMs = 1L)
             },
         )
 
         vm.onAction(OrgClockUiAction.SyncUpdatePeerInput("example.local:39091"))
+        vm.onAction(OrgClockUiAction.SyncUpdatePeerDisplayName("Desktop Host"))
+        vm.onAction(OrgClockUiAction.SyncUpdatePeerPublicKey("pk-123"))
         vm.onAction(OrgClockUiAction.SyncAddPeer)
         advanceUntilIdle()
 
         assertEquals("", vm.uiState.value.syncPeerInput)
+        assertEquals("", vm.uiState.value.syncPeerDisplayName)
+        assertEquals("", vm.uiState.value.syncPeerPublicKey)
         assertNull(vm.uiState.value.syncPeerInputError)
         assertEquals(StatusTone.Success, vm.uiState.value.status.tone)
     }
@@ -850,12 +855,14 @@ class OrgClockViewModelTest {
     fun syncAddPeer_probeFailure_keepsInputAndShowsError() = runTest {
         val vm = testViewModel(
             syncFeatureEnabled = true,
-            syncAddTrustedPeer = { peerId ->
-                PeerProbeResult(peerId = peerId, reachable = false, checkedAtEpochMs = 1L, reason = "timeout")
+            syncPairTrustedPeer = { request ->
+                PeerProbeResult(peerId = request.peerId, reachable = false, checkedAtEpochMs = 1L, reason = "timeout")
             },
         )
 
         vm.onAction(OrgClockUiAction.SyncUpdatePeerInput("example.local:39091"))
+        vm.onAction(OrgClockUiAction.SyncUpdatePeerDisplayName("Desktop Host"))
+        vm.onAction(OrgClockUiAction.SyncUpdatePeerPublicKey("pk-123"))
         vm.onAction(OrgClockUiAction.SyncAddPeer)
         advanceUntilIdle()
 
@@ -981,6 +988,9 @@ class OrgClockViewModelTest {
         syncAddTrustedPeer: suspend (String) -> PeerProbeResult = { peerId ->
             PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
         },
+        syncPairTrustedPeer: suspend (PeerRegistrationRequest) -> PeerProbeResult = { request ->
+            PeerProbeResult(peerId = request.peerId, reachable = true, checkedAtEpochMs = 1L)
+        },
         syncRevokePeer: suspend (String) -> Unit = {},
         syncProbePeer: suspend (String) -> PeerProbeResult = { peerId ->
             PeerProbeResult(peerId = peerId, reachable = true, checkedAtEpochMs = 1L)
@@ -1020,6 +1030,7 @@ class OrgClockViewModelTest {
             runAutoGenerationCatchUp = runAutoGenerationCatchUp,
             syncTemplateTaggedHeading = syncTemplateTaggedHeading,
             syncAddTrustedPeer = syncAddTrustedPeer,
+            syncPairTrustedPeer = syncPairTrustedPeer,
             syncRevokePeer = syncRevokePeer,
             syncProbePeer = syncProbePeer,
             syncFeatureEnabled = syncFeatureEnabled,

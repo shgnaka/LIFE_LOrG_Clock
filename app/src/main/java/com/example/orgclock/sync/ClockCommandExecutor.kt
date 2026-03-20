@@ -240,6 +240,7 @@ class DefaultClockCommandExecutor(
                 ClockOperationCode.ValidationFailed -> ClockErrorCode.VALIDATION_FAILED to error.message.orEmpty()
                 ClockOperationCode.IoFailed -> ClockErrorCode.IO_FAILURE to error.message.orEmpty()
                 ClockOperationCode.Conflict -> ClockErrorCode.CONFLICT_RETRY_EXHAUSTED to error.message.orEmpty()
+                ClockOperationCode.SaveRoundTripMismatch -> ClockErrorCode.SAVE_ROUND_TRIP_MISMATCH to error.message.orEmpty()
             }
         }
 

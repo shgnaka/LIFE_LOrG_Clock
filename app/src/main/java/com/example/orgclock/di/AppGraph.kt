@@ -25,14 +25,23 @@ import com.example.orgclock.notification.NotificationPrefs
 import com.example.orgclock.notification.NotificationServiceConfig
 import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.BuildConfigSyncIntegrationFeatureFlag
+import com.example.orgclock.sync.ClockEventStoreSnapshot
 import com.example.orgclock.sync.ClockCommandKind
+import com.example.orgclock.sync.PeerRegistrationRequest
+import com.example.orgclock.sync.RoomClockEventStore
 import com.example.orgclock.sync.DefaultClockCommandExecutor
+import com.example.orgclock.sync.AndroidEventSyncRuntime
+import com.example.orgclock.sync.AndroidEventSyncRuntimeEntryPoint
+import com.example.orgclock.sync.AndroidEventSyncTransportProvider
 import com.example.orgclock.sync.LocalClockOperationPublisher
 import com.example.orgclock.sync.RuntimeSyncIntegrationFeatureFlag
 import com.example.orgclock.sync.RoomCommandIdStore
+import com.example.orgclock.sync.SharedPreferencesPeerSyncCheckpointStore
+import com.example.orgclock.sync.SharedPreferencesClockEventSyncQuarantineStore
 import com.example.orgclock.sync.SharedPreferencesDeviceIdProvider
 import com.example.orgclock.sync.SharedPreferencesPeerTrustStore
 import com.example.orgclock.sync.SharedPreferencesSyncRuntimePrefs
+import com.example.orgclock.sync.StoreBackedClockEventRecorder
 import com.example.orgclock.sync.SyncCoreClientFactory
 import com.example.orgclock.sync.SyncIntegrationService
 import com.example.orgclock.sync.SyncRuntimeEntryPoint
@@ -53,6 +62,7 @@ import com.example.orgclock.time.today
 import kotlinx.datetime.toJavaZoneId
 import com.example.orgclock.ui.app.OrgClockRouteDependencies
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.MutableStateFlow
 
 interface AppGraph {
     fun routeDependencies(
@@ -63,6 +73,8 @@ interface AppGraph {
     fun notificationServiceDependencies(): NotificationServiceDependencies
 
     fun syncIntegrationService(): SyncIntegrationService
+
+    fun androidEventSyncRuntime(): AndroidEventSyncRuntime
 }
 
 internal data class PublishTarget(
@@ -84,7 +96,8 @@ class DefaultAppGraph(
     private val repository: ClockRepository by lazy { safRepository }
     private val rootAccessGateway: RootAccessGateway by lazy { safRepository }
     private val fileOperationCoordinator by lazy { InMemoryFileOperationCoordinator() }
-    private val clockService by lazy { ClockService(repository, fileOperationCoordinator = fileOperationCoordinator) }
+    private val clockEventStore by lazy { RoomClockEventStore.create(appContext) }
+    private val clockEventSyncSnapshotFlow = MutableStateFlow(ClockEventStoreSnapshot(null, null, 0))
     private val clockInScanner by lazy { ClockInScanner(repository) }
     private val notificationServiceConfig: NotificationServiceConfig = NotificationServiceConfig()
     private val syncCoreClientFactory: SyncCoreClientFactory by lazy {
@@ -130,6 +143,37 @@ class DefaultAppGraph(
             appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
         )
     }
+    private val peerSyncCheckpointStore by lazy {
+        SharedPreferencesPeerSyncCheckpointStore(prefs)
+    }
+    private val clockEventSyncQuarantineStore by lazy {
+        SharedPreferencesClockEventSyncQuarantineStore(prefs)
+    }
+    private val androidEventSyncRuntime: AndroidEventSyncRuntime by lazy {
+        AndroidEventSyncRuntime(
+            clockEventStore = clockEventStore,
+            peerTrustStore = SharedPreferencesPeerTrustStore(prefs),
+            peerSyncCheckpointStore = peerSyncCheckpointStore,
+            quarantineStore = clockEventSyncQuarantineStore,
+            deviceIdProvider = deviceIdProvider,
+            snapshotPublisher = { clockEventSyncSnapshotFlow.value = it },
+            transportProvider = AndroidEventSyncTransportProvider { null },
+        )
+    }
+    private val clockEventRecorder by lazy {
+        StoreBackedClockEventRecorder(
+            store = clockEventStore,
+            deviceIdProvider = deviceIdProvider::getOrCreate,
+            snapshotPublisher = { clockEventSyncSnapshotFlow.value = it },
+        )
+    }
+    private val clockService by lazy {
+        ClockService(
+            repository,
+            fileOperationCoordinator = fileOperationCoordinator,
+            clockEventRecorder = clockEventRecorder,
+        )
+    }
     private val syncIntegrationService: SyncIntegrationService by lazy {
         val commandIdStore = RoomCommandIdStore.create(appContext)
         val orgSyncCoreClient = syncCoreClientFactory.create(
@@ -159,6 +203,8 @@ class DefaultAppGraph(
             deviceIdProvider = deviceIdProvider,
             runtimePrefs = runtimePrefs,
             peerTrustStore = SharedPreferencesPeerTrustStore(prefs),
+            clockEventStoreProvider = { clockEventStore },
+            peerSyncCheckpointStore = peerSyncCheckpointStore,
             runtimeManager = runtimeManager,
         )
     }
@@ -313,6 +359,7 @@ class DefaultAppGraph(
                 activity.startActivity(intent)
             },
             syncSnapshotFlow = syncIntegrationService.snapshot,
+            clockEventSyncSnapshotFlow = clockEventSyncSnapshotFlow,
             syncEnableStandardMode = {
                 syncIntegrationService.enableStandardMode()
             },
@@ -337,6 +384,9 @@ class DefaultAppGraph(
             syncAddTrustedPeer = { peerId ->
                 syncIntegrationService.addTrustedPeer(peerId)
             },
+            syncPairTrustedPeer = { request: PeerRegistrationRequest ->
+                syncIntegrationService.pairTrustedPeer(request)
+            },
             syncRevokePeer = { peerId ->
                 syncIntegrationService.revokePeer(peerId)
             },
@@ -356,6 +406,11 @@ class DefaultAppGraph(
         SyncRuntimeEntryPoint.syncIntegrationService = syncIntegrationService
         TemplateAutoGenerationEntryPoint.scheduler = templateAutoGenerationScheduler
         return syncIntegrationService
+    }
+
+    override fun androidEventSyncRuntime(): AndroidEventSyncRuntime {
+        AndroidEventSyncRuntimeEntryPoint.runtime = androidEventSyncRuntime
+        return androidEventSyncRuntime
     }
 
     override fun notificationServiceDependencies(): NotificationServiceDependencies {

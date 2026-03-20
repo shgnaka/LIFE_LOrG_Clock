@@ -10,5 +10,6 @@ class OrgClockApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         appGraph.syncIntegrationService().onAppStarted()
+        appGraph.androidEventSyncRuntime().onAppStarted()
     }
 }
