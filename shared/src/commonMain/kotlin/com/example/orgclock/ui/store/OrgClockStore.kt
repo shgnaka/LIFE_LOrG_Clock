@@ -14,8 +14,14 @@ import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.presentation.StatusText
 import com.example.orgclock.presentation.StatusTone
 import com.example.orgclock.presentation.UiStatus
+import com.example.orgclock.sync.ClockEventStoreSnapshot
+import com.example.orgclock.sync.PeerPairingDraft
 import com.example.orgclock.sync.PeerProbeResult
+import com.example.orgclock.sync.PeerRegistrationRequest
+import com.example.orgclock.sync.PeerTrustRole
 import com.example.orgclock.sync.SyncIntegrationSnapshot
+import com.example.orgclock.sync.toClockEventSyncState
+import com.example.orgclock.sync.toRegistrationRequest
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
@@ -26,6 +32,10 @@ import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
 import com.example.orgclock.ui.state.ExternalChangeNotice
+import com.example.orgclock.ui.state.OrgDivergenceCategory
+import com.example.orgclock.ui.state.OrgDivergenceRecommendedAction
+import com.example.orgclock.ui.state.OrgDivergenceSeverity
+import com.example.orgclock.ui.state.OrgDivergenceSnapshot
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.PeerUiItem
@@ -82,6 +92,10 @@ class OrgClockStore(
     private val externalChangeFlow: StateFlow<ExternalChangeNotice?> = NO_EXTERNAL_CHANGE_FLOW,
     private val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     private val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
+    private val clockEventSyncSnapshotFlow: StateFlow<ClockEventStoreSnapshot> = NO_CLOCK_EVENT_SYNC_SNAPSHOT_FLOW,
+    private val syncPairTrustedPeer: suspend (PeerRegistrationRequest) -> PeerProbeResult = { request ->
+        PeerProbeResult(peerId = request.peerId, reachable = false, checkedAtEpochMs = 0L, reason = "sync unavailable")
+    },
     private val syncEnableStandardMode: suspend () -> Unit = {},
     private val syncEnableActiveMode: suspend () -> Unit = {},
     private val syncStopRuntime: suspend () -> Unit = {},
@@ -136,6 +150,13 @@ class OrgClockStore(
             scope.launch {
                 syncSnapshotFlow.collectLatest { snapshot ->
                     applySyncSnapshot(snapshot)
+                }
+            }
+        }
+        if (clockEventSyncSnapshotFlow !== NO_CLOCK_EVENT_SYNC_SNAPSHOT_FLOW) {
+            scope.launch {
+                clockEventSyncSnapshotFlow.collectLatest { snapshot ->
+                    applyClockEventSyncSnapshot(snapshot)
                 }
             }
         }
@@ -195,6 +216,10 @@ class OrgClockStore(
         }
         OrgClockUiAction.RefreshFiles -> {
             scope.launch { refreshFilesAndRoute() }
+            true
+        }
+        OrgClockUiAction.ReloadFromDisk -> {
+            scope.launch { reloadFromDisk() }
             true
         }
         is OrgClockUiAction.SelectHeading -> {
@@ -436,6 +461,9 @@ class OrgClockStore(
         is OrgClockUiAction.SyncSetEnabled -> { scope.launch { syncSetEnabled(action.enabled) }; true }
         is OrgClockUiAction.SyncSetDefaultPeerId -> { scope.launch { syncSetDefaultPeerId(action.peerId) }; true }
         is OrgClockUiAction.SyncUpdatePeerInput -> { _uiState.update { it.copy(syncPeerInput = action.value, syncPeerInputError = null) }; true }
+        is OrgClockUiAction.SyncUpdatePeerDisplayName -> { _uiState.update { it.copy(syncPeerDisplayName = action.value) }; true }
+        is OrgClockUiAction.SyncUpdatePeerPublicKey -> { _uiState.update { it.copy(syncPeerPublicKey = action.value) }; true }
+        is OrgClockUiAction.SyncSetPeerViewerMode -> { _uiState.update { it.copy(syncPeerViewerModeEnabled = action.enabled) }; true }
         OrgClockUiAction.SyncAddPeer -> { scope.launch { addPeer() }; true }
         is OrgClockUiAction.SyncRevokePeer -> { scope.launch { revokePeer(action.peerId) }; true }
         is OrgClockUiAction.SyncProbePeer -> { scope.launch { probePeer(action.peerId) }; true }
@@ -515,12 +543,26 @@ class OrgClockStore(
             val headings = loaded.getOrThrow()
             val previousState = uiState.value
             val sameFile = previousState.selectedFile?.fileId == file.fileId
+            val missingSelectedHeading = sameFile &&
+                previousState.selectedHeadingPath != null &&
+                headings.none { it.node.path == previousState.selectedHeadingPath }
             val preservedHistoryTarget = if (sameFile) {
                 previousState.historyTarget?.let { target ->
                     headings.firstOrNull { it.node.path == target.node.path }
                 }
             } else {
                 null
+            }
+            val divergenceSnapshot = when {
+                missingSelectedHeading -> OrgDivergenceSnapshot(
+                    severity = OrgDivergenceSeverity.RecoveryRequired,
+                    category = OrgDivergenceCategory.ContentMismatch,
+                    reason = "Selected heading no longer exists after reload",
+                    affectedFileIds = setOf(file.fileId),
+                    detectedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
+                    recommendedAction = OrgDivergenceRecommendedAction.ReloadFromDisk,
+                )
+                else -> null
             }
             _uiState.update {
                 it.copy(
@@ -540,9 +582,10 @@ class OrgClockStore(
                     deletingInProgress = false,
                     deleteFailureMessage = if (preservedHistoryTarget != null) it.deleteFailureMessage else null,
                     createHeadingDialog = null,
-                    externalChangePending = false,
-                    externalChangeChangedFileIds = emptySet(),
-                    externalChangeAffectsSelectedFile = false,
+                    divergenceSnapshot = divergenceSnapshot,
+                    externalChangePending = divergenceSnapshot != null,
+                    externalChangeChangedFileIds = divergenceSnapshot?.affectedFileIds ?: emptySet(),
+                    externalChangeAffectsSelectedFile = divergenceSnapshot?.affectedFileIds?.contains(file.fileId) == true,
                     screen = Screen.HeadingList,
                     status = if (updateStatus) status(StatusMessageKey.LoadedFile, StatusTone.Success, file.displayName) else it.status,
                 )
@@ -568,16 +611,28 @@ class OrgClockStore(
         val result = listFiles()
         if (result.isFailure) {
             val reason = result.exceptionOrNull()?.message ?: ""
-            _uiState.update { it.copy(status = status(StatusMessageKey.FailedListingFiles, StatusTone.Error, reason), screen = Screen.FilePicker) }
+            _uiState.update {
+                it.copy(
+                    divergenceSnapshot = OrgDivergenceSnapshot(
+                        severity = OrgDivergenceSeverity.RecoveryRequired,
+                        category = OrgDivergenceCategory.ContentMismatch,
+                        reason = reason.ifBlank { "Failed to list files" },
+                        detectedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
+                        recommendedAction = OrgDivergenceRecommendedAction.ReloadFromDisk,
+                    ),
+                    externalChangePending = true,
+                    externalChangeChangedFileIds = emptySet(),
+                    externalChangeAffectsSelectedFile = false,
+                    status = status(StatusMessageKey.FailedListingFiles, StatusTone.Error, reason),
+                    screen = Screen.FilePicker,
+                )
+            }
             return
         }
         val listed = result.getOrThrow()
         _uiState.update {
             it.copy(
                 files = listed,
-                externalChangePending = false,
-                externalChangeChangedFileIds = emptySet(),
-                externalChangeAffectsSelectedFile = false,
             )
         }
         refreshFilesWithOpenClock()
@@ -586,6 +641,14 @@ class OrgClockStore(
         if (preferred != null) {
             loadHeadingsFor(preferred)
         } else if (preferredFile != null) {
+            val divergenceSnapshot = OrgDivergenceSnapshot(
+                severity = OrgDivergenceSeverity.Warning,
+                category = OrgDivergenceCategory.ExternalChange,
+                reason = "Selected file is no longer available on disk",
+                affectedFileIds = setOf(preferredFile.fileId),
+                detectedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
+                recommendedAction = OrgDivergenceRecommendedAction.ReloadFromDisk,
+            )
             _uiState.update {
                 it.copy(
                     selectedFile = null,
@@ -602,6 +665,10 @@ class OrgClockStore(
                     deletingEntry = null,
                     deletingInProgress = false,
                     createHeadingDialog = null,
+                    divergenceSnapshot = divergenceSnapshot,
+                    externalChangePending = true,
+                    externalChangeChangedFileIds = divergenceSnapshot.affectedFileIds,
+                    externalChangeAffectsSelectedFile = true,
                     screen = Screen.FilePicker,
                     status = status(StatusMessageKey.SelectedFileNoLongerAvailable, StatusTone.Warning, preferredFile.displayName),
                 )
@@ -617,6 +684,10 @@ class OrgClockStore(
                     pendingClockOps = emptySet(),
                     collapsedL1 = emptySet(),
                     screen = Screen.FilePicker,
+                    divergenceSnapshot = null,
+                    externalChangePending = false,
+                    externalChangeChangedFileIds = emptySet(),
+                    externalChangeAffectsSelectedFile = false,
                     status = status(StatusMessageKey.TodayFileNotFound, StatusTone.Warning),
                 )
             }
@@ -651,7 +722,24 @@ class OrgClockStore(
         _uiState.update { state ->
             val selectedFile = state.selectedFile
             val affectsSelected = selectedFile != null && selectedFile.fileId in notice.changedFileIds
+            val recommendedAction = if (affectsSelected) {
+                OrgDivergenceRecommendedAction.ReloadFromDisk
+            } else {
+                OrgDivergenceRecommendedAction.ReloadFromDisk
+            }
             state.copy(
+                divergenceSnapshot = OrgDivergenceSnapshot(
+                    severity = OrgDivergenceSeverity.Warning,
+                    category = OrgDivergenceCategory.ExternalChange,
+                    reason = if (affectsSelected) {
+                        "Selected file changed on disk"
+                    } else {
+                        "Org files changed on disk"
+                    },
+                    affectedFileIds = notice.changedFileIds,
+                    detectedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
+                    recommendedAction = recommendedAction,
+                ),
                 externalChangePending = true,
                 externalChangeChangedFileIds = notice.changedFileIds,
                 externalChangeAffectsSelectedFile = affectsSelected,
@@ -669,6 +757,11 @@ class OrgClockStore(
                 },
             )
         }
+    }
+
+    private suspend fun reloadFromDisk() {
+        refreshFilesAndRoute()
+        uiState.value.rootReference?.let { refreshAutoGenerationRuntimeState(it) }
     }
 
     private suspend fun applyRoot(
@@ -790,6 +883,7 @@ class OrgClockStore(
             _uiState.update { it.copy(status = nextStatus) }
             refreshFilesWithOpenClock()
         } else {
+            applySaveRoundTripMismatchIfNeeded(file.fileId, result.exceptionOrNull())
             updateHeadingOpenClock(path, item.openClock)
             _uiState.update { it.copy(status = nextStatus) }
         }
@@ -805,6 +899,7 @@ class OrgClockStore(
             _uiState.update { it.copy(status = nextStatus) }
             refreshFilesWithOpenClock()
         } else {
+            applySaveRoundTripMismatchIfNeeded(file.fileId, result.exceptionOrNull())
             updateHeadingOpenClock(path, item.openClock)
             _uiState.update { it.copy(status = nextStatus) }
         }
@@ -820,6 +915,7 @@ class OrgClockStore(
             _uiState.update { it.copy(status = nextStatus) }
             refreshFilesWithOpenClock()
         } else {
+            applySaveRoundTripMismatchIfNeeded(file.fileId, result.exceptionOrNull())
             updateHeadingOpenClock(path, item.openClock)
             _uiState.update { it.copy(status = nextStatus) }
         }
@@ -859,6 +955,7 @@ class OrgClockStore(
             refreshSelectedFileHeadings()
         } else {
             val message = result.exceptionOrNull()?.message ?: ""
+            applySaveRoundTripMismatchIfNeeded(file.fileId, result.exceptionOrNull())
             _uiState.update {
                 it.copy(
                     status = status(StatusMessageKey.UpdateFailed, StatusTone.Error, message),
@@ -904,6 +1001,7 @@ class OrgClockStore(
         }
         val error = result.exceptionOrNull()
         val tone = if (error is IllegalArgumentException) StatusTone.Warning else StatusTone.Error
+        applySaveRoundTripMismatchIfNeeded(file.fileId, error)
         _uiState.update { current ->
             current.copy(createHeadingDialog = current.createHeadingDialog?.copy(submitting = false), status = status(StatusMessageKey.CreateHeadingFailed, tone, error?.message ?: ""))
         }
@@ -927,6 +1025,7 @@ class OrgClockStore(
             refreshSelectedFileHeadings()
         } else {
             val message = result.exceptionOrNull()?.message ?: ""
+            applySaveRoundTripMismatchIfNeeded(file.fileId, result.exceptionOrNull())
             _uiState.update {
                 it.copy(
                     deletingInProgress = false,
@@ -993,6 +1092,28 @@ class OrgClockStore(
 
     private fun updateHeadingOpenClock(path: HeadingPath, openClock: OpenClockState?) {
         _uiState.update { state -> state.copy(headings = state.headings.map { if (it.node.path == path) it.copy(openClock = openClock) else it }) }
+    }
+
+    private fun applySaveRoundTripMismatchIfNeeded(fileId: String, error: Throwable?) {
+        if ((error as? ClockOperationException)?.code != ClockOperationCode.SaveRoundTripMismatch) {
+            return
+        }
+        val snapshot = OrgDivergenceSnapshot(
+            severity = OrgDivergenceSeverity.RecoveryRequired,
+            category = OrgDivergenceCategory.SaveRoundTripMismatch,
+            reason = error.message?.takeIf { it.isNotBlank() } ?: "Saved file contents did not round-trip cleanly.",
+            affectedFileIds = setOf(fileId),
+            detectedAtEpochMs = nowProvider().toEpochMilliseconds(),
+            recommendedAction = OrgDivergenceRecommendedAction.ReloadFromDisk,
+        )
+        _uiState.update { state ->
+            state.copy(
+                divergenceSnapshot = snapshot,
+                externalChangePending = true,
+                externalChangeChangedFileIds = snapshot.affectedFileIds,
+                externalChangeAffectsSelectedFile = state.selectedFile?.fileId in snapshot.affectedFileIds,
+            )
+        }
     }
 
     // These guards are touched from commonMain code, so we avoid JVM-only synchronized blocks.
@@ -1133,19 +1254,44 @@ class OrgClockStore(
 
     private suspend fun addPeer() {
         val input = uiState.value.syncPeerInput.trim()
+        val displayName = uiState.value.syncPeerDisplayName.trim().ifBlank { input }
+        val publicKey = uiState.value.syncPeerPublicKey.trim()
         val validation = validatePeerId(input)
         if (validation != null) {
             _uiState.update { it.copy(syncPeerInputError = validation) }
             return
         }
+        if (displayName.isBlank()) {
+            _uiState.update { it.copy(syncPeerInputError = "display name is empty") }
+            return
+        }
+        if (publicKey.isBlank()) {
+            _uiState.update { it.copy(syncPeerInputError = "public key is empty") }
+            return
+        }
         _uiState.update { it.copy(syncPeerBusy = true, syncPeerInputError = null) }
-        val probe = syncAddTrustedPeer(input)
+        val request = PeerPairingDraft(
+            peerId = input,
+            displayName = displayName,
+            publicKeyBase64 = publicKey,
+            viewerModeEnabled = uiState.value.syncPeerViewerModeEnabled,
+        ).toRegistrationRequest(nowProvider())
+        val probe = syncPairTrustedPeer(request)
         _uiState.update { it.copy(syncPeerBusy = false) }
         if (!probe.reachable) {
             _uiState.update { it.copy(syncPeerInputError = probe.reason ?: "failed to reach peer", status = status(StatusMessageKey.SyncPeerAddFailed, StatusTone.Warning, probe.reason ?: "unknown")) }
             return
         }
-        _uiState.update { it.copy(syncPeerInput = "", syncPeerInputError = null, status = status(StatusMessageKey.SyncPeerAdded, StatusTone.Success, input)) }
+        _uiState.update {
+            it.copy(
+                syncPeerInput = "",
+                syncPeerDisplayName = "",
+                syncPeerPublicKey = "",
+                syncPeerViewerModeEnabled = false,
+                syncPeerInputError = null,
+                status = status(StatusMessageKey.SyncPeerAdded, StatusTone.Success, input),
+            )
+        }
     }
 
     private suspend fun revokePeer(peerId: String) {
@@ -1309,25 +1455,52 @@ class OrgClockStore(
     private fun applySyncSnapshot(snapshot: SyncIntegrationSnapshot) {
         val peersById = snapshot.peerStates.associateBy { it.peerId }
         val trustedPeers = syncListTrustedPeers()
+        val viewerProjectionSummary = snapshot.viewerProjection?.let { projection ->
+            "active=${projection.activeClocks.size}, history=${projection.historyEntries.size}, issues=${projection.issues.size}"
+        }
         _uiState.update {
+            val divergenceSnapshot = snapshot.orgDivergenceSnapshot
             it.copy(
                 syncRuntimeEnabled = snapshot.runtimeEnabled,
                 syncDefaultPeerId = snapshot.defaultPeerId.orEmpty(),
                 syncPeers = trustedPeers.map { peerId ->
                     val peer = peersById[peerId]
-                    PeerUiItem(peerId = peerId, reachable = peer?.reachable, lastCheckedAtEpochMs = peer?.lastCheckedAtEpochMs, lastSyncedAtEpochMs = peer?.lastSyncedAtEpochMs)
+                    PeerUiItem(
+                        peerId = peerId,
+                        displayName = peer?.displayName,
+                        role = peer?.role ?: PeerTrustRole.Full,
+                        publicKeyRegistered = peer?.publicKeyRegistered ?: false,
+                        reachable = peer?.reachable,
+                        lastCheckedAtEpochMs = peer?.lastCheckedAtEpochMs,
+                        lastSyncedAtEpochMs = peer?.lastSyncedAtEpochMs,
+                        lastSeenCursor = peer?.lastSeenCursor,
+                        lastSentCursor = peer?.lastSentCursor,
+                    )
                 },
                 syncRuntimeMode = snapshot.runtimeMode,
                 syncLastResultSummary = snapshot.lastResult?.let { result -> "${result.status.wireValue} (${result.commandId})" },
                 syncLastError = snapshot.lastError,
+                syncViewerPeerCount = snapshot.viewerPeerCount,
+                syncViewerProjectionSummary = viewerProjectionSummary,
                 syncMetrics = snapshot.metrics,
                 syncDeliveryStates = snapshot.lastDeliveryStates,
+                divergenceSnapshot = divergenceSnapshot,
+                externalChangePending = divergenceSnapshot != null,
+                externalChangeChangedFileIds = divergenceSnapshot?.affectedFileIds ?: emptySet(),
+                externalChangeAffectsSelectedFile = divergenceSnapshot?.affectedFileIds?.contains(it.selectedFile?.fileId) == true,
             )
+        }
+    }
+
+    private fun applyClockEventSyncSnapshot(snapshot: ClockEventStoreSnapshot) {
+        _uiState.update {
+            it.copy(localClockEventSyncState = snapshot.toClockEventSyncState())
         }
     }
 
     companion object {
         val DAILY_ORG_FILE_REGEX = Regex("^\\d{4}-\\d{2}-\\d{2}\\.org$")
         val NO_EXTERNAL_CHANGE_FLOW: StateFlow<ExternalChangeNotice?> = MutableStateFlow(null)
+        val NO_CLOCK_EVENT_SYNC_SNAPSHOT_FLOW: StateFlow<ClockEventStoreSnapshot> = MutableStateFlow(ClockEventStoreSnapshot(null, null, 0))
     }
 }

@@ -18,6 +18,7 @@ sealed interface OrgClockUiAction {
     data object ExpandAll : OrgClockUiAction
     data object RefreshHeadings : OrgClockUiAction
     data object RefreshFiles : OrgClockUiAction
+    data object ReloadFromDisk : OrgClockUiAction
     data class SelectHeading(val path: HeadingPath) : OrgClockUiAction
     data class OpenHistory(val item: HeadingViewItem) : OrgClockUiAction
     data object DismissHistory : OrgClockUiAction
@@ -72,6 +73,9 @@ sealed interface OrgClockUiAction {
     data class SyncSetEnabled(val enabled: Boolean) : OrgClockUiAction
     data class SyncSetDefaultPeerId(val peerId: String) : OrgClockUiAction
     data class SyncUpdatePeerInput(val value: String) : OrgClockUiAction
+    data class SyncUpdatePeerDisplayName(val value: String) : OrgClockUiAction
+    data class SyncUpdatePeerPublicKey(val value: String) : OrgClockUiAction
+    data class SyncSetPeerViewerMode(val enabled: Boolean) : OrgClockUiAction
     data object SyncAddPeer : OrgClockUiAction
     data class SyncRevokePeer(val peerId: String) : OrgClockUiAction
     data class SyncProbePeer(val peerId: String) : OrgClockUiAction

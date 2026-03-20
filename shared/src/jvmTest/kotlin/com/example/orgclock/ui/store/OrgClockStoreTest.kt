@@ -17,9 +17,14 @@ import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
+import com.example.orgclock.ui.state.OrgDivergenceCategory
+import com.example.orgclock.ui.state.OrgDivergenceRecommendedAction
+import com.example.orgclock.ui.state.OrgDivergenceSeverity
+import com.example.orgclock.ui.state.OrgDivergenceSnapshot
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.ExternalChangeNotice
 import com.example.orgclock.ui.state.Screen
+import com.example.orgclock.sync.SyncIntegrationSnapshot
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -110,6 +115,10 @@ class OrgClockStoreTest {
         assertTrue(store.uiState.value.externalChangePending)
         assertTrue(store.uiState.value.externalChangeAffectsSelectedFile)
         assertEquals(StatusMessageKey.SelectedFileChangedExternally, store.uiState.value.status.text.key)
+        assertNotNull(store.uiState.value.divergenceSnapshot)
+        assertEquals(OrgDivergenceCategory.ExternalChange, store.uiState.value.divergenceSnapshot?.category)
+        assertEquals(OrgDivergenceSeverity.Warning, store.uiState.value.divergenceSnapshot?.severity)
+        assertEquals(OrgDivergenceRecommendedAction.ReloadFromDisk, store.uiState.value.divergenceSnapshot?.recommendedAction)
 
         store.onAction(OrgClockUiAction.RefreshFiles)
         advanceUntilIdle()
@@ -117,7 +126,171 @@ class OrgClockStoreTest {
         assertFalse(store.uiState.value.externalChangePending)
         assertEquals("f2", store.uiState.value.selectedFile?.fileId)
         assertEquals(Screen.HeadingList, store.uiState.value.screen)
+
+        externalChanges.value = ExternalChangeNotice(
+            revision = 2,
+            changedFileIds = setOf("f2"),
+        )
+        advanceUntilIdle()
+        assertTrue(store.uiState.value.externalChangePending)
+
+        store.onAction(OrgClockUiAction.ReloadFromDisk)
+        advanceUntilIdle()
+
+        assertFalse(store.uiState.value.externalChangePending)
+        assertNull(store.uiState.value.divergenceSnapshot)
+        assertEquals(StatusMessageKey.LoadedFile, store.uiState.value.status.text.key)
         storeScope.cancel()
+    }
+
+    @Test
+    fun reloadFromDisk_keepsRecoveryDivergenceWhenMismatchStillExists() = runTest {
+        val selectedFile = OrgFileEntry("f2", "projects.org", null)
+        val store = testStore(
+            scope = this,
+            listFiles = {
+                Result.success(
+                    listOf(
+                        OrgFileEntry("f1", "2026-03-10.org", null),
+                        selectedFile,
+                    ),
+                )
+            },
+            listHeadings = { fileId ->
+                Result.success(
+                    if (fileId == "f2") {
+                        listOf(
+                            HeadingViewItem(
+                                node = HeadingNode(
+                                    lineIndex = 0,
+                                    level = 1,
+                                    title = "Projects",
+                                    path = HeadingPath.parse("Projects"),
+                                    parentL1 = "Projects",
+                                ),
+                                canStart = false,
+                                openClock = null,
+                            ),
+                        )
+                    } else {
+                        sampleHeadings()
+                    },
+                )
+            },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(selectedFile))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.SelectHeading(HeadingPath.parse("Projects/Backlog")))
+
+        store.onAction(OrgClockUiAction.ReloadFromDisk)
+        advanceUntilIdle()
+
+        val divergence = store.uiState.value.divergenceSnapshot
+        assertNotNull(divergence)
+        assertEquals(OrgDivergenceCategory.ContentMismatch, divergence.category)
+        assertEquals(OrgDivergenceSeverity.RecoveryRequired, divergence.severity)
+        assertEquals(OrgDivergenceRecommendedAction.ReloadFromDisk, divergence.recommendedAction)
+        assertTrue(store.uiState.value.externalChangePending)
+    }
+
+    @Test
+    fun refreshSyncDebug_clearsStaleDivergenceWhenSnapshotRecovers() = runTest {
+        val syncSnapshotFlow = MutableStateFlow(
+            SyncIntegrationSnapshot(
+                orgDivergenceSnapshot = OrgDivergenceSnapshot(
+                    severity = OrgDivergenceSeverity.Warning,
+                    category = OrgDivergenceCategory.ExternalChange,
+                    reason = "Selected file changed on disk",
+                    affectedFileIds = setOf("f2"),
+                    detectedAtEpochMs = 1L,
+                    recommendedAction = OrgDivergenceRecommendedAction.ReloadFromDisk,
+                ),
+            ),
+        )
+        val selectedFile = OrgFileEntry("f2", "projects.org", null)
+        val store = testStore(
+            scope = this,
+            listFiles = {
+                Result.success(
+                    listOf(
+                        OrgFileEntry("f1", "2026-03-10.org", null),
+                        selectedFile,
+                    ),
+                )
+            },
+            listHeadings = { Result.success(sampleProjectHeadings()) },
+            syncSnapshotFlow = syncSnapshotFlow,
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(selectedFile))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.RefreshSyncDebug)
+
+        assertTrue(store.uiState.value.externalChangePending)
+        assertNotNull(store.uiState.value.divergenceSnapshot)
+
+        syncSnapshotFlow.value = SyncIntegrationSnapshot()
+        store.onAction(OrgClockUiAction.RefreshSyncDebug)
+
+        val state = store.uiState.value
+        assertFalse(state.externalChangePending)
+        assertNull(state.divergenceSnapshot)
+        assertTrue(state.externalChangeChangedFileIds.isEmpty())
+        assertFalse(state.externalChangeAffectsSelectedFile)
+    }
+
+    @Test
+    fun refreshHeadings_whenSelectedHeadingDisappears_marksContentMismatchRecoveryRequired() = runTest {
+        var mismatch = false
+        val selectedFile = OrgFileEntry("f2", "projects.org", null)
+        val store = testStore(
+            scope = this,
+            listFiles = {
+                Result.success(
+                    listOf(
+                        OrgFileEntry("f1", "2026-03-10.org", null),
+                        selectedFile,
+                    ),
+                )
+            },
+            listHeadings = { fileId ->
+                Result.success(
+                    when {
+                        fileId == "f2" && mismatch -> listOf(
+                            HeadingViewItem(
+                                node = HeadingNode(
+                                    lineIndex = 0,
+                                    level = 1,
+                                    title = "Projects",
+                                    path = HeadingPath.parse("Projects"),
+                                    parentL1 = "Projects",
+                                ),
+                                canStart = false,
+                                openClock = null,
+                            ),
+                        )
+                        fileId == "f2" -> sampleProjectHeadings()
+                        else -> sampleHeadings()
+                    },
+                )
+            },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(selectedFile))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.SelectHeading(HeadingPath.parse("Projects/Backlog")))
+
+        mismatch = true
+        store.onAction(OrgClockUiAction.RefreshHeadings)
+        advanceUntilIdle()
+
+        val divergence = store.uiState.value.divergenceSnapshot
+        assertNotNull(divergence)
+        assertEquals(OrgDivergenceCategory.ContentMismatch, divergence.category)
+        assertEquals(OrgDivergenceSeverity.RecoveryRequired, divergence.severity)
+        assertEquals(OrgDivergenceRecommendedAction.ReloadFromDisk, divergence.recommendedAction)
+        assertTrue(store.uiState.value.externalChangePending)
     }
 
     @Test
@@ -249,6 +422,35 @@ class OrgClockStoreTest {
 
         assertEquals(StatusMessageKey.StartFailed, store.uiState.value.status.text.key)
         assertEquals(com.example.orgclock.presentation.StatusTone.Warning, store.uiState.value.status.tone)
+    }
+
+    @Test
+    fun startClock_whenSaveRoundTripMismatch_marksRecoveryRequiredDivergence() = runTest {
+        val store = testStore(
+            scope = this,
+            listHeadings = { Result.success(sampleHeadings()) },
+            startClock = { _, _ ->
+                Result.failure(
+                    ClockOperationException(
+                        code = ClockOperationCode.SaveRoundTripMismatch,
+                        message = "Saved content changed after round-trip verification",
+                    ),
+                )
+            },
+        )
+
+        store.onAction(OrgClockUiAction.SelectFile(OrgFileEntry("f1", "2026-03-10.org", null)))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.StartClock(HeadingPath.parse("Work/Project A")))
+        advanceUntilIdle()
+
+        val divergence = store.uiState.value.divergenceSnapshot
+        assertNotNull(divergence)
+        assertEquals(OrgDivergenceCategory.SaveRoundTripMismatch, divergence.category)
+        assertEquals(OrgDivergenceSeverity.RecoveryRequired, divergence.severity)
+        assertEquals(OrgDivergenceRecommendedAction.ReloadFromDisk, divergence.recommendedAction)
+        assertTrue(store.uiState.value.externalChangePending)
+        assertEquals(StatusMessageKey.StartFailed, store.uiState.value.status.text.key)
     }
 
     @Test
@@ -671,6 +873,7 @@ class OrgClockStoreTest {
         runAutoGenerationCatchUp: suspend (RootReference) -> Unit = {},
         createDefaultTemplateFile: suspend (RootReference) -> Result<String> = { Result.failure(UnsupportedOperationException("template file creation unavailable")) },
         externalChangeFlow: StateFlow<ExternalChangeNotice?> = OrgClockStore.NO_EXTERNAL_CHANGE_FLOW,
+        syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
     ): OrgClockStore {
         return OrgClockStore(
             scope = scope,
@@ -703,6 +906,7 @@ class OrgClockStoreTest {
             runAutoGenerationCatchUp = runAutoGenerationCatchUp,
             createDefaultTemplateFileAction = createDefaultTemplateFile,
             externalChangeFlow = externalChangeFlow,
+            syncSnapshotFlow = syncSnapshotFlow,
             nowProvider = { Instant.parse("2026-03-10T09:00:00Z") },
             todayProvider = { LocalDate(2026, 3, 10) },
             timeZoneProvider = { TimeZone.UTC },
