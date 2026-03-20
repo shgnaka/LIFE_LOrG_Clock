@@ -11,6 +11,8 @@ import com.example.orgclock.model.OpenClock
 import com.example.orgclock.model.OpenClockState
 import com.example.orgclock.model.OrgDocument
 import com.example.orgclock.parser.OrgParser
+import com.example.orgclock.sync.ClockEventRecorder
+import com.example.orgclock.sync.NoOpClockEventRecorder
 import kotlinx.datetime.Clock
 import kotlinx.datetime.DateTimeUnit
 import kotlinx.datetime.Instant
@@ -33,6 +35,7 @@ enum class ClockOperationCode {
     ValidationFailed,
     IoFailed,
     Conflict,
+    SaveRoundTripMismatch,
 }
 
 class ClockOperationException(
@@ -45,6 +48,7 @@ class ClockService(
     private val repository: ClockRepository,
     private val parser: OrgParser = OrgParser(),
     private val fileOperationCoordinator: FileOperationCoordinator = NoOpFileOperationCoordinator,
+    private val clockEventRecorder: ClockEventRecorder = NoOpClockEventRecorder,
 ) {
 
     data class ClockSession(
@@ -67,6 +71,10 @@ class ClockService(
         val firstDoc = repository.loadDaily(date).getOrElse { return Result.failure(it) }
         val firstLines = runCatching { parser.appendOpenClock(firstDoc.lines, headingPath, dateTime, timeZone) }
             .getOrElse { return Result.failure(it) }
+        val startedEvent = recordStartedEvent(date.toString() + ".org", date, headingPath, dateTime)
+        if (startedEvent.isFailure) {
+            return Result.failure(startedEvent.exceptionOrNull()!!)
+        }
 
         val firstSave = repository.saveDaily(date, firstLines, firstDoc.hash)
         if (firstSave is SaveResult.Success) {
@@ -127,6 +135,10 @@ class ClockService(
 
             val firstLines = runCatching { parser.appendOpenClock(doc.lines, headingPath, now, timeZone) }
                 .getOrElse { return@runExclusive Result.failure(it) }
+            val startedEvent = recordStartedEvent(fileId, doc.date, headingPath, now)
+            if (startedEvent.isFailure) {
+                return@runExclusive Result.failure(startedEvent.exceptionOrNull()!!)
+            }
             val firstSave = repository.saveFile(fileId, firstLines, doc.hash, FileWriteIntent.ClockMutation)
             if (firstSave is SaveResult.Success) {
                 return@runExclusive Result.success(ClockMutationResult(startedAt = now))
@@ -181,6 +193,10 @@ class ClockService(
             }
             val closeResult = runCatching { parser.closeLatestOpenClock(doc.lines, headingPath, now, timeZone) }
                 .getOrElse { return@runExclusive Result.failure(it) }
+            val stoppedEvent = recordStoppedEvent(fileId, doc.date, headingPath, now)
+            if (stoppedEvent.isFailure) {
+                return@runExclusive Result.failure(stoppedEvent.exceptionOrNull()!!)
+            }
             val save = saveFileWithRetry(fileId, doc.hash, closeResult.lines, FileWriteIntent.ClockMutation) {
                 parser.closeLatestOpenClock(it, headingPath, now, timeZone).lines
             }
@@ -205,6 +221,10 @@ class ClockService(
             }
             val cancelled = runCatching { parser.cancelLatestOpenClock(doc.lines, headingPath) }
                 .getOrElse { return@runExclusive Result.failure(it) }
+            val cancelledEvent = recordCancelledEvent(fileId, doc.date, headingPath, Clock.System.now())
+            if (cancelledEvent.isFailure) {
+                return@runExclusive Result.failure(cancelledEvent.exceptionOrNull()!!)
+            }
             val save = saveFileWithRetry(fileId, doc.hash, cancelled, FileWriteIntent.ClockMutation) {
                 parser.cancelLatestOpenClock(it, headingPath)
             }
@@ -380,6 +400,11 @@ class ClockService(
         val closeResult = runCatching { parser.closeLatestOpenClock(doc.lines, headingPath, end, timeZone) }
             .getOrElse { return ClockStopResult.Failed(it.message ?: "Failed to close clock") }
 
+        val stoppedEvent = recordStoppedEvent(doc.date.toString() + ".org", doc.date, headingPath, end)
+        if (stoppedEvent.isFailure) {
+            return ClockStopResult.Failed("Failed to append local event")
+        }
+
         val firstSave = repository.saveDaily(doc.date, closeResult.lines, doc.hash)
         if (firstSave is SaveResult.Success) {
             return ClockStopResult.Success(setOf(doc.date))
@@ -425,17 +450,22 @@ class ClockService(
             return ClockStopResult.Failed(it.message ?: "Failed to close previous-day clock")
         }
 
+        val closedToday = runCatching {
+            parser.appendClosedClock(todayDoc.lines, headingPath, startOfToday, end, timeZone)
+        }.getOrElse {
+            return ClockStopResult.Failed(it.message ?: "Failed to append today clock")
+        }
+
+        val stoppedEvent = recordStoppedEvent(previousDoc.date.toString() + ".org", previousDoc.date, headingPath, end)
+        if (stoppedEvent.isFailure) {
+            return ClockStopResult.Failed("Failed to append local event")
+        }
+
         val previousSave = saveWithConflictRetry(previousDoc.date, previousDoc.hash, closedPrevious) {
             parser.closeLatestOpenClock(it, headingPath, endOfPrevious, timeZone).lines
         }
         if (previousSave !is SaveResult.Success) {
             return ClockStopResult.Failed("Failed saving previous-day file: ${previousSave.asMessage()}")
-        }
-
-        val closedToday = runCatching {
-            parser.appendClosedClock(todayDoc.lines, headingPath, startOfToday, end, timeZone)
-        }.getOrElse {
-            return ClockStopResult.Failed(it.message ?: "Failed to append today clock")
         }
 
         val todaySave = saveWithConflictRetry(todayDoc.date, todayDoc.hash, closedToday) {
@@ -446,6 +476,33 @@ class ClockService(
         }
 
         return ClockStopResult.Success(setOf(previousDoc.date, todayDoc.date))
+    }
+
+    private suspend fun recordStartedEvent(
+        fileName: String,
+        logicalDay: LocalDate,
+        headingPath: HeadingPath,
+        createdAt: Instant,
+    ): Result<Unit> = runCatching {
+        clockEventRecorder.recordStarted(fileName, logicalDay, headingPath, createdAt)
+    }
+
+    private suspend fun recordStoppedEvent(
+        fileName: String,
+        logicalDay: LocalDate,
+        headingPath: HeadingPath,
+        createdAt: Instant,
+    ): Result<Unit> = runCatching {
+        clockEventRecorder.recordStopped(fileName, logicalDay, headingPath, createdAt)
+    }
+
+    private suspend fun recordCancelledEvent(
+        fileName: String,
+        logicalDay: LocalDate,
+        headingPath: HeadingPath,
+        createdAt: Instant,
+    ): Result<Unit> = runCatching {
+        clockEventRecorder.recordCancelled(fileName, logicalDay, headingPath, createdAt)
     }
 
     private suspend fun saveWithConflictRetry(
@@ -499,6 +556,7 @@ class ClockService(
             is SaveResult.Conflict -> reason
             is SaveResult.ValidationError -> reason
             is SaveResult.IoError -> reason
+            is SaveResult.RoundTripMismatch -> reason
         }
     }
 
@@ -507,6 +565,7 @@ class ClockService(
             is SaveResult.ValidationError -> ClockOperationException(ClockOperationCode.ValidationFailed, reason)
             is SaveResult.IoError -> ClockOperationException(ClockOperationCode.IoFailed, reason)
             is SaveResult.Conflict -> ClockOperationException(ClockOperationCode.Conflict, reason)
+            is SaveResult.RoundTripMismatch -> ClockOperationException(ClockOperationCode.SaveRoundTripMismatch, reason)
             SaveResult.Success -> ClockOperationException(ClockOperationCode.IoFailed, "Unexpected save success mapping")
         }
     }

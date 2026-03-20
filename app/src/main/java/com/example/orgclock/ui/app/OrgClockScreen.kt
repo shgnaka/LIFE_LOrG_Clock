@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -80,8 +81,12 @@ import com.example.orgclock.ui.state.UiStatus
 import com.example.orgclock.ui.time.RUNNING_PANEL_TICK_MS
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.sync.ClockEventSyncState
+import com.example.orgclock.sync.ClockEventSyncStatus
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncRuntimeMode
+import com.example.orgclock.ui.state.OrgDivergenceRecommendedAction
+import com.example.orgclock.ui.state.OrgDivergenceSeverity
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
@@ -252,13 +257,21 @@ fun OrgClockScreen(
                 syncDefaultPeerId = state.syncDefaultPeerId,
                 syncPeers = state.syncPeers,
                 syncPeerInput = state.syncPeerInput,
+                syncPeerDeviceId = state.syncPeerDeviceId,
+                syncPeerDisplayName = state.syncPeerDisplayName,
+                syncPeerPublicKey = state.syncPeerPublicKey,
+                syncPeerViewerModeEnabled = state.syncPeerViewerModeEnabled,
                 syncPeerInputError = state.syncPeerInputError,
                 syncPeerBusy = state.syncPeerBusy,
                 syncRuntimeMode = state.syncRuntimeMode,
                 syncLastResultSummary = state.syncLastResultSummary,
                 syncLastError = state.syncLastError,
+                syncViewerPeerCount = state.syncViewerPeerCount,
+                syncViewerProjectionSummary = state.syncViewerProjectionSummary,
                 syncMetricsSummary = "submitted=${state.syncMetrics.commandsSubmittedTotal}, applied=${state.syncMetrics.commandsAppliedTotal}, retries=${state.syncMetrics.retryAttemptsTotal}, depth=${state.syncMetrics.queueDepth}",
                 syncDeliveryStates = state.syncDeliveryStates.takeLast(3),
+                localClockEventSyncState = state.localClockEventSyncState,
+                divergenceSnapshot = state.divergenceSnapshot,
                 onChangeRoot = onPickRoot,
                 onToggleNotificationEnabled = {
                     onAction(OrgClockUiAction.ToggleNotificationEnabled(it))
@@ -296,9 +309,14 @@ fun OrgClockScreen(
                 onSyncSetEnabled = { onAction(OrgClockUiAction.SyncSetEnabled(it)) },
                 onSyncSetDefaultPeerId = { onAction(OrgClockUiAction.SyncSetDefaultPeerId(it)) },
                 onSyncUpdatePeerInput = { onAction(OrgClockUiAction.SyncUpdatePeerInput(it)) },
+                onSyncUpdatePeerDeviceId = { onAction(OrgClockUiAction.SyncUpdatePeerDeviceId(it)) },
+                onSyncUpdatePeerDisplayName = { onAction(OrgClockUiAction.SyncUpdatePeerDisplayName(it)) },
+                onSyncUpdatePeerPublicKey = { onAction(OrgClockUiAction.SyncUpdatePeerPublicKey(it)) },
+                onSyncSetPeerViewerMode = { onAction(OrgClockUiAction.SyncSetPeerViewerMode(it)) },
                 onSyncAddPeer = { onAction(OrgClockUiAction.SyncAddPeer) },
                 onSyncRevokePeer = { onAction(OrgClockUiAction.SyncRevokePeer(it)) },
                 onSyncProbePeer = { onAction(OrgClockUiAction.SyncProbePeer(it)) },
+                onReloadFromDisk = { onAction(OrgClockUiAction.ReloadFromDisk) },
                 onBack = { onAction(OrgClockUiAction.BackFromSettings) },
             )
         }
@@ -998,13 +1016,21 @@ private fun SettingsScreen(
     syncDefaultPeerId: String,
     syncPeers: List<PeerUiItem>,
     syncPeerInput: String,
+    syncPeerDeviceId: String,
+    syncPeerDisplayName: String,
+    syncPeerPublicKey: String,
+    syncPeerViewerModeEnabled: Boolean,
     syncPeerInputError: String?,
     syncPeerBusy: Boolean,
     syncRuntimeMode: SyncRuntimeMode,
     syncLastResultSummary: String?,
     syncLastError: String?,
+    syncViewerPeerCount: Int,
+    syncViewerProjectionSummary: String?,
     syncMetricsSummary: String,
     syncDeliveryStates: List<SyncDeliveryState>,
+    localClockEventSyncState: ClockEventSyncState,
+    divergenceSnapshot: com.example.orgclock.ui.state.OrgDivergenceSnapshot?,
     onChangeRoot: () -> Unit,
     onToggleNotificationEnabled: (Boolean) -> Unit,
     onChangeNotificationDisplayMode: (NotificationDisplayMode) -> Unit,
@@ -1024,9 +1050,14 @@ private fun SettingsScreen(
     onSyncSetEnabled: (Boolean) -> Unit,
     onSyncSetDefaultPeerId: (String) -> Unit,
     onSyncUpdatePeerInput: (String) -> Unit,
+    onSyncUpdatePeerDeviceId: (String) -> Unit,
+    onSyncUpdatePeerDisplayName: (String) -> Unit,
+    onSyncUpdatePeerPublicKey: (String) -> Unit,
+    onSyncSetPeerViewerMode: (Boolean) -> Unit,
     onSyncAddPeer: () -> Unit,
     onSyncRevokePeer: (String) -> Unit,
     onSyncProbePeer: (String) -> Unit,
+    onReloadFromDisk: () -> Unit,
     onBack: () -> Unit,
 ) {
     Column(
@@ -1288,6 +1319,86 @@ private fun SettingsScreen(
             SectionCard(modifier = Modifier.testTag(SyncSettingsSectionTag)) {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.sync_settings_title), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        text = stringResource(
+                            R.string.local_clock_event_sync_status,
+                            stringResource(
+                                when (localClockEventSyncState.status) {
+                                    ClockEventSyncStatus.Synced -> R.string.local_clock_event_sync_synced
+                                    ClockEventSyncStatus.Pending -> R.string.local_clock_event_sync_pending
+                                    ClockEventSyncStatus.Error -> R.string.local_clock_event_sync_error
+                                    ClockEventSyncStatus.RecoveryRequired -> R.string.local_clock_event_sync_recovery_required
+                                },
+                            ),
+                            localClockEventSyncState.pendingLocalEventCount,
+                        ),
+                        color = when (localClockEventSyncState.status) {
+                            ClockEventSyncStatus.Synced -> MaterialTheme.colorScheme.onSurfaceVariant
+                            ClockEventSyncStatus.Pending -> StateWarningFg
+                            ClockEventSyncStatus.Error -> StateErrorFg
+                            ClockEventSyncStatus.RecoveryRequired -> StateWarningFg
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    localClockEventSyncState.lastError?.takeIf { it.isNotBlank() }?.let { error ->
+                        Text(
+                            text = stringResource(R.string.local_clock_event_sync_error_detail, error),
+                            color = StateErrorFg,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    localClockEventSyncState.lastRejectReason?.takeIf { it.isNotBlank() }?.let { reason ->
+                        Text(
+                            text = stringResource(R.string.local_clock_event_sync_recovery_detail, reason),
+                            color = StateWarningFg,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Text(
+                        text = "Quarantined events: ${localClockEventSyncState.quarantinedEventCount}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    divergenceSnapshot?.let { divergence ->
+                        Text(
+                            text = "Divergence: ${divergence.category?.name ?: "unknown"} / ${divergence.severity.name}",
+                            color = if (divergence.severity == OrgDivergenceSeverity.RecoveryRequired) StateErrorFg else StateWarningFg,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        divergence.reason?.takeIf { it.isNotBlank() }?.let { reason ->
+                            Text(
+                                text = "Reason: $reason",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Text(
+                            text = "Recommended action: ${
+                                when (divergence.recommendedAction) {
+                                    OrgDivergenceRecommendedAction.ReloadFromDisk -> "Reload from disk"
+                                    OrgDivergenceRecommendedAction.RebuildFromEventLog -> "Rebuild from event log"
+                                    OrgDivergenceRecommendedAction.SyncNow -> "Sync now"
+                                }
+                            }",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onSyncFlushNow) {
+                            Text(stringResource(R.string.sync_debug_flush_now))
+                        }
+                        Button(onClick = onReloadFromDisk) {
+                            Text("Reload from disk")
+                        }
+                        if (localClockEventSyncState.status == ClockEventSyncStatus.RecoveryRequired || localClockEventSyncState.status == ClockEventSyncStatus.Error) {
+                            Text(
+                                text = "Sync retry is recommended after fixing the rejected event.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -1319,6 +1430,39 @@ private fun SettingsScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    OutlinedTextField(
+                        value = syncPeerDeviceId,
+                        onValueChange = onSyncUpdatePeerDeviceId,
+                        isError = !syncPeerInputError.isNullOrBlank(),
+                        label = { Text(stringResource(R.string.sync_peer_device_id_label)) },
+                        supportingText = { Text(stringResource(R.string.sync_peer_device_id_hint)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = syncPeerDisplayName,
+                        onValueChange = onSyncUpdatePeerDisplayName,
+                        label = { Text(stringResource(R.string.sync_peer_display_name_label)) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = syncPeerPublicKey,
+                        onValueChange = onSyncUpdatePeerPublicKey,
+                        label = { Text(stringResource(R.string.sync_peer_public_key_label)) },
+                        supportingText = { Text(stringResource(R.string.sync_peer_public_key_hint)) },
+                        minLines = 2,
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = syncPeerViewerModeEnabled,
+                            onCheckedChange = onSyncSetPeerViewerMode,
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(stringResource(R.string.sync_peer_viewer_role_label))
+                    }
                     Button(
                         onClick = onSyncAddPeer,
                         enabled = !syncPeerBusy,
@@ -1334,7 +1478,25 @@ private fun SettingsScreen(
                         syncPeers.forEach { peer ->
                             HorizontalDivider()
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(peer.peerId, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = peer.displayName?.takeIf { it.isNotBlank() } ?: peer.peerId,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Text(
+                                    text = stringResource(
+                                        R.string.sync_peer_identity_row,
+                                        peer.peerId,
+                                        stringResource(
+                                            when (peer.role) {
+                                                com.example.orgclock.sync.PeerTrustRole.Full -> R.string.sync_peer_role_full
+                                                com.example.orgclock.sync.PeerTrustRole.Viewer -> R.string.sync_peer_role_viewer
+                                            },
+                                        ),
+                                        if (peer.publicKeyRegistered) stringResource(R.string.sync_peer_public_key_registered) else stringResource(R.string.sync_peer_public_key_missing),
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                                 Text(
                                     text = stringResource(
                                         R.string.sync_peer_status_row,
@@ -1345,6 +1507,11 @@ private fun SettingsScreen(
                                         },
                                         formatEpochMillis(peer.lastSyncedAtEpochMs),
                                     ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
+                                Text(
+                                    text = "Sync cursors: seen=${peer.lastSeenCursor ?: "-"}, sent=${peer.lastSentCursor ?: "-"}",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     style = MaterialTheme.typography.bodySmall,
                                 )
@@ -1398,6 +1565,14 @@ private fun SettingsScreen(
                             R.string.sync_debug_last_error,
                             syncLastError ?: stringResource(R.string.none),
                         ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "Viewer peers: $syncViewerPeerCount",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "Viewer delivery: ${syncViewerProjectionSummary ?: stringResource(R.string.none)}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     if (syncDeliveryStates.isNotEmpty()) {

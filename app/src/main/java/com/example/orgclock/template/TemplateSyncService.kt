@@ -33,6 +33,9 @@ class TemplateSyncService(
                 is com.example.orgclock.data.SaveResult.IoError -> {
                     return Result.failure(IllegalStateException(save.reason))
                 }
+                is com.example.orgclock.data.SaveResult.RoundTripMismatch -> {
+                    return Result.failure(IllegalStateException(save.reason))
+                }
             }
         }
 
@@ -52,6 +55,7 @@ class TemplateSyncService(
             is com.example.orgclock.data.SaveResult.Conflict -> Result.failure(IllegalStateException(save.reason))
             is com.example.orgclock.data.SaveResult.ValidationError -> Result.failure(IllegalStateException(save.reason))
             is com.example.orgclock.data.SaveResult.IoError -> Result.failure(IllegalStateException(save.reason))
+            is com.example.orgclock.data.SaveResult.RoundTripMismatch -> Result.failure(IllegalStateException(save.reason))
         }
     }
 

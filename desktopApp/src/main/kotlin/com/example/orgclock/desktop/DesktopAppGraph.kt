@@ -7,6 +7,10 @@ import com.example.orgclock.domain.FileOperationCoordinator
 import com.example.orgclock.domain.InMemoryFileOperationCoordinator
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.sync.ClockEventStore
+import com.example.orgclock.sync.ClockEventStoreSnapshot
+import com.example.orgclock.sync.JdbcClockEventStore
+import com.example.orgclock.sync.StoreBackedClockEventRecorder
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
@@ -29,6 +33,7 @@ import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
 import kotlin.io.path.isReadable
 import kotlin.io.path.name
+import kotlin.io.path.createDirectories
 
 class DesktopAppGraph(
     private val settingsStore: DesktopSettingsStore = DesktopSettingsStore(),
@@ -40,11 +45,30 @@ class DesktopAppGraph(
 ) {
     private var currentRootPath: Path? = null
     private var repository: ClockRepository? = null
+    private var clockEventStore: ClockEventStore? = null
+    private var peerTrustStore: DesktopPeerTrustStore? = null
+    private var peerSyncCheckpointStore: DesktopPeerSyncCheckpointStore? = null
+    private var quarantineStore: DesktopClockEventSyncQuarantineStore? = null
     private var clockService: ClockService? = null
     private var openClockScanner: DesktopOpenClockScanner? = null
     private var rootWatcher: DesktopRootWatcher? = null
     private var scope: CoroutineScope? = null
     private val externalChangeFlow = MutableStateFlow<ExternalChangeNotice?>(null)
+    private val clockEventSyncSnapshotFlow = MutableStateFlow(ClockEventStoreSnapshot(null, null, 0))
+    private val desktopEventSyncRuntimeInstance: DesktopEventSyncRuntime by lazy {
+        DesktopEventSyncRuntime(
+            clockEventStoreProvider = { clockEventStore },
+            peerTrustStoreProvider = { peerTrustStore },
+            peerSyncCheckpointStoreProvider = { peerSyncCheckpointStore },
+            quarantineStoreProvider = { quarantineStore },
+            deviceIdProvider = {
+                currentRootPath?.let { "desktop-${it.toString().hashCode()}" } ?: "desktop-standalone"
+            },
+            snapshotFlowProvider = { clockEventSyncSnapshotFlow },
+            snapshotPublisher = { clockEventSyncSnapshotFlow.value = it },
+            transportProvider = DesktopEventSyncTransportProvider { null },
+        )
+    }
     private var externalChangeRevision = 0L
 
     fun createStore(scope: CoroutineScope): OrgClockStore {
@@ -134,6 +158,7 @@ class DesktopAppGraph(
             createDefaultTemplateFileAction = { rootReference -> createDefaultTemplateFile(rootReference) },
             externalChangeFlow = if (watchRootChanges) externalChangeFlow else OrgClockStore.NO_EXTERNAL_CHANGE_FLOW,
             syncSnapshotFlow = disabledSyncSnapshotFlow,
+            clockEventSyncSnapshotFlow = clockEventSyncSnapshotFlow,
             nowProvider = { clockEnvironment.now() },
             todayProvider = { clockEnvironment.today() },
             timeZoneProvider = { clockEnvironment.currentTimeZone() },
@@ -143,6 +168,11 @@ class DesktopAppGraph(
 
     fun currentRootReference(): RootReference? = currentRootPath?.let { RootReference(it.toString()) }
 
+    fun desktopEventSyncRuntime(): DesktopEventSyncRuntime {
+        DesktopEventSyncRuntimeEntryPoint.runtime = desktopEventSyncRuntimeInstance
+        return desktopEventSyncRuntimeInstance
+    }
+
     private suspend fun openRoot(rootReference: RootReference): Result<Unit> = runCatching {
         attachRoot(rootReference)
     }
@@ -150,11 +180,29 @@ class DesktopAppGraph(
     private fun attachRoot(rootReference: RootReference) {
         val normalized = normalizeRoot(rootReference)
         val repository = repositoryFactory(normalized)
-        val clockService = ClockService(repository, fileOperationCoordinator = coordinatorFactory())
+        val eventStore = JdbcClockEventStore.create(desktopEventStorePath(normalized))
+        val trustStore = DesktopPeerTrustStore()
+        val checkpointStore = DesktopPeerSyncCheckpointStore(desktopCheckpointStorePreferences(normalized))
+        val quarantineStore = DesktopClockEventSyncQuarantineStore(desktopQuarantineStorePreferences(normalized))
+        val clockService = ClockService(
+            repository,
+            fileOperationCoordinator = coordinatorFactory(),
+            clockEventRecorder = StoreBackedClockEventRecorder(
+                store = eventStore,
+                deviceIdProvider = { "desktop-${normalized.toString().hashCode()}" },
+                snapshotPublisher = { clockEventSyncSnapshotFlow.value = it },
+            ),
+        )
         currentRootPath = normalized
         this.repository = repository
+        this.clockEventStore = eventStore
+        this.peerTrustStore = trustStore
+        this.peerSyncCheckpointStore = checkpointStore
+        this.quarantineStore = quarantineStore
         this.clockService = clockService
         this.openClockScanner = DesktopOpenClockScanner(repository)
+        clockEventSyncSnapshotFlow.value = ClockEventStoreSnapshot(null, null, 0)
+        desktopEventSyncRuntimeInstance.onRootOpened()
         rootWatcher?.stop()
         scope?.takeIf { watchRootChanges }?.let { scope ->
             rootWatcher = DesktopRootWatcher(
@@ -220,6 +268,22 @@ class DesktopAppGraph(
 
     private fun missingRootError(): IllegalStateException =
         IllegalStateException("Desktop root is not opened")
+
+    private fun desktopEventStorePath(rootPath: Path): Path {
+        val eventDir = rootPath.resolve(".orgclock")
+        eventDir.createDirectories()
+        return eventDir.resolve("clock-events.db")
+    }
+
+    private fun desktopCheckpointStorePreferences(rootPath: Path): java.util.prefs.Preferences {
+        val nodeName = "com/example/orgclock/desktop/sync/checkpoints/${rootPath.toString().hashCode()}"
+        return java.util.prefs.Preferences.userRoot().node(nodeName)
+    }
+
+    private fun desktopQuarantineStorePreferences(rootPath: Path): java.util.prefs.Preferences {
+        val nodeName = "com/example/orgclock/desktop/sync/quarantine/${rootPath.toString().hashCode()}"
+        return java.util.prefs.Preferences.userRoot().node(nodeName)
+    }
 
     private companion object {
         const val TEMPLATE_FILE_NAME = ".orgclock-template.org"

@@ -20,6 +20,7 @@ sealed interface SaveResult {
     data class Conflict(val reason: String) : SaveResult
     data class ValidationError(val reason: String) : SaveResult
     data class IoError(val reason: String) : SaveResult
+    data class RoundTripMismatch(val reason: String) : SaveResult
 }
 
 interface ClockRepository {

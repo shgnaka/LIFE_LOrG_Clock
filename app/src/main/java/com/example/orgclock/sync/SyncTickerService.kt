@@ -31,12 +31,13 @@ class SyncTickerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (tickerJob?.isActive == true) return START_STICKY
-        tickerJob = scope.launch {
-            while (isActive) {
-                SyncRuntimeEntryPoint.syncIntegrationService?.flushNow()
-                delay(TICK_INTERVAL_MS)
+            tickerJob = scope.launch {
+                while (isActive) {
+                    SyncRuntimeEntryPoint.syncIntegrationService?.flushNow()
+                    AndroidEventSyncRuntimeEntryPoint.runtime?.onPeriodicTick()
+                    delay(TICK_INTERVAL_MS)
+                }
             }
-        }
         return START_STICKY
     }
 

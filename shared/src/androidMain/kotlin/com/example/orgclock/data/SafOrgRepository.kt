@@ -96,6 +96,12 @@ class SafOrgRepository(
                     writer.write(outputText)
                     writer.flush()
                 }
+                val roundTripRawText = readText(target.uri)
+                    ?: return@withContext SaveResult.IoError("Cannot verify written file")
+                val roundTripLines = parseLines(roundTripRawText)
+                if (canonicalText(roundTripLines) != canonicalText(lines)) {
+                    return@withContext SaveResult.RoundTripMismatch("Saved file contents changed after round-trip verification")
+                }
                 SaveResult.Success
             }.getOrElse {
                 SaveResult.IoError(it.message ?: "Unknown I/O error")
@@ -171,6 +177,12 @@ class SafOrgRepository(
                     writer.write(outputText)
                     writer.flush()
                 }
+                val roundTripRawText = readText(target.uri)
+                    ?: return@withContext SaveResult.IoError("Cannot verify written file")
+                val roundTripLines = parseLines(roundTripRawText)
+                if (canonicalText(roundTripLines) != canonicalText(lines)) {
+                    return@withContext SaveResult.RoundTripMismatch("Saved file contents changed after round-trip verification")
+                }
 
                 SaveResult.Success
             }.getOrElse {
@@ -221,6 +233,12 @@ class SafOrgRepository(
                 val writer = OutputStreamWriter(output)
                 writer.write(outputText)
                 writer.flush()
+            }
+            val roundTripRawText = readText(target.uri)
+                ?: return@withContext SaveResult.IoError("Cannot verify written file")
+            val roundTripLines = parseLines(roundTripRawText)
+            if (canonicalText(roundTripLines) != canonicalText(lines)) {
+                return@withContext SaveResult.RoundTripMismatch("Saved file contents changed after round-trip verification")
             }
             SaveResult.Success
         }.getOrElse {
@@ -480,6 +498,11 @@ internal fun saveResultToTemplateGenerationResult(
             templateStatus = templateStatus,
         )
         is SaveResult.IoError -> TemplateGenerationResult.Failed(
+            reason = save.reason,
+            kind = TemplateGenerationFailureKind.SaveFailed,
+            templateStatus = templateStatus,
+        )
+        is SaveResult.RoundTripMismatch -> TemplateGenerationResult.Failed(
             reason = save.reason,
             kind = TemplateGenerationFailureKind.SaveFailed,
             templateStatus = templateStatus,

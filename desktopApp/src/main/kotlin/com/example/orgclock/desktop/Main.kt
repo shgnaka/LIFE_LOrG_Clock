@@ -35,6 +35,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -58,6 +59,9 @@ import com.example.orgclock.presentation.Screen
 import com.example.orgclock.presentation.StatusMessageKey
 import com.example.orgclock.presentation.StatusTone
 import com.example.orgclock.presentation.UiStatus
+import com.example.orgclock.sync.ClockEventSyncState
+import com.example.orgclock.ui.state.OrgDivergenceRecommendedAction
+import com.example.orgclock.ui.state.OrgDivergenceSeverity
 import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.ui.state.ClockEditDraft
@@ -65,6 +69,8 @@ import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import java.io.File
@@ -84,10 +90,26 @@ private fun DesktopApp() {
     val scope = rememberCoroutineScope()
     val graph = remember { DesktopAppGraph() }
     val store = remember(graph) { graph.createStore(scope) }
+    val runtime = remember(graph) { graph.desktopEventSyncRuntime() }
     val state by store.uiState.collectAsState()
+    val syncState by runtime.state.collectAsState()
 
     LaunchedEffect(store) {
         store.onAction(OrgClockUiAction.Initialize)
+    }
+    LaunchedEffect(runtime) {
+        runtime.onAppStarted()
+    }
+    LaunchedEffect(runtime) {
+        while (true) {
+            delay(30_000)
+            runtime.onPeriodicTick()
+        }
+    }
+    DisposableEffect(runtime) {
+        onDispose {
+            runtime.stop()
+        }
     }
 
     MaterialTheme {
@@ -108,12 +130,14 @@ private fun DesktopApp() {
             ) {
                 DesktopHostCard(
                     state = state,
+                    syncState = syncState,
                     onPickRoot = {
                         chooseRootDirectory(state.rootReference)?.let { root ->
                             store.onAction(OrgClockUiAction.PickRoot(root))
                         }
                     },
                     onAction = store::onAction,
+                    onSyncNow = { scope.launch { runtime.flushNow("manual") } },
                 )
                 DesktopDialogs(
                     state = state,
@@ -127,8 +151,10 @@ private fun DesktopApp() {
 @Composable
 private fun DesktopHostCard(
     state: OrgClockUiState,
+    syncState: DesktopEventSyncRuntimeState,
     onPickRoot: () -> Unit,
     onAction: (OrgClockUiAction) -> Unit,
+    onSyncNow: () -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxSize(),
@@ -162,6 +188,7 @@ private fun DesktopHostCard(
                 ExternalChangeBanner(
                     state = state,
                     onReload = { onAction(OrgClockUiAction.RefreshFiles) },
+                    onReloadFromDisk = { onAction(OrgClockUiAction.ReloadFromDisk) },
                 )
             }
             HorizontalDivider(color = Color(0xFF3B564F))
@@ -179,10 +206,13 @@ private fun DesktopHostCard(
                 )
                 Screen.Settings -> SettingsPane(
                     state = state,
+                    syncState = syncState,
                     onChangeRoot = onPickRoot,
                     onBack = { onAction(OrgClockUiAction.BackFromSettings) },
                     onReloadFiles = { onAction(OrgClockUiAction.RefreshFiles) },
+                    onReloadFromDisk = { onAction(OrgClockUiAction.ReloadFromDisk) },
                     onAction = onAction,
+                    onSyncNow = onSyncNow,
                 )
             }
         }
@@ -490,10 +520,13 @@ private fun HeadingRow(
 @Composable
 private fun SettingsPane(
     state: OrgClockUiState,
+    syncState: DesktopEventSyncRuntimeState,
     onChangeRoot: () -> Unit,
     onBack: () -> Unit,
     onReloadFiles: () -> Unit,
+    onReloadFromDisk: () -> Unit,
     onAction: (OrgClockUiAction) -> Unit,
+    onSyncNow: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
@@ -509,9 +542,14 @@ private fun SettingsPane(
             state = state,
             onAction = onAction,
         )
+        DesktopSyncSettingsCard(
+            state = syncState,
+            onSyncNow = onSyncNow,
+        )
         FileMonitoringSettingsCard(
             state = state,
             onReloadFiles = onReloadFiles,
+            onReloadFromDisk = onReloadFromDisk,
         )
         AboutDesktopSettingsCard()
     }
@@ -761,26 +799,27 @@ private fun TemplateSettingsCard(
 private fun FileMonitoringSettingsCard(
     state: OrgClockUiState,
     onReloadFiles: () -> Unit,
+    onReloadFromDisk: () -> Unit,
 ) {
     val changedFiles = if (state.externalChangeChangedFileIds.isNotEmpty()) {
         state.externalChangeChangedFileIds.joinToString(", ")
     } else {
         "No recent file changes"
     }
+    val divergence = state.divergenceSnapshot
     val message = when {
-        state.externalChangeAffectsSelectedFile -> {
-            "The selected file changed on disk. Reload to refresh headings and history."
+        divergence?.severity == OrgDivergenceSeverity.RecoveryRequired -> {
+            "Recovery required: ${divergence.reason ?: "projected state is no longer reliable"}"
         }
-        state.externalChangePending -> {
-            "Org files changed on disk. Reload to refresh the desktop view."
-        }
+        state.externalChangeAffectsSelectedFile -> "The selected file changed on disk. Reload to refresh headings and history."
+        state.externalChangePending -> "Org files changed on disk. Reload to refresh the desktop view."
         else -> null
     }
 
     SettingsCard(
         title = "File Monitoring",
         description = "Desktop watches the selected root for external .org file changes and surfaces reload guidance.",
-        footer = "Desktop monitoring is local filesystem-based and is separate from Android background sync.",
+        footer = "Desktop monitoring is local filesystem-based and can reload the view from disk.",
     ) {
         SettingsFieldRow(
             label = "Monitoring",
@@ -792,12 +831,24 @@ private fun FileMonitoringSettingsCard(
         )
         SettingsFieldRow(
             label = "Reload guidance",
-            value = if (state.externalChangePending) "Reload recommended" else "No external changes detected",
+            value = divergence?.let {
+                when (it.recommendedAction) {
+                    OrgDivergenceRecommendedAction.ReloadFromDisk -> "Reload recommended"
+                    OrgDivergenceRecommendedAction.RebuildFromEventLog -> "Rebuild recommended"
+                    OrgDivergenceRecommendedAction.SyncNow -> "Sync now recommended"
+                }
+            } ?: "No divergence detected",
         )
         SettingsFieldRow(
             label = "Changed files",
             value = changedFiles,
         )
+        divergence?.let {
+            SettingsFieldRow(
+                label = "Divergence",
+                value = "${it.category?.name ?: "unknown"} / ${it.severity.name}",
+            )
+        }
         message?.let {
             SettingsMessageBlock(
                 text = it,
@@ -807,6 +858,12 @@ private fun FileMonitoringSettingsCard(
         SettingsActionRow {
             Button(
                 onClick = onReloadFiles,
+                enabled = state.rootReference != null,
+            ) {
+                Text("Reload files")
+            }
+            Button(
+                onClick = onReloadFromDisk,
                 enabled = state.rootReference != null,
             ) {
                 Text("Reload from disk")
@@ -842,6 +899,63 @@ private fun AboutDesktopSettingsCard() {
             label = "Platform focus",
             value = "Windows and Linux desktop MVP",
         )
+    }
+}
+
+@Composable
+private fun DesktopSyncSettingsCard(
+    state: DesktopEventSyncRuntimeState,
+    onSyncNow: () -> Unit,
+) {
+    val status = when {
+        state.lastError != null -> "Error"
+        state.lastRejectReason != null || state.quarantinedEventCount > 0 -> "Recovery required"
+        state.running -> "Running"
+        else -> "Stopped"
+    }
+    val peerSummary = when {
+        state.lastPeerCount == 0 -> "No peers processed"
+        state.lastPeerCount == 1 -> "1 peer processed"
+        else -> "${state.lastPeerCount} peers processed"
+    }
+    SettingsCard(
+        title = "Event Sync",
+        description = "Desktop runtime keeps local event-log sync moving with periodic ticks and automatic reaction to local writes.",
+        footer = "Host mode pushes local events and fetches remote events. Listener mode fetches only.",
+    ) {
+        SettingsFieldRow(label = "Runtime", value = status)
+        SettingsFieldRow(label = "Mode", value = state.mode.name)
+        SettingsFieldRow(
+            label = "Last sync",
+            value = state.lastSyncAtEpochMs?.toString() ?: "No successful sync yet",
+        )
+        SettingsFieldRow(
+            label = "Last reason",
+            value = state.lastReason ?: "No sync requested yet",
+        )
+        SettingsFieldRow(
+            label = "Last reject",
+            value = state.lastRejectReason ?: "No rejected event recorded",
+        )
+        SettingsFieldRow(
+            label = "Quarantined",
+            value = state.quarantinedEventCount.toString(),
+        )
+        SettingsFieldRow(label = "Peer count", value = peerSummary)
+        state.lastError?.takeIf { it.isNotBlank() }?.let { error ->
+            SettingsMessageBlock(text = error, tone = SettingsMessageTone.Warning)
+        }
+        if (state.lastRejectReason != null && state.lastError == null) {
+            SettingsMessageBlock(
+                text = "Recovery required: ${state.lastRejectReason}",
+                tone = SettingsMessageTone.Warning,
+            )
+        }
+        SettingsActionRow {
+            Button(onClick = onSyncNow) {
+                Text("Sync now")
+            }
+        }
     }
 }
 
@@ -909,6 +1023,7 @@ private fun DesktopDialogs(
 private fun ExternalChangeBanner(
     state: OrgClockUiState,
     onReload: () -> Unit,
+    onReloadFromDisk: () -> Unit,
 ) {
     val text = when {
         state.externalChangeAffectsSelectedFile -> {
@@ -934,6 +1049,9 @@ private fun ExternalChangeBanner(
             color = Color(0xFFF2D38A),
         )
         Button(onClick = onReload) {
+            Text("Reload files")
+        }
+        Button(onClick = onReloadFromDisk) {
             Text("Reload from disk")
         }
     }

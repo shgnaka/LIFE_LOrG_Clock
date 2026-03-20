@@ -24,11 +24,14 @@ import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.model.HeadingViewItem
 import com.example.orgclock.notification.NotificationDisplayMode
 import com.example.orgclock.presentation.RootReference
+import com.example.orgclock.sync.ClockEventStoreSnapshot
+import com.example.orgclock.sync.PeerRegistrationRequest
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.ui.store.OrgClockStore
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
@@ -74,6 +77,10 @@ data class OrgClockRouteDependencies(
     val stopNotificationService: () -> Unit,
     val openAppNotificationSettings: () -> Unit,
     val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
+    val clockEventSyncSnapshotFlow: StateFlow<ClockEventStoreSnapshot> = OrgClockStore.NO_CLOCK_EVENT_SYNC_SNAPSHOT_FLOW,
+    val syncPairTrustedPeer: suspend (PeerRegistrationRequest) -> PeerProbeResult = { request ->
+        PeerProbeResult(peerId = request.peerId, reachable = false, checkedAtEpochMs = 0L, reason = "sync unavailable")
+    },
     val syncEnableStandardMode: suspend () -> Unit = {},
     val syncEnableActiveMode: suspend () -> Unit = {},
     val syncStopRuntime: suspend () -> Unit = {},
@@ -234,6 +241,8 @@ private fun orgClockViewModelFactory(
                 runAutoGenerationCatchUp = dependencies.runAutoGenerationCatchUp,
                 syncTemplateTaggedHeading = dependencies.syncTemplateTaggedHeading,
                 syncSnapshotFlow = dependencies.syncSnapshotFlow,
+                clockEventSyncSnapshotFlow = dependencies.clockEventSyncSnapshotFlow,
+                syncPairTrustedPeer = dependencies.syncPairTrustedPeer,
                 syncEnableStandardMode = dependencies.syncEnableStandardMode,
                 syncEnableActiveMode = dependencies.syncEnableActiveMode,
                 syncStopRuntime = dependencies.syncStopRuntime,

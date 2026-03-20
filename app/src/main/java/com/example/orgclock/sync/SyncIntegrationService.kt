@@ -17,10 +17,13 @@ class SyncIntegrationService(
     private val deviceIdProvider: DeviceIdProvider,
     private val runtimePrefs: SyncRuntimePrefs,
     private val peerTrustStore: PeerTrustStore,
+    private val clockEventStoreProvider: () -> ClockEventStore? = { null },
+    private val peerSyncCheckpointStore: PeerSyncCheckpointStore? = null,
     private val peerHealthChecker: PeerHealthChecker = HttpPeerHealthChecker(),
     private val runtimeManager: SyncRuntimeManager? = null,
 ) {
     private val peerStates = linkedMapOf<String, SyncPeerState>()
+    private val recoveryService = ClockEventRecoveryService()
     private val _snapshot = MutableStateFlow(
         SyncIntegrationSnapshot(
             runtimeEnabled = runtimePrefs.isEnabled(),
@@ -31,6 +34,12 @@ class SyncIntegrationService(
     )
     val snapshot: StateFlow<SyncIntegrationSnapshot> = _snapshot.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    init {
+        scope.launch {
+            refreshStateSnapshot()
+        }
+    }
 
     /**
      * Executes one sync command payload and reports the mapped result to the sync-core client.
@@ -171,10 +180,52 @@ class SyncIntegrationService(
     private suspend fun refreshStateSnapshot() {
         val metrics = runCatching { syncCoreClient.metricsSnapshot() }.getOrDefault(SyncMetricsSnapshot())
         val states = runCatching { syncCoreClient.observeDeliveryState() }.getOrDefault(emptyList())
+        val records = peerTrustStore.listTrustRecords()
+        val recordsByPeerId = records.associateBy { it.peerId }
+        val checkpointsByPeerId = peerSyncCheckpointStore?.list()?.associateBy { it.peerId }.orEmpty()
         val trusted = peerTrustStore.listTrusted()
+        val viewerPeers = records.filter { it.isActive && it.role == PeerTrustRole.Viewer }
+        val recoveryResult = if (viewerPeers.isNotEmpty()) {
+            runCatching {
+                recoveryService.rebuildFromEventLog {
+                    clockEventStoreProvider()?.readAllForReplay()
+                        ?: throw IllegalStateException("clock event store unavailable")
+                }
+            }.getOrNull()
+        } else {
+            null
+        }
+        val viewerProjection = recoveryResult?.projection
+        val orgDivergenceSnapshot = recoveryResult?.divergenceSnapshot
         val peerStatesSnapshot = synchronized(peerStates) {
             trusted.forEach { peerId ->
-                peerStates.putIfAbsent(peerId, SyncPeerState(peerId = peerId))
+                val record = recordsByPeerId[peerId]
+                val checkpoint = checkpointsByPeerId[peerId]
+                peerStates.putIfAbsent(
+                    peerId,
+                    SyncPeerState(
+                        peerId = peerId,
+                        displayName = record?.displayName ?: peerId,
+                        role = record?.role ?: PeerTrustRole.Full,
+                        publicKeyRegistered = !record?.publicKeyBase64.isNullOrBlank(),
+                        lastSeenCursor = checkpoint?.lastSeenCursor?.value,
+                        lastSentCursor = checkpoint?.lastSentCursor?.value,
+                    ),
+                )
+                if (record != null) {
+                    peerStates[peerId] = peerStates[peerId]!!.copy(
+                        displayName = record.displayName,
+                        role = record.role,
+                        publicKeyRegistered = !record.publicKeyBase64.isNullOrBlank(),
+                        lastSeenCursor = checkpoint?.lastSeenCursor?.value,
+                        lastSentCursor = checkpoint?.lastSentCursor?.value,
+                    )
+                } else if (checkpoint != null) {
+                    peerStates[peerId] = peerStates[peerId]!!.copy(
+                        lastSeenCursor = checkpoint.lastSeenCursor?.value,
+                        lastSentCursor = checkpoint.lastSentCursor?.value,
+                    )
+                }
             }
             peerStates.keys.retainAll(trusted.toSet())
             trusted.mapNotNull { peerStates[it] }.takeLast(MAX_PEER_STATES)
@@ -183,6 +234,10 @@ class SyncIntegrationService(
             it.copy(
                 metrics = metrics,
                 lastDeliveryStates = states.takeLast(MAX_DELIVERY_STATES),
+                viewerPeerCount = viewerPeers.size,
+                viewerProjection = viewerProjection,
+                viewerProjectionAtEpochMs = viewerProjection?.let { kotlinx.datetime.Clock.System.now().toEpochMilliseconds() },
+                orgDivergenceSnapshot = orgDivergenceSnapshot,
                 trustedPeers = trusted,
                 peerStates = peerStatesSnapshot,
             )
@@ -267,6 +322,35 @@ class SyncIntegrationService(
         return probe
     }
 
+    suspend fun pairTrustedPeer(request: PeerRegistrationRequest): PeerProbeResult {
+        val normalized = request.peerId.trim()
+        if (normalized.isBlank()) {
+            return PeerProbeResult(
+                peerId = normalized,
+                reachable = false,
+                checkedAtEpochMs = System.currentTimeMillis(),
+                reason = "peer id is empty",
+            )
+        }
+        if (request.publicKeyBase64.isBlank()) {
+            return PeerProbeResult(
+                peerId = normalized,
+                reachable = false,
+                checkedAtEpochMs = System.currentTimeMillis(),
+                reason = "public key is empty",
+            )
+        }
+        peerTrustStore.trust(request.toPeerTrustRecord())
+        val probe = peerHealthChecker.probe(normalized)
+        updatePeerState(
+            peerId = normalized,
+            reachable = probe.reachable,
+            lastCheckedAtEpochMs = probe.checkedAtEpochMs,
+        )
+        refreshStateSnapshot()
+        return probe
+    }
+
     suspend fun probePeer(peerId: String): PeerProbeResult {
         val normalized = peerId.trim()
         if (normalized.isBlank()) {
@@ -291,6 +375,7 @@ class SyncIntegrationService(
         val normalized = peerId.trim()
         if (normalized.isBlank()) return
         peerTrustStore.revoke(normalized)
+        peerSyncCheckpointStore?.clear(normalized)
         if (runtimePrefs.defaultPeerId() == normalized) {
             runtimePrefs.setDefaultPeerId(null)
             _snapshot.update { it.copy(defaultPeerId = null) }
@@ -301,11 +386,47 @@ class SyncIntegrationService(
         refreshStateSnapshot()
     }
 
+    suspend fun repairPeer(peerId: String) {
+        val normalized = peerId.trim()
+        if (normalized.isBlank()) return
+        peerTrustStore.repair(normalized)
+        updatePeerState(peerId = normalized, reachable = true, lastSyncedAtEpochMs = System.currentTimeMillis())
+        refreshStateSnapshot()
+    }
+
+    fun markPeerCheckpointSeen(
+        peerId: String,
+        cursor: ClockEventCursor,
+        seenAtEpochMs: Long = System.currentTimeMillis(),
+    ) {
+        peerSyncCheckpointStore?.markSeen(peerId, cursor, seenAtEpochMs)
+        updatePeerState(
+            peerId = peerId.trim(),
+            lastSeenCursor = cursor.value,
+            lastCheckedAtEpochMs = seenAtEpochMs,
+        )
+    }
+
+    fun markPeerCheckpointSent(
+        peerId: String,
+        cursor: ClockEventCursor,
+        syncedAtEpochMs: Long = System.currentTimeMillis(),
+    ) {
+        peerSyncCheckpointStore?.markSent(peerId, cursor, syncedAtEpochMs)
+        updatePeerState(
+            peerId = peerId.trim(),
+            lastSentCursor = cursor.value,
+            lastSyncedAtEpochMs = syncedAtEpochMs,
+        )
+    }
+
     private fun updatePeerState(
         peerId: String,
         reachable: Boolean? = null,
         lastCheckedAtEpochMs: Long? = null,
         lastSyncedAtEpochMs: Long? = null,
+        lastSeenCursor: Long? = null,
+        lastSentCursor: Long? = null,
     ) {
         synchronized(peerStates) {
             val current = peerStates[peerId] ?: SyncPeerState(peerId = peerId)
@@ -313,6 +434,8 @@ class SyncIntegrationService(
                 reachable = reachable ?: current.reachable,
                 lastCheckedAtEpochMs = lastCheckedAtEpochMs ?: current.lastCheckedAtEpochMs,
                 lastSyncedAtEpochMs = lastSyncedAtEpochMs ?: current.lastSyncedAtEpochMs,
+                lastSeenCursor = lastSeenCursor ?: current.lastSeenCursor,
+                lastSentCursor = lastSentCursor ?: current.lastSentCursor,
             )
         }
     }
