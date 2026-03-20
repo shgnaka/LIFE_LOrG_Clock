@@ -39,6 +39,30 @@ Android 端末と Desktop OS 上で org ファイルの見出しに対して clo
   `docs/synccore-integration/contract.md`  
   `docs/synccore-integration/execution-plan-m1.md`  
   `docs/synccore-integration/test-acceptance.md`
+- 長期同期アーキテクチャ草案  
+  `docs/sync-architecture-next.md`
+- clock event schema 草案  
+  `docs/sync-event-schema-v1-draft.md`
+- local event store backend 決定メモ  
+  `docs/sync-local-event-store-backend.md`
+- Phase 1 issue 分解メモ  
+  `docs/sync-phase1-issue-breakdown.md`
+- 同期移行計画草案  
+  `docs/sync-migration-plan.md`
+- 同期障害復旧計画草案  
+  `docs/sync-failure-recovery.md`
+- peer / trust model 草案  
+  `docs/sync-peer-trust-model.md`
+- platform runtime matrix 草案  
+  `docs/sync-platform-runtime-matrix.md`
+- heading ID 導入判断メモ  
+  `docs/sync-heading-id-decision.md`
+- org direct edit 方針草案  
+  `docs/sync-org-direct-edit-policy.md`
+- Phase 2 issue 分解メモ  
+  `docs/sync-phase2-issue-breakdown.md`
+- 次の実装 issue 準備メモ  
+  `docs/sync-next-implementation-issue-prep.md`
 - iOS 配布/検証フロー（M5 Runbook）  
   `docs/ios-support/distribution-testing-flow.md`
 
