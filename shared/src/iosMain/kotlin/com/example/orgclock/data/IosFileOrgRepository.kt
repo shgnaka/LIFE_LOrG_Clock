@@ -80,7 +80,12 @@ class IosFileOrgRepository : ClockRepository {
             lineSeparator = detectLineSeparator(existingRaw),
             trailingNewline = existingRaw.endsWith('\n'),
         )
-        return if (writeText(fileId, outputText)) SaveResult.Success else SaveResult.IoError("Failed to write file")
+        if (!writeText(fileId, outputText)) return SaveResult.IoError("Failed to write file")
+        val roundTripRaw = readText(fileId) ?: return SaveResult.IoError("Cannot verify written file")
+        if (canonicalText(parseLines(roundTripRaw)) != canonicalText(lines)) {
+            return SaveResult.RoundTripMismatch("Saved file contents changed after round-trip verification")
+        }
+        return SaveResult.Success
     }
 
     override suspend fun loadDaily(date: LocalDate): Result<OrgDocument> = runCatching {
@@ -106,7 +111,12 @@ class IosFileOrgRepository : ClockRepository {
         val lineSeparator = existingRaw?.let(::detectLineSeparator) ?: "\n"
         val trailingNewline = existingRaw?.endsWith('\n') ?: false
         val outputText = formatOutputText(lines, lineSeparator, trailingNewline)
-        return if (writeText(path, outputText)) SaveResult.Success else SaveResult.IoError("Failed to write file")
+        if (!writeText(path, outputText)) return SaveResult.IoError("Failed to write file")
+        val roundTripRaw = readText(path) ?: return SaveResult.IoError("Cannot verify written file")
+        if (canonicalText(parseLines(roundTripRaw)) != canonicalText(lines)) {
+            return SaveResult.RoundTripMismatch("Saved file contents changed after round-trip verification")
+        }
+        return SaveResult.Success
     }
 
     private fun ensureRootPath(): String {

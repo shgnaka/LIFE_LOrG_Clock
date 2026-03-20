@@ -163,6 +163,13 @@ class DesktopFileOrgRepository(
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.WRITE,
             )
+            val roundTripRawText = normalizedPath.readText(StandardCharsets.UTF_8)
+            val roundTripLines = parseLines(roundTripRawText)
+            val expectedCanonicalText = canonicalText(lines)
+            val roundTripCanonicalText = canonicalText(roundTripLines)
+            if (roundTripCanonicalText != expectedCanonicalText) {
+                return SaveResult.RoundTripMismatch("Saved file contents changed after round-trip verification")
+            }
             SaveResult.Success
         }.getOrElse {
             SaveResult.IoError(it.message ?: "Unknown I/O error")

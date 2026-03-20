@@ -11,6 +11,8 @@ import com.example.orgclock.presentation.StatusText
 import com.example.orgclock.template.ScheduleRuleType
 import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
+import com.example.orgclock.sync.ClockEventSyncState
+import com.example.orgclock.sync.PeerTrustRole
 import com.example.orgclock.sync.SyncDeliveryState
 import com.example.orgclock.sync.SyncMetricsSnapshot
 import com.example.orgclock.sync.SyncRuntimeMode
@@ -32,9 +34,14 @@ enum class CreateHeadingMode {
 
 data class PeerUiItem(
     val peerId: String,
+    val displayName: String? = null,
+    val role: PeerTrustRole = PeerTrustRole.Full,
+    val publicKeyRegistered: Boolean = false,
     val reachable: Boolean? = null,
     val lastCheckedAtEpochMs: Long? = null,
     val lastSyncedAtEpochMs: Long? = null,
+    val lastSeenCursor: Long? = null,
+    val lastSentCursor: Long? = null,
 )
 
 data class CreateHeadingDialogState(
@@ -59,6 +66,7 @@ data class OrgClockUiState(
     val selectedFile: OrgFileEntry? = null,
     val headings: List<HeadingViewItem> = emptyList(),
     val selectedHeadingPath: HeadingPath? = null,
+    val divergenceSnapshot: OrgDivergenceSnapshot? = null,
     val externalChangePending: Boolean = false,
     val externalChangeChangedFileIds: Set<String> = emptySet(),
     val externalChangeAffectsSelectedFile: Boolean = false,
@@ -101,11 +109,17 @@ data class OrgClockUiState(
     val syncDefaultPeerId: String = "",
     val syncPeers: List<PeerUiItem> = emptyList(),
     val syncPeerInput: String = "",
+    val syncPeerDisplayName: String = "",
+    val syncPeerPublicKey: String = "",
+    val syncPeerViewerModeEnabled: Boolean = false,
     val syncPeerInputError: String? = null,
     val syncPeerBusy: Boolean = false,
     val syncRuntimeMode: SyncRuntimeMode = SyncRuntimeMode.Off,
     val syncLastResultSummary: String? = null,
     val syncLastError: String? = null,
+    val syncViewerPeerCount: Int = 0,
+    val syncViewerProjectionSummary: String? = null,
     val syncMetrics: SyncMetricsSnapshot = SyncMetricsSnapshot(),
     val syncDeliveryStates: List<SyncDeliveryState> = emptyList(),
+    val localClockEventSyncState: ClockEventSyncState = ClockEventSyncState(),
 )

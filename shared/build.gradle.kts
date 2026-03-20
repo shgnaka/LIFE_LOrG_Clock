@@ -47,6 +47,11 @@ kotlin {
                 implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
             }
         }
+        val jvmMain by getting {
+            dependencies {
+                implementation("org.xerial:sqlite-jdbc:3.49.1.0")
+            }
+        }
         val androidUnitTest by getting {
             dependencies {
                 implementation(kotlin("test"))
