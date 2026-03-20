@@ -9,10 +9,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.util.logging.Logger
-import com.example.orgclock.ui.state.OrgDivergenceCategory
-import com.example.orgclock.ui.state.OrgDivergenceRecommendedAction
-import com.example.orgclock.ui.state.OrgDivergenceSeverity
-import com.example.orgclock.ui.state.OrgDivergenceSnapshot
 
 class SyncIntegrationService(
     private val featureFlag: SyncIntegrationFeatureFlag,
@@ -27,7 +23,7 @@ class SyncIntegrationService(
     private val runtimeManager: SyncRuntimeManager? = null,
 ) {
     private val peerStates = linkedMapOf<String, SyncPeerState>()
-    private val projector = ClockEventProjector()
+    private val recoveryService = ClockEventRecoveryService()
     private val _snapshot = MutableStateFlow(
         SyncIntegrationSnapshot(
             runtimeEnabled = runtimePrefs.isEnabled(),
@@ -189,23 +185,18 @@ class SyncIntegrationService(
         val checkpointsByPeerId = peerSyncCheckpointStore?.list()?.associateBy { it.peerId }.orEmpty()
         val trusted = peerTrustStore.listTrusted()
         val viewerPeers = records.filter { it.isActive && it.role == PeerTrustRole.Viewer }
-        val viewerProjection = if (viewerPeers.isNotEmpty()) {
+        val recoveryResult = if (viewerPeers.isNotEmpty()) {
             runCatching {
-                clockEventStoreProvider()?.readAllForReplay()?.let(projector::project)
+                recoveryService.rebuildFromEventLog {
+                    clockEventStoreProvider()?.readAllForReplay()
+                        ?: throw IllegalStateException("clock event store unavailable")
+                }
             }.getOrNull()
         } else {
             null
         }
-        val orgDivergenceSnapshot = when {
-            viewerProjection != null && viewerProjection.issues.isNotEmpty() -> OrgDivergenceSnapshot(
-                severity = OrgDivergenceSeverity.RecoveryRequired,
-                category = OrgDivergenceCategory.ProjectionReplayFailure,
-                reason = "Projection replay produced ${viewerProjection.issues.size} issue(s)",
-                detectedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
-                recommendedAction = OrgDivergenceRecommendedAction.RebuildFromEventLog,
-            )
-            else -> null
-        }
+        val viewerProjection = recoveryResult?.projection
+        val orgDivergenceSnapshot = recoveryResult?.divergenceSnapshot
         val peerStatesSnapshot = synchronized(peerStates) {
             trusted.forEach { peerId ->
                 val record = recordsByPeerId[peerId]

@@ -123,6 +123,14 @@ class OrgClockStore(
 
     private val _uiState = MutableStateFlow(OrgClockUiState(showPerfOverlay = showPerfOverlay))
     val uiState: StateFlow<OrgClockUiState> = _uiState.asStateFlow()
+    private val recoveryStateFactory = OrgClockRecoveryStateFactory(nowProvider)
+    private val recoveryCoordinator = OrgClockRecoveryCoordinator(
+        uiState = _uiState,
+        refreshFilesAndRoute = ::refreshFilesAndRoute,
+        refreshAutoGenerationRuntimeState = ::refreshAutoGenerationRuntimeState,
+    )
+    )
+    private val syncSnapshotMapper = OrgClockSyncSnapshotMapper()
 
     private var initialized = false
     private var headingsSyncJob: Job? = null
@@ -219,7 +227,7 @@ class OrgClockStore(
             true
         }
         OrgClockUiAction.ReloadFromDisk -> {
-            scope.launch { reloadFromDisk() }
+            scope.launch { recoveryCoordinator.reloadFromDisk() }
             true
         }
         is OrgClockUiAction.SelectHeading -> {
@@ -553,16 +561,10 @@ class OrgClockStore(
             } else {
                 null
             }
-            val divergenceSnapshot = when {
-                missingSelectedHeading -> OrgDivergenceSnapshot(
-                    severity = OrgDivergenceSeverity.RecoveryRequired,
-                    category = OrgDivergenceCategory.ContentMismatch,
-                    reason = "Selected heading no longer exists after reload",
-                    affectedFileIds = setOf(file.fileId),
-                    detectedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
-                    recommendedAction = OrgDivergenceRecommendedAction.ReloadFromDisk,
-                )
-                else -> null
+            val divergenceSnapshot = if (missingSelectedHeading) {
+                recoveryStateFactory.missingSelectedHeading(file.fileId)
+            } else {
+                null
             }
             _uiState.update {
                 it.copy(
@@ -583,9 +585,6 @@ class OrgClockStore(
                     deleteFailureMessage = if (preservedHistoryTarget != null) it.deleteFailureMessage else null,
                     createHeadingDialog = null,
                     divergenceSnapshot = divergenceSnapshot,
-                    externalChangePending = divergenceSnapshot != null,
-                    externalChangeChangedFileIds = divergenceSnapshot?.affectedFileIds ?: emptySet(),
-                    externalChangeAffectsSelectedFile = divergenceSnapshot?.affectedFileIds?.contains(file.fileId) == true,
                     screen = Screen.HeadingList,
                     status = if (updateStatus) status(StatusMessageKey.LoadedFile, StatusTone.Success, file.displayName) else it.status,
                 )
@@ -613,16 +612,7 @@ class OrgClockStore(
             val reason = result.exceptionOrNull()?.message ?: ""
             _uiState.update {
                 it.copy(
-                    divergenceSnapshot = OrgDivergenceSnapshot(
-                        severity = OrgDivergenceSeverity.RecoveryRequired,
-                        category = OrgDivergenceCategory.ContentMismatch,
-                        reason = reason.ifBlank { "Failed to list files" },
-                        detectedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
-                        recommendedAction = OrgDivergenceRecommendedAction.ReloadFromDisk,
-                    ),
-                    externalChangePending = true,
-                    externalChangeChangedFileIds = emptySet(),
-                    externalChangeAffectsSelectedFile = false,
+                    divergenceSnapshot = recoveryStateFactory.failedListingFiles(reason),
                     status = status(StatusMessageKey.FailedListingFiles, StatusTone.Error, reason),
                     screen = Screen.FilePicker,
                 )
@@ -641,14 +631,7 @@ class OrgClockStore(
         if (preferred != null) {
             loadHeadingsFor(preferred)
         } else if (preferredFile != null) {
-            val divergenceSnapshot = OrgDivergenceSnapshot(
-                severity = OrgDivergenceSeverity.Warning,
-                category = OrgDivergenceCategory.ExternalChange,
-                reason = "Selected file is no longer available on disk",
-                affectedFileIds = setOf(preferredFile.fileId),
-                detectedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
-                recommendedAction = OrgDivergenceRecommendedAction.ReloadFromDisk,
-            )
+            val divergenceSnapshot = recoveryStateFactory.selectedFileMissing(preferredFile.fileId)
             _uiState.update {
                 it.copy(
                     selectedFile = null,
@@ -666,9 +649,6 @@ class OrgClockStore(
                     deletingInProgress = false,
                     createHeadingDialog = null,
                     divergenceSnapshot = divergenceSnapshot,
-                    externalChangePending = true,
-                    externalChangeChangedFileIds = divergenceSnapshot.affectedFileIds,
-                    externalChangeAffectsSelectedFile = true,
                     screen = Screen.FilePicker,
                     status = status(StatusMessageKey.SelectedFileNoLongerAvailable, StatusTone.Warning, preferredFile.displayName),
                 )
@@ -685,9 +665,6 @@ class OrgClockStore(
                     collapsedL1 = emptySet(),
                     screen = Screen.FilePicker,
                     divergenceSnapshot = null,
-                    externalChangePending = false,
-                    externalChangeChangedFileIds = emptySet(),
-                    externalChangeAffectsSelectedFile = false,
                     status = status(StatusMessageKey.TodayFileNotFound, StatusTone.Warning),
                 )
             }
@@ -722,27 +699,8 @@ class OrgClockStore(
         _uiState.update { state ->
             val selectedFile = state.selectedFile
             val affectsSelected = selectedFile != null && selectedFile.fileId in notice.changedFileIds
-            val recommendedAction = if (affectsSelected) {
-                OrgDivergenceRecommendedAction.ReloadFromDisk
-            } else {
-                OrgDivergenceRecommendedAction.ReloadFromDisk
-            }
             state.copy(
-                divergenceSnapshot = OrgDivergenceSnapshot(
-                    severity = OrgDivergenceSeverity.Warning,
-                    category = OrgDivergenceCategory.ExternalChange,
-                    reason = if (affectsSelected) {
-                        "Selected file changed on disk"
-                    } else {
-                        "Org files changed on disk"
-                    },
-                    affectedFileIds = notice.changedFileIds,
-                    detectedAtEpochMs = kotlinx.datetime.Clock.System.now().toEpochMilliseconds(),
-                    recommendedAction = recommendedAction,
-                ),
-                externalChangePending = true,
-                externalChangeChangedFileIds = notice.changedFileIds,
-                externalChangeAffectsSelectedFile = affectsSelected,
+                divergenceSnapshot = recoveryStateFactory.externalChange(notice.changedFileIds, affectsSelected),
                 status = when {
                     affectsSelected -> status(
                         StatusMessageKey.SelectedFileChangedExternally,
@@ -757,11 +715,6 @@ class OrgClockStore(
                 },
             )
         }
-    }
-
-    private suspend fun reloadFromDisk() {
-        refreshFilesAndRoute()
-        uiState.value.rootReference?.let { refreshAutoGenerationRuntimeState(it) }
     }
 
     private suspend fun applyRoot(
@@ -1098,20 +1051,10 @@ class OrgClockStore(
         if ((error as? ClockOperationException)?.code != ClockOperationCode.SaveRoundTripMismatch) {
             return
         }
-        val snapshot = OrgDivergenceSnapshot(
-            severity = OrgDivergenceSeverity.RecoveryRequired,
-            category = OrgDivergenceCategory.SaveRoundTripMismatch,
-            reason = error.message?.takeIf { it.isNotBlank() } ?: "Saved file contents did not round-trip cleanly.",
-            affectedFileIds = setOf(fileId),
-            detectedAtEpochMs = nowProvider().toEpochMilliseconds(),
-            recommendedAction = OrgDivergenceRecommendedAction.ReloadFromDisk,
-        )
+        val snapshot = recoveryStateFactory.saveRoundTripMismatch(fileId, error?.message)
         _uiState.update { state ->
             state.copy(
                 divergenceSnapshot = snapshot,
-                externalChangePending = true,
-                externalChangeChangedFileIds = snapshot.affectedFileIds,
-                externalChangeAffectsSelectedFile = state.selectedFile?.fileId in snapshot.affectedFileIds,
             )
         }
     }
@@ -1455,40 +1398,8 @@ class OrgClockStore(
     private fun applySyncSnapshot(snapshot: SyncIntegrationSnapshot) {
         val peersById = snapshot.peerStates.associateBy { it.peerId }
         val trustedPeers = syncListTrustedPeers()
-        val viewerProjectionSummary = snapshot.viewerProjection?.let { projection ->
-            "active=${projection.activeClocks.size}, history=${projection.historyEntries.size}, issues=${projection.issues.size}"
-        }
         _uiState.update {
-            val divergenceSnapshot = snapshot.orgDivergenceSnapshot
-            it.copy(
-                syncRuntimeEnabled = snapshot.runtimeEnabled,
-                syncDefaultPeerId = snapshot.defaultPeerId.orEmpty(),
-                syncPeers = trustedPeers.map { peerId ->
-                    val peer = peersById[peerId]
-                    PeerUiItem(
-                        peerId = peerId,
-                        displayName = peer?.displayName,
-                        role = peer?.role ?: PeerTrustRole.Full,
-                        publicKeyRegistered = peer?.publicKeyRegistered ?: false,
-                        reachable = peer?.reachable,
-                        lastCheckedAtEpochMs = peer?.lastCheckedAtEpochMs,
-                        lastSyncedAtEpochMs = peer?.lastSyncedAtEpochMs,
-                        lastSeenCursor = peer?.lastSeenCursor,
-                        lastSentCursor = peer?.lastSentCursor,
-                    )
-                },
-                syncRuntimeMode = snapshot.runtimeMode,
-                syncLastResultSummary = snapshot.lastResult?.let { result -> "${result.status.wireValue} (${result.commandId})" },
-                syncLastError = snapshot.lastError,
-                syncViewerPeerCount = snapshot.viewerPeerCount,
-                syncViewerProjectionSummary = viewerProjectionSummary,
-                syncMetrics = snapshot.metrics,
-                syncDeliveryStates = snapshot.lastDeliveryStates,
-                divergenceSnapshot = divergenceSnapshot,
-                externalChangePending = divergenceSnapshot != null,
-                externalChangeChangedFileIds = divergenceSnapshot?.affectedFileIds ?: emptySet(),
-                externalChangeAffectsSelectedFile = divergenceSnapshot?.affectedFileIds?.contains(it.selectedFile?.fileId) == true,
-            )
+            syncSnapshotMapper.map(it, snapshot, trustedPeers, peersById)
         }
     }
 

@@ -67,9 +67,6 @@ data class OrgClockUiState(
     val headings: List<HeadingViewItem> = emptyList(),
     val selectedHeadingPath: HeadingPath? = null,
     val divergenceSnapshot: OrgDivergenceSnapshot? = null,
-    val externalChangePending: Boolean = false,
-    val externalChangeChangedFileIds: Set<String> = emptySet(),
-    val externalChangeAffectsSelectedFile: Boolean = false,
     val pendingClockOps: Set<HeadingPath> = emptySet(),
     val collapsedL1: Set<String> = emptySet(),
     val historyTarget: HeadingViewItem? = null,
@@ -122,4 +119,13 @@ data class OrgClockUiState(
     val syncMetrics: SyncMetricsSnapshot = SyncMetricsSnapshot(),
     val syncDeliveryStates: List<SyncDeliveryState> = emptyList(),
     val localClockEventSyncState: ClockEventSyncState = ClockEventSyncState(),
-)
+) {
+    val externalChangePending: Boolean
+        get() = divergenceSnapshot != null
+
+    val externalChangeChangedFileIds: Set<String>
+        get() = divergenceSnapshot?.affectedFileIds ?: emptySet()
+
+    val externalChangeAffectsSelectedFile: Boolean
+        get() = divergenceSnapshot?.affectedFileIds?.contains(selectedFile?.fileId) == true
+}
