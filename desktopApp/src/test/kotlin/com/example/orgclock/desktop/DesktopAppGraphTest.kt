@@ -8,6 +8,7 @@ import com.example.orgclock.template.TemplateReferenceMode
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.ui.state.OrgClockUiAction
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.Instant
@@ -70,6 +71,7 @@ class DesktopAppGraphTest {
         assertEquals(StatusMessageKey.LoadedFile, state.status.text.key)
         assertEquals(1, state.files.size)
         assertEquals("2026-03-10.org", state.selectedFile?.displayName)
+        coroutineContext.cancelChildren()
     }
 
     @Test
@@ -106,6 +108,7 @@ class DesktopAppGraphTest {
         }
         assertEquals(root.toString(), result.rootReference?.rawValue)
         assertEquals(Screen.HeadingList, result.screen)
+        coroutineContext.cancelChildren()
     }
 
     @Test
@@ -145,6 +148,7 @@ class DesktopAppGraphTest {
         }
         assertEquals(template.toString(), restoredState.templateFileStatus.fileId)
         assertEquals(TemplateReferenceMode.Explicit, restoredState.templateFileStatus.referenceMode)
+        coroutineContext.cancelChildren()
     }
 
     @Test
@@ -180,6 +184,7 @@ class DesktopAppGraphTest {
         assertEquals(TemplateReferenceMode.LegacyHiddenFile, store.uiState.value.templateFileStatus.referenceMode)
         assertEquals(hiddenTemplate.toString(), store.uiState.value.templateFileStatus.fileId)
         assertEquals(StatusMessageKey.TemplateFileSelectionCleared, store.uiState.value.status.text.key)
+        coroutineContext.cancelChildren()
     }
 
     @Test
@@ -205,6 +210,7 @@ class DesktopAppGraphTest {
         assertEquals(StatusMessageKey.TemplateFileCreated, store.uiState.value.status.text.key)
         assertEquals(TemplateReferenceMode.LegacyHiddenFile, store.uiState.value.templateFileStatus.referenceMode)
         assertEquals(root.resolve(".orgclock-template.org").toString(), store.uiState.value.templateFileStatus.fileId)
+        coroutineContext.cancelChildren()
     }
 
     @Test
@@ -228,6 +234,7 @@ class DesktopAppGraphTest {
 
         assertEquals(Screen.RootSetup, store.uiState.value.screen)
         assertEquals(null, settingsStore.load().lastRootReference)
+        coroutineContext.cancelChildren()
     }
 
     private fun tempRoot(): Path = createTempDirectory("desktop-graph-test").also(tempRoots::add)
