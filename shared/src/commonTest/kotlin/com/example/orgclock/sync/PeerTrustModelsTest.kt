@@ -40,6 +40,7 @@ class PeerTrustModelsTest {
 
         val request = PeerPairingDraft(
             peerId = "peer-a",
+            deviceId = "device-a",
             displayName = "Viewer Monitor",
             publicKeyBase64 = "pk-a",
             endpoint = "  host:39091  ",
@@ -47,7 +48,7 @@ class PeerTrustModelsTest {
         ).toRegistrationRequest(requestedAt)
 
         assertEquals("peer-a", request.peerId)
-        assertEquals("peer-a", request.deviceId)
+        assertEquals("device-a", request.deviceId)
         assertEquals("Viewer Monitor", request.displayName)
         assertEquals("pk-a", request.publicKeyBase64)
         assertEquals(PeerTrustRole.Viewer, request.role)

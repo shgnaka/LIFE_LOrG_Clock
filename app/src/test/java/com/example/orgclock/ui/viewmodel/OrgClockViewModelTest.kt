@@ -839,6 +839,7 @@ class OrgClockViewModelTest {
         )
 
         vm.onAction(OrgClockUiAction.SyncUpdatePeerInput("example.local:39091"))
+        vm.onAction(OrgClockUiAction.SyncUpdatePeerDeviceId("device-123"))
         vm.onAction(OrgClockUiAction.SyncUpdatePeerDisplayName("Desktop Host"))
         vm.onAction(OrgClockUiAction.SyncUpdatePeerPublicKey("pk-123"))
         vm.onAction(OrgClockUiAction.SyncAddPeer)
@@ -861,6 +862,7 @@ class OrgClockViewModelTest {
         )
 
         vm.onAction(OrgClockUiAction.SyncUpdatePeerInput("example.local:39091"))
+        vm.onAction(OrgClockUiAction.SyncUpdatePeerDeviceId("device-123"))
         vm.onAction(OrgClockUiAction.SyncUpdatePeerDisplayName("Desktop Host"))
         vm.onAction(OrgClockUiAction.SyncUpdatePeerPublicKey("pk-123"))
         vm.onAction(OrgClockUiAction.SyncAddPeer)

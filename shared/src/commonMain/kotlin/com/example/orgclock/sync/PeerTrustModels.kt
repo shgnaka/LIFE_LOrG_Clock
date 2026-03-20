@@ -26,6 +26,7 @@ data class PeerRegistrationRequest(
 
 data class PeerPairingDraft(
     val peerId: String = "",
+    val deviceId: String = "",
     val displayName: String = "",
     val publicKeyBase64: String = "",
     val endpoint: String = "",
@@ -81,10 +82,12 @@ fun PeerRegistrationRequest.toPeerTrustRecord(): PeerTrustRecord {
 }
 
 fun PeerPairingDraft.toRegistrationRequest(requestedAt: Instant): PeerRegistrationRequest {
+    val normalizedPeerId = peerId.trim()
+    val normalizedDeviceId = deviceId.trim()
     return PeerRegistrationRequest(
-        peerId = peerId.trim(),
-        deviceId = peerId.trim(),
-        displayName = displayName.trim().ifBlank { peerId.trim() },
+        peerId = normalizedPeerId,
+        deviceId = normalizedDeviceId,
+        displayName = displayName.trim().ifBlank { normalizedPeerId },
         publicKeyBase64 = publicKeyBase64.trim(),
         role = role,
         endpoint = endpoint.trim().takeIf { it.isNotBlank() },

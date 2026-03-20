@@ -169,6 +169,8 @@
     <string name="local_clock_event_sync_recovery_detail">local event status needs recovery: %1$s</string>
     <string name="sync_hub_peer_label">同期ハブ: %1$s</string>
     <string name="sync_add_peer_label">追加する peer (host[:port])</string>
+    <string name="sync_peer_device_id_label">device ID</string>
+    <string name="sync_peer_device_id_hint">peer ID とは別の端末識別子を入力します。</string>
     <string name="sync_add_peer_button">Peerを追加</string>
     <string name="sync_peer_display_name_label">表示名</string>
     <string name="sync_peer_public_key_label">公開鍵</string>

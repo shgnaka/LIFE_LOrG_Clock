@@ -129,6 +129,13 @@ class OrgClockStore(
         refreshFilesAndRoute = ::refreshFilesAndRoute,
         refreshAutoGenerationRuntimeState = ::refreshAutoGenerationRuntimeState,
     )
+    private val peerManagementCoordinator = OrgClockPeerManagementCoordinator(
+        uiState = _uiState,
+        status = { messageKey, tone, args -> status(messageKey, tone, *args) },
+        nowProvider = nowProvider,
+        syncPairTrustedPeer = syncPairTrustedPeer,
+        syncRevokePeer = syncRevokePeer,
+        syncProbePeer = syncProbePeer,
     )
     private val syncSnapshotMapper = OrgClockSyncSnapshotMapper()
 
@@ -469,6 +476,7 @@ class OrgClockStore(
         is OrgClockUiAction.SyncSetEnabled -> { scope.launch { syncSetEnabled(action.enabled) }; true }
         is OrgClockUiAction.SyncSetDefaultPeerId -> { scope.launch { syncSetDefaultPeerId(action.peerId) }; true }
         is OrgClockUiAction.SyncUpdatePeerInput -> { _uiState.update { it.copy(syncPeerInput = action.value, syncPeerInputError = null) }; true }
+        is OrgClockUiAction.SyncUpdatePeerDeviceId -> { _uiState.update { it.copy(syncPeerDeviceId = action.value) }; true }
         is OrgClockUiAction.SyncUpdatePeerDisplayName -> { _uiState.update { it.copy(syncPeerDisplayName = action.value) }; true }
         is OrgClockUiAction.SyncUpdatePeerPublicKey -> { _uiState.update { it.copy(syncPeerPublicKey = action.value) }; true }
         is OrgClockUiAction.SyncSetPeerViewerMode -> { _uiState.update { it.copy(syncPeerViewerModeEnabled = action.enabled) }; true }
@@ -1196,70 +1204,15 @@ class OrgClockStore(
     }
 
     private suspend fun addPeer() {
-        val input = uiState.value.syncPeerInput.trim()
-        val displayName = uiState.value.syncPeerDisplayName.trim().ifBlank { input }
-        val publicKey = uiState.value.syncPeerPublicKey.trim()
-        val validation = validatePeerId(input)
-        if (validation != null) {
-            _uiState.update { it.copy(syncPeerInputError = validation) }
-            return
-        }
-        if (displayName.isBlank()) {
-            _uiState.update { it.copy(syncPeerInputError = "display name is empty") }
-            return
-        }
-        if (publicKey.isBlank()) {
-            _uiState.update { it.copy(syncPeerInputError = "public key is empty") }
-            return
-        }
-        _uiState.update { it.copy(syncPeerBusy = true, syncPeerInputError = null) }
-        val request = PeerPairingDraft(
-            peerId = input,
-            displayName = displayName,
-            publicKeyBase64 = publicKey,
-            viewerModeEnabled = uiState.value.syncPeerViewerModeEnabled,
-        ).toRegistrationRequest(nowProvider())
-        val probe = syncPairTrustedPeer(request)
-        _uiState.update { it.copy(syncPeerBusy = false) }
-        if (!probe.reachable) {
-            _uiState.update { it.copy(syncPeerInputError = probe.reason ?: "failed to reach peer", status = status(StatusMessageKey.SyncPeerAddFailed, StatusTone.Warning, probe.reason ?: "unknown")) }
-            return
-        }
-        _uiState.update {
-            it.copy(
-                syncPeerInput = "",
-                syncPeerDisplayName = "",
-                syncPeerPublicKey = "",
-                syncPeerViewerModeEnabled = false,
-                syncPeerInputError = null,
-                status = status(StatusMessageKey.SyncPeerAdded, StatusTone.Success, input),
-            )
-        }
+        peerManagementCoordinator.addPeer()
     }
 
     private suspend fun revokePeer(peerId: String) {
-        _uiState.update { it.copy(syncPeerBusy = true, syncPeerInputError = null) }
-        syncRevokePeer(peerId)
-        _uiState.update { it.copy(syncPeerBusy = false, status = status(StatusMessageKey.SyncPeerRemoved, StatusTone.Success, peerId)) }
+        peerManagementCoordinator.revokePeer(peerId)
     }
 
     private suspend fun probePeer(peerId: String) {
-        _uiState.update { it.copy(syncPeerBusy = true, syncPeerInputError = null) }
-        val probe = syncProbePeer(peerId)
-        _uiState.update {
-            it.copy(
-                syncPeerBusy = false,
-                status = if (probe.reachable) status(StatusMessageKey.SyncPeerProbeOk, StatusTone.Success, peerId)
-                else status(StatusMessageKey.SyncPeerProbeFailed, StatusTone.Warning, peerId, probe.reason ?: "unknown"),
-            )
-        }
-    }
-
-    private fun validatePeerId(raw: String): String? {
-        if (raw.isBlank()) return "peer id is empty"
-        if (raw.contains("://")) return "peer id must be host[:port]"
-        if (!Regex("^[a-zA-Z0-9.-]+(:\\d{1,5})?$").matches(raw)) return "peer id format is invalid"
-        return null
+        peerManagementCoordinator.probePeer(peerId)
     }
 
     private suspend fun saveAutoGenerationSchedule() {

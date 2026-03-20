@@ -73,6 +73,7 @@ sealed interface OrgClockUiAction {
     data class SyncSetEnabled(val enabled: Boolean) : OrgClockUiAction
     data class SyncSetDefaultPeerId(val peerId: String) : OrgClockUiAction
     data class SyncUpdatePeerInput(val value: String) : OrgClockUiAction
+    data class SyncUpdatePeerDeviceId(val value: String) : OrgClockUiAction
     data class SyncUpdatePeerDisplayName(val value: String) : OrgClockUiAction
     data class SyncUpdatePeerPublicKey(val value: String) : OrgClockUiAction
     data class SyncSetPeerViewerMode(val enabled: Boolean) : OrgClockUiAction

@@ -257,6 +257,7 @@ fun OrgClockScreen(
                 syncDefaultPeerId = state.syncDefaultPeerId,
                 syncPeers = state.syncPeers,
                 syncPeerInput = state.syncPeerInput,
+                syncPeerDeviceId = state.syncPeerDeviceId,
                 syncPeerDisplayName = state.syncPeerDisplayName,
                 syncPeerPublicKey = state.syncPeerPublicKey,
                 syncPeerViewerModeEnabled = state.syncPeerViewerModeEnabled,
@@ -308,6 +309,7 @@ fun OrgClockScreen(
                 onSyncSetEnabled = { onAction(OrgClockUiAction.SyncSetEnabled(it)) },
                 onSyncSetDefaultPeerId = { onAction(OrgClockUiAction.SyncSetDefaultPeerId(it)) },
                 onSyncUpdatePeerInput = { onAction(OrgClockUiAction.SyncUpdatePeerInput(it)) },
+                onSyncUpdatePeerDeviceId = { onAction(OrgClockUiAction.SyncUpdatePeerDeviceId(it)) },
                 onSyncUpdatePeerDisplayName = { onAction(OrgClockUiAction.SyncUpdatePeerDisplayName(it)) },
                 onSyncUpdatePeerPublicKey = { onAction(OrgClockUiAction.SyncUpdatePeerPublicKey(it)) },
                 onSyncSetPeerViewerMode = { onAction(OrgClockUiAction.SyncSetPeerViewerMode(it)) },
@@ -1014,6 +1016,7 @@ private fun SettingsScreen(
     syncDefaultPeerId: String,
     syncPeers: List<PeerUiItem>,
     syncPeerInput: String,
+    syncPeerDeviceId: String,
     syncPeerDisplayName: String,
     syncPeerPublicKey: String,
     syncPeerViewerModeEnabled: Boolean,
@@ -1047,6 +1050,7 @@ private fun SettingsScreen(
     onSyncSetEnabled: (Boolean) -> Unit,
     onSyncSetDefaultPeerId: (String) -> Unit,
     onSyncUpdatePeerInput: (String) -> Unit,
+    onSyncUpdatePeerDeviceId: (String) -> Unit,
     onSyncUpdatePeerDisplayName: (String) -> Unit,
     onSyncUpdatePeerPublicKey: (String) -> Unit,
     onSyncSetPeerViewerMode: (Boolean) -> Unit,
@@ -1423,6 +1427,15 @@ private fun SettingsScreen(
                                 Text(syncPeerInputError)
                             }
                         },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    OutlinedTextField(
+                        value = syncPeerDeviceId,
+                        onValueChange = onSyncUpdatePeerDeviceId,
+                        isError = !syncPeerInputError.isNullOrBlank(),
+                        label = { Text(stringResource(R.string.sync_peer_device_id_label)) },
+                        supportingText = { Text(stringResource(R.string.sync_peer_device_id_hint)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
