@@ -18,7 +18,8 @@ if "%DIST_URL%"=="" (
   exit /b 1
 )
 
-set DIST_URL=%DIST_URL:\:=%
+set DIST_URL=%DIST_URL:\:=:%
+if not "%DIST_URL:https//=%"=="%DIST_URL%" set "DIST_URL=%DIST_URL:https//=https://%"
 for %%F in (%DIST_URL%) do set DIST_FILE=%%~nxF
 set DIST_NAME=%DIST_FILE:.zip=%
 set DIST_DIR_NAME=%DIST_NAME:-bin=%
