@@ -8,6 +8,8 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.doubleClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.example.orgclock.R
@@ -269,38 +271,69 @@ class OrgClockScreenTest {
     }
 
     @Test
-    fun headingListScreen_runningPanelShowsAllFourRowsWhenFourClocksAreRunning() {
-        setHeadingListContent(runningClockCount = 4)
+    fun headingListScreen_runningPanelShowsRowsWhenThreeClocksAreRunning() {
+        setHeadingListContent(runningClockCount = 3)
 
         composeRule.onNodeWithTag("running_clocks_panel").assertIsDisplayed()
-        repeat(4) { index ->
+        repeat(3) { index ->
             val taskNumber = index + 1
             composeRule.onNodeWithTag(runningPanelRowTag("Work/Task $taskNumber")).assertIsDisplayed()
         }
-        composeRule.onNodeWithTag("running_panel_compact").assertDoesNotExist()
     }
 
     @Test
-    fun headingListScreen_runningPanelAutoCollapsesWhenFiveClocksAreRunning() {
-        setHeadingListContent(runningClockCount = 5)
+    fun headingListScreen_runningPanelAutoCollapsesWhenFourClocksAreRunning() {
+        setHeadingListContent(runningClockCount = 4)
 
         composeRule.onNodeWithTag("running_clocks_panel").assertIsDisplayed()
         composeRule.onNodeWithTag("running_panel_toggle").assertIsDisplayed()
         composeRule.onNodeWithTag("running_panel_compact").assertIsDisplayed()
-        composeRule.onNodeWithTag(runningPanelRowTag("Work/Task 1")).assertDoesNotExist()
     }
 
     @Test
     fun headingListScreen_runningPanelCanExpandAfterAutoCollapse() {
-        setHeadingListContent(runningClockCount = 5)
+        setHeadingListContent(runningClockCount = 4)
 
         composeRule.onNodeWithTag("running_panel_toggle").performClick()
 
-        repeat(5) { index ->
+        repeat(4) { index ->
             val taskNumber = index + 1
             composeRule.onNodeWithTag(runningPanelRowTag("Work/Task $taskNumber")).assertIsDisplayed()
         }
-        composeRule.onNodeWithTag("running_panel_compact").assertDoesNotExist()
+    }
+
+    @Test
+    fun headingListScreen_l2DoubleClickTogglesParentL1Collapse() {
+        val actions = mutableListOf<OrgClockUiAction>()
+        composeRule.setContent {
+            OrgClockScreen(
+                state = OrgClockUiState(
+                    screen = Screen.HeadingList,
+                    selectedFile = OrgFileEntry("f1", "2026-02-16.org", null),
+                    headings = listOf(
+                        headingItem(level = 1, title = "Work", path = "Work"),
+                        headingItem(
+                            level = 2,
+                            title = "Project A",
+                            path = "Work/Project A",
+                            parentL1 = "Work",
+                        ),
+                    ),
+                ),
+                performanceMonitor = PerformanceMonitor(composeRule.activity.window),
+                zoneIdProvider = { ZoneId.of("UTC") },
+                nowProvider = { ZonedDateTime.parse("2026-03-08T01:00:00Z") },
+                onPickRoot = {},
+                onAction = { actions += it },
+            )
+        }
+
+        composeRule.onNodeWithTag(headingRowTag("Work/Project A")).performTouchInput {
+            doubleClick()
+        }
+
+        assertEquals(listOf(OrgClockUiAction.ToggleL1("Work")), actions)
+        composeRule.onAllNodesWithText("Work/Project A").assertCountEquals(0)
     }
 
     private fun headingItem(

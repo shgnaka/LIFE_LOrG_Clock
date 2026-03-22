@@ -165,7 +165,7 @@ private const val HeadingRowTagPrefix = "heading_row:"
 private const val RunningPanelRowTagPrefix = "running_panel_row:"
 private const val RunningPanelToggleTag = "running_panel_toggle"
 private const val RunningPanelCompactTag = "running_panel_compact"
-private const val RunningPanelCollapseThreshold = 5
+private const val RunningPanelCollapseThreshold = 4
 
 @Composable
 fun OrgClockScreen(
@@ -750,6 +750,11 @@ private fun HeadingListContent(
                             .combinedClickable(
                                 onClick = {
                                     if (child.node.level == 2) onSelectHeading(child.node.path)
+                                },
+                                onDoubleClick = {
+                                    if (child.node.level == 2) {
+                                        child.node.parentL1?.let(onToggleL1)
+                                    }
                                 },
                                 onLongClick = {
                                     if (child.node.level == 2) onLongPressL2(child)

@@ -140,10 +140,18 @@ fun OrgClockRoute(
     LaunchedEffect(Unit) {
         viewModel.onAction(OrgClockUiAction.Initialize)
     }
-    DisposableEffect(lifecycleOwner) {
+    LaunchedEffect(state.screen, state.rootReference) {
+        if (shouldRefreshFilesOnScreenOpen(state)) {
+            viewModel.onAction(OrgClockUiAction.RefreshFiles)
+        }
+    }
+    DisposableEffect(lifecycleOwner, state.screen, state.rootReference) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 viewModel.onAction(OrgClockUiAction.RefreshNotificationPermissionState)
+                if (shouldRefreshFilesOnScreenOpen(state)) {
+                    viewModel.onAction(OrgClockUiAction.RefreshFiles)
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -201,6 +209,10 @@ fun OrgClockRoute(
         onPickRoot = { rootPicker.launch(null) },
         onAction = viewModel::onAction,
     )
+}
+
+internal fun shouldRefreshFilesOnScreenOpen(state: OrgClockUiState): Boolean {
+    return state.rootReference != null && state.screen == Screen.HeadingList
 }
 
 private fun orgClockViewModelFactory(
