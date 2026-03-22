@@ -10,6 +10,8 @@ import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.ui.state.OrgClockUiState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -60,6 +62,28 @@ class OrgClockRouteNotificationSyncTest {
 
         assertNotEquals(buildNotificationSyncKey(base), buildNotificationSyncKey(modeChanged))
         assertNotEquals(buildNotificationSyncKey(base), buildNotificationSyncKey(footprintChanged))
+    }
+
+    @Test
+    fun shouldRefreshFilesOnScreenOpen_onlyReturnsTrueForHeadingListWithRoot() {
+        val rootUri = RootReference("content://orgclock/root")
+
+        assertTrue(
+            shouldRefreshFilesOnScreenOpen(
+                OrgClockUiState(
+                    rootReference = rootUri,
+                    screen = com.example.orgclock.ui.state.Screen.HeadingList,
+                ),
+            ),
+        )
+        assertFalse(
+            shouldRefreshFilesOnScreenOpen(
+                OrgClockUiState(
+                    rootReference = rootUri,
+                    screen = com.example.orgclock.ui.state.Screen.FilePicker,
+                ),
+            ),
+        )
     }
 
     private fun heading(lineIndex: Int, title: String, open: Boolean): HeadingViewItem {
