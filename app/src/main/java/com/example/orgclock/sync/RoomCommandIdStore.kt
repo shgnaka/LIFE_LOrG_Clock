@@ -10,6 +10,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 @Entity(tableName = "processed_command_ids")
@@ -57,25 +59,31 @@ internal class RoomCommandIdStore(
     private val retentionMs: Long = TimeUnit.DAYS.toMillis(7),
     private val maxRows: Long = 20_000L,
 ) : CommandIdStore {
-    override fun contains(commandId: String): Boolean = dao.exists(commandId)
+    override suspend fun contains(commandId: String): Boolean = withContext(Dispatchers.IO) { dao.exists(commandId) }
 
-    override fun markProcessed(commandId: String) {
-        dao.insert(
-            ProcessedCommandIdEntity(
-                commandId = commandId,
-                processedAtEpochMs = nowEpochMs(),
-            ),
-        )
-        pruneInternal()
+    override suspend fun markProcessed(commandId: String) {
+        withContext(Dispatchers.IO) {
+            dao.insert(
+                ProcessedCommandIdEntity(
+                    commandId = commandId,
+                    processedAtEpochMs = nowEpochMs(),
+                ),
+            )
+            pruneInternal()
+        }
     }
 
-    override fun pruneOlderThan(epochMs: Long): Int = dao.deleteOlderThan(epochMs)
+    override suspend fun pruneOlderThan(epochMs: Long): Int = withContext(Dispatchers.IO) {
+        dao.deleteOlderThan(epochMs)
+    }
 
-    override fun size(): Long = dao.count()
+    override suspend fun size(): Long = withContext(Dispatchers.IO) {
+        dao.count()
+    }
 
-    private fun pruneInternal() {
-        pruneOlderThan(nowEpochMs() - retentionMs)
-        val overflow = size() - maxRows
+    private suspend fun pruneInternal() {
+        dao.deleteOlderThan(nowEpochMs() - retentionMs)
+        val overflow = dao.count() - maxRows
         if (overflow > 0) {
             dao.deleteOldest(overflow.toInt())
         }

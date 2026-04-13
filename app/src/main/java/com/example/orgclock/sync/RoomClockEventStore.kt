@@ -12,6 +12,8 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.example.orgclock.model.HeadingPath
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 
@@ -101,43 +103,55 @@ internal class RoomClockEventStore(
     private val dao: ClockEventDao,
 ) : ClockEventStore {
     override suspend fun append(event: ClockEvent): AppendClockEventResult {
-        val inserted = dao.insert(event.toEntity())
-        if (inserted != -1L) {
-            return AppendClockEventResult.Appended(ClockEventCursor(inserted))
+        return withContext(Dispatchers.IO) {
+            val inserted = dao.insert(event.toEntity())
+            if (inserted != -1L) {
+                return@withContext AppendClockEventResult.Appended(ClockEventCursor(inserted))
+            }
+            AppendClockEventResult.Duplicate(
+                dao.findCursorByEventId(event.eventId)?.let(::ClockEventCursor),
+            )
         }
-        return AppendClockEventResult.Duplicate(
-            dao.findCursorByEventId(event.eventId)?.let(::ClockEventCursor),
-        )
     }
 
-    override suspend fun contains(eventId: String): Boolean = dao.exists(eventId)
+    override suspend fun contains(eventId: String): Boolean = withContext(Dispatchers.IO) {
+        dao.exists(eventId)
+    }
 
-    override suspend fun readAllForReplay(): List<StoredClockEvent> = dao.readAll().map { it.toStoredEvent() }
+    override suspend fun readAllForReplay(): List<StoredClockEvent> = withContext(Dispatchers.IO) {
+        dao.readAll().map { it.toStoredEvent() }
+    }
 
     override suspend fun listSince(
         cursorExclusive: ClockEventCursor?,
         limit: Int,
     ): List<StoredClockEvent> {
         require(limit > 0) { "List limit must be > 0." }
-        return dao.listSince(cursorExclusive?.value ?: 0L, limit).map { it.toStoredEvent() }
+        return withContext(Dispatchers.IO) {
+            dao.listSince(cursorExclusive?.value ?: 0L, limit).map { it.toStoredEvent() }
+        }
     }
 
     override suspend fun readSnapshot(): ClockEventStoreSnapshot {
-        val lastCursor = dao.findLastCursor()?.let(::ClockEventCursor)
-        val lastSyncedCursor = dao.readSyncState()?.lastSyncedCursor?.let(::ClockEventCursor)
-        val pendingSyncCount = dao.countAfter(lastSyncedCursor?.value ?: 0L)
-        return ClockEventStoreSnapshot(
-            lastCursor = lastCursor,
-            lastSyncedCursor = lastSyncedCursor,
-            pendingSyncCount = pendingSyncCount,
-        )
+        return withContext(Dispatchers.IO) {
+            val lastCursor = dao.findLastCursor()?.let(::ClockEventCursor)
+            val lastSyncedCursor = dao.readSyncState()?.lastSyncedCursor?.let(::ClockEventCursor)
+            val pendingSyncCount = dao.countAfter(lastSyncedCursor?.value ?: 0L)
+            ClockEventStoreSnapshot(
+                lastCursor = lastCursor,
+                lastSyncedCursor = lastSyncedCursor,
+                pendingSyncCount = pendingSyncCount,
+            )
+        }
     }
 
     override suspend fun updateSyncCheckpoint(cursorInclusive: ClockEventCursor) {
-        require(dao.cursorExists(cursorInclusive.value)) {
-            "Cannot update sync checkpoint for unknown cursor ${cursorInclusive.value}."
+        withContext(Dispatchers.IO) {
+            require(dao.cursorExists(cursorInclusive.value)) {
+                "Cannot update sync checkpoint for unknown cursor ${cursorInclusive.value}."
+            }
+            dao.saveSyncState(ClockEventSyncStateEntity(lastSyncedCursor = cursorInclusive.value))
         }
-        dao.saveSyncState(ClockEventSyncStateEntity(lastSyncedCursor = cursorInclusive.value))
     }
 
     companion object {

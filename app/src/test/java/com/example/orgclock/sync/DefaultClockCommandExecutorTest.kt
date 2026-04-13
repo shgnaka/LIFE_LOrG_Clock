@@ -385,14 +385,16 @@ class DefaultClockCommandExecutorTest {
 
     @Test
     fun inMemoryCommandIdStore_evictsOldIdsWhenCapacityExceeded() {
-        val store = InMemoryCommandIdStore()
+        runBlocking {
+            val store = InMemoryCommandIdStore()
 
-        repeat(3_000) { index ->
-            store.markProcessed("cmd-$index")
+            repeat(3_000) { index ->
+                store.markProcessed("cmd-$index")
+            }
+
+            assertFalse(store.contains("cmd-0"))
+            assertTrue(store.contains("cmd-2999"))
         }
-
-        assertFalse(store.contains("cmd-0"))
-        assertTrue(store.contains("cmd-2999"))
     }
 
     private fun newExecutor(
@@ -544,9 +546,9 @@ private class AlwaysTrustedPeerStore : PeerTrustStore {
 private class SharedBackingCommandIdStore(
     private val ids: MutableSet<String>,
 ) : CommandIdStore {
-    override fun contains(commandId: String): Boolean = ids.contains(commandId)
+    override suspend fun contains(commandId: String): Boolean = ids.contains(commandId)
 
-    override fun markProcessed(commandId: String) {
+    override suspend fun markProcessed(commandId: String) {
         ids.add(commandId)
     }
 }

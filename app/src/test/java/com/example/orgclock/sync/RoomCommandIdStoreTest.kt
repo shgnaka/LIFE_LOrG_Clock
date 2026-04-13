@@ -1,5 +1,6 @@
 package com.example.orgclock.sync
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -7,27 +8,29 @@ import org.junit.Test
 class RoomCommandIdStoreTest {
     @Test
     fun markProcessed_prunesByRetentionAndKeepsRecentRows() {
-        val dao = FakeProcessedCommandIdDao()
-        var now = 10_000L
-        val store = RoomCommandIdStore(
-            dao = dao,
-            nowEpochMs = { now },
-            retentionMs = 1_000L,
-            maxRows = 3L,
-        )
+        runBlocking {
+            val dao = FakeProcessedCommandIdDao()
+            var now = 10_000L
+            val store = RoomCommandIdStore(
+                dao = dao,
+                nowEpochMs = { now },
+                retentionMs = 1_000L,
+                maxRows = 3L,
+            )
 
-        store.markProcessed("cmd-1")
-        now += 2_000L
-        store.markProcessed("cmd-2")
-        now += 100L
-        store.markProcessed("cmd-3")
-        now += 100L
-        store.markProcessed("cmd-4")
+            store.markProcessed("cmd-1")
+            now += 2_000L
+            store.markProcessed("cmd-2")
+            now += 100L
+            store.markProcessed("cmd-3")
+            now += 100L
+            store.markProcessed("cmd-4")
 
-        assertFalse(store.contains("cmd-1"))
-        assertTrue(store.contains("cmd-2"))
-        assertTrue(store.contains("cmd-3"))
-        assertTrue(store.contains("cmd-4"))
+            assertFalse(store.contains("cmd-1"))
+            assertTrue(store.contains("cmd-2"))
+            assertTrue(store.contains("cmd-3"))
+            assertTrue(store.contains("cmd-4"))
+        }
     }
 }
 
