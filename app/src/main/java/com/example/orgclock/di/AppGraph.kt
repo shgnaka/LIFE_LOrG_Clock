@@ -61,8 +61,10 @@ import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.time.today
 import kotlinx.datetime.toJavaZoneId
 import com.example.orgclock.ui.app.OrgClockRouteDependencies
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.withContext
 
 interface AppGraph {
     fun routeDependencies(
@@ -241,12 +243,14 @@ class DefaultAppGraph(
             },
             listHeadings = { fileId -> clockService.listHeadings(fileId, clockEnvironment.currentTimeZone()) },
             startClock = { fileId, headingPath ->
-                val result = clockService.startClockInFile(
-                    fileId,
-                    headingPath,
-                    clockEnvironment.now(),
-                    clockEnvironment.currentTimeZone(),
-                )
+                val result = withContext(Dispatchers.IO) {
+                    clockService.startClockInFile(
+                        fileId,
+                        headingPath,
+                        clockEnvironment.now(),
+                        clockEnvironment.currentTimeZone(),
+                    )
+                }
                 publishIfSaved(
                     result = result,
                     kind = ClockCommandKind.Start,
@@ -256,12 +260,14 @@ class DefaultAppGraph(
                 )
             },
             stopClock = { fileId, headingPath ->
-                val result = clockService.stopClockInFile(
-                    fileId,
-                    headingPath,
-                    clockEnvironment.now(),
-                    clockEnvironment.currentTimeZone(),
-                )
+                val result = withContext(Dispatchers.IO) {
+                    clockService.stopClockInFile(
+                        fileId,
+                        headingPath,
+                        clockEnvironment.now(),
+                        clockEnvironment.currentTimeZone(),
+                    )
+                }
                 publishIfSaved(
                     result = result,
                     kind = ClockCommandKind.Stop,
@@ -271,7 +277,9 @@ class DefaultAppGraph(
                 )
             },
             cancelClock = { fileId, headingPath ->
-                val result = clockService.cancelClockInFile(fileId, headingPath)
+                val result = withContext(Dispatchers.IO) {
+                    clockService.cancelClockInFile(fileId, headingPath)
+                }
                 publishIfSaved(
                     result = result,
                     kind = ClockCommandKind.Cancel,
