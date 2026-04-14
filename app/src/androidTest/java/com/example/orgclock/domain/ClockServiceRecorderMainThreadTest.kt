@@ -40,7 +40,10 @@ class ClockServiceRecorderMainThreadTest {
                 repository = singleFileRepo(
                     initialLines = listOf("* Work", "** Project A", ":LOGBOOK:", ":END:"),
                 ),
-                clockEventRecorder = StoreBackedClockEventRecorder(startStore),
+                clockEventRecorder = StoreBackedClockEventRecorder(
+                    store = startStore,
+                    deviceIdProvider = { "device-local" },
+                ),
             )
 
             val startResult = startService.startClockInFile(
@@ -66,7 +69,10 @@ class ClockServiceRecorderMainThreadTest {
                         ":END:",
                     ),
                 ),
-                clockEventRecorder = StoreBackedClockEventRecorder(stopStore),
+                clockEventRecorder = StoreBackedClockEventRecorder(
+                    store = stopStore,
+                    deviceIdProvider = { "device-local" },
+                ),
             )
 
             val stopResult = stopService.stopClockInFile(
@@ -92,7 +98,10 @@ class ClockServiceRecorderMainThreadTest {
                         ":END:",
                     ),
                 ),
-                clockEventRecorder = StoreBackedClockEventRecorder(cancelStore),
+                clockEventRecorder = StoreBackedClockEventRecorder(
+                    store = cancelStore,
+                    deviceIdProvider = { "device-local" },
+                ),
             )
 
             val cancelResult = cancelService.cancelClockInFile(
