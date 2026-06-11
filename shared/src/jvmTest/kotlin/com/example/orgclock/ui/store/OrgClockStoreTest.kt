@@ -350,6 +350,84 @@ class OrgClockStoreTest {
     }
 
     @Test
+    fun refreshFiles_doesNotReturnToHeadingListAfterUserOpensFilePicker() = runTest {
+        var delayListing = false
+        val selectedFile = OrgFileEntry("f1", "2026-03-10.org", null)
+        val store = testStore(
+            scope = this,
+            listFiles = {
+                if (delayListing) delay(1_000)
+                Result.success(listOf(selectedFile))
+            },
+            listHeadings = { Result.success(sampleHeadings()) },
+        )
+        store.onAction(OrgClockUiAction.SelectFile(selectedFile))
+        advanceUntilIdle()
+        delayListing = true
+        store.onAction(OrgClockUiAction.RefreshFiles)
+        runCurrent()
+        store.onAction(OrgClockUiAction.OpenFilePicker)
+        advanceUntilIdle()
+        assertEquals(Screen.FilePicker, store.uiState.value.screen)
+    }
+
+    @Test
+    fun refreshHeadings_preservesCollapsedHeadings() = runTest {
+        val selectedFile = OrgFileEntry("f1", "2026-03-10.org", null)
+        val store = testStore(scope = this, listHeadings = { Result.success(sampleHeadings()) })
+        store.onAction(OrgClockUiAction.SelectFile(selectedFile))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.CollapseAll)
+        store.onAction(OrgClockUiAction.RefreshHeadings)
+        advanceUntilIdle()
+        assertEquals(setOf("Work"), store.uiState.value.collapsedL1)
+    }
+
+    @Test
+    fun clockMutations_withSameHeadingInDifferentFilesRunIndependently() = runTest {
+        val firstFile = OrgFileEntry("f1", "2026-03-09.org", null)
+        val secondFile = OrgFileEntry("f2", "2026-03-10.org", null)
+        val stopFiles = mutableListOf<String>()
+        val startFiles = mutableListOf<String>()
+        val store = testStore(
+            scope = this,
+            listHeadings = { fileId -> Result.success(if (fileId == firstFile.fileId) sampleHeadingsWithOpenClock() else sampleHeadings()) },
+            stopClock = { fileId, _ -> stopFiles += fileId; delay(1_000); Result.success(ClockMutationResult()) },
+            startClock = { fileId, _ -> startFiles += fileId; Result.success(ClockMutationResult()) },
+        )
+        val path = HeadingPath.parse("Work/Project A")
+        store.onAction(OrgClockUiAction.SelectFile(firstFile))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.StopClock(path))
+        store.onAction(OrgClockUiAction.SelectFile(secondFile))
+        runCurrent()
+        store.onAction(OrgClockUiAction.StartClock(path))
+        advanceUntilIdle()
+        assertEquals(listOf("f1"), stopFiles)
+        assertEquals(listOf("f2"), startFiles)
+        assertEquals("f2", store.uiState.value.selectedFile?.fileId)
+        assertNotNull(store.uiState.value.headings.first { it.node.path == path }.openClock)
+    }
+
+    @Test
+    fun initialize_routesToTodayBeforeSlowTemplateRefreshCompletes() = runTest {
+        val root = RootReference("/tmp/org-root")
+        val todayFile = OrgFileEntry("f1", "2026-03-10.org", null)
+        val store = testStore(
+            scope = this,
+            loadSavedRootReference = { root },
+            openRoot = { Result.success(Unit) },
+            listFiles = { Result.success(listOf(todayFile)) },
+            listHeadings = { Result.success(sampleHeadings()) },
+            loadTemplateFileStatus = { delay(10_000); TemplateFileStatus(availability = TemplateAvailability.Missing, referenceMode = TemplateReferenceMode.LegacyHiddenFile) },
+        )
+        store.onAction(OrgClockUiAction.Initialize)
+        runCurrent()
+        assertEquals(Screen.HeadingList, store.uiState.value.screen)
+        assertEquals(todayFile, store.uiState.value.selectedFile)
+    }
+
+    @Test
     fun selectFile_loadsHeadingsAndRoutesToHeadingList() = runTest {
         val file = OrgFileEntry("f1", "2026-03-10.org", null)
         val store = testStore(

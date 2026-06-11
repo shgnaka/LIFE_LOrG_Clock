@@ -141,8 +141,20 @@ class OrgClockStore(
 
     private var initialized = false
     private var headingsSyncJob: Job? = null
-    private val inFlightClockOps = mutableSetOf<HeadingPath>()
+    private data class ClockMutationTarget(
+        val fileId: String,
+        val path: HeadingPath,
+        val previousOpenClock: OpenClockState?,
+    )
+
+    private data class ClockMutationKey(
+        val fileId: String,
+        val path: HeadingPath,
+    )
+
+    private val inFlightClockOps = mutableSetOf<ClockMutationKey>()
     private val inFlightClockOpsMutex = Mutex()
+    private var navigationRevision = 0L
     private var editSaveInFlight = false
     private val editSaveMutex = Mutex()
     private var createHeadingSubmitInFlight = false
@@ -196,6 +208,7 @@ class OrgClockStore(
             true
         }
         is OrgClockUiAction.PickRoot -> {
+            navigationRevision += 1
             scope.launch { applyRoot(action.rootReference) }
             true
         }
@@ -203,7 +216,8 @@ class OrgClockStore(
             if (uiState.value.selectingTemplateFile) {
                 scope.launch { selectTemplateFile(action.file) }
             } else {
-                scope.launch { loadHeadingsFor(action.file) }
+                val revision = ++navigationRevision
+                scope.launch { loadHeadingsFor(action.file, navigationRevision = revision) }
             }
             true
         }
@@ -226,7 +240,16 @@ class OrgClockStore(
             true
         }
         OrgClockUiAction.RefreshHeadings -> {
-            uiState.value.selectedFile?.let { file -> scope.launch { loadHeadingsFor(file, updateStatus = false) } }
+            uiState.value.selectedFile?.let { file ->
+                val revision = navigationRevision
+                scope.launch {
+                    loadHeadingsFor(
+                        file = file,
+                        updateStatus = false,
+                        navigationRevision = revision,
+                    )
+                }
+            }
             true
         }
         OrgClockUiAction.RefreshFiles -> {
@@ -242,15 +265,18 @@ class OrgClockStore(
             true
         }
         OrgClockUiAction.OpenFilePicker -> {
+            navigationRevision += 1
             _uiState.update { it.copy(screen = Screen.FilePicker, selectingTemplateFile = false) }
             true
         }
         OrgClockUiAction.OpenTemplateFilePicker -> {
+            navigationRevision += 1
             _uiState.update { it.copy(screen = Screen.FilePicker, selectingTemplateFile = true) }
             scope.launch { refreshTemplateCandidates() }
             true
         }
         OrgClockUiAction.OpenSettings -> {
+            navigationRevision += 1
             _uiState.update { it.copy(screen = Screen.Settings) }
             uiState.value.rootReference?.let { rootReference ->
                 scope.launch {
@@ -262,6 +288,7 @@ class OrgClockStore(
             true
         }
         OrgClockUiAction.BackFromSettings -> {
+            navigationRevision += 1
             _uiState.update { state ->
                 state.copy(
                     screen = if (state.selectedFile != null) Screen.HeadingList else Screen.FilePicker,
@@ -300,15 +327,21 @@ class OrgClockStore(
 
     private fun handleClockMutationAction(action: OrgClockUiAction): Boolean = when (action) {
         is OrgClockUiAction.StartClock -> {
-            if (beginClockMutation(action.path)) scope.launch { startClock(action.path) }
+            clockMutationTarget(action.path)?.let { target ->
+                if (beginClockMutation(target)) scope.launch { startClock(target) }
+            }
             true
         }
         is OrgClockUiAction.StopClock -> {
-            if (beginClockMutation(action.path)) scope.launch { stopClock(action.path) }
+            clockMutationTarget(action.path)?.let { target ->
+                if (beginClockMutation(target)) scope.launch { stopClock(target) }
+            }
             true
         }
         is OrgClockUiAction.CancelClock -> {
-            if (beginClockMutation(action.path)) scope.launch { cancelClock(action.path) }
+            clockMutationTarget(action.path)?.let { target ->
+                if (beginClockMutation(target)) scope.launch { cancelClock(target) }
+            }
             true
         }
         else -> false
@@ -552,9 +585,14 @@ class OrgClockStore(
         applyRoot(saved, clearSavedRootOnFailure = true)
     }
 
-    private suspend fun loadHeadingsFor(file: OrgFileEntry, updateStatus: Boolean = true) {
+    private suspend fun loadHeadingsFor(
+        file: OrgFileEntry,
+        updateStatus: Boolean = true,
+        navigationRevision: Long = this.navigationRevision,
+    ) {
         headingsSyncJob?.cancel()
         val loaded = listHeadings(file.fileId)
+        if (navigationRevision != this.navigationRevision) return
         if (loaded.isSuccess) {
             val headings = loaded.getOrThrow()
             val previousState = uiState.value
@@ -580,7 +618,13 @@ class OrgClockStore(
                     headings = headings,
                     selectedHeadingPath = if (sameFile) it.selectedHeadingPath?.takeIf { path -> headings.any { heading -> heading.node.path == path } } else null,
                     pendingClockOps = if (sameFile) it.pendingClockOps.filterTo(mutableSetOf()) { path -> headings.any { heading -> heading.node.path == path } } else emptySet(),
-                    collapsedL1 = emptySet(),
+                    collapsedL1 = if (sameFile) {
+                        it.collapsedL1.intersect(
+                            headings.filter { heading -> heading.node.level == 1 }.map { heading -> heading.node.title }.toSet(),
+                        )
+                    } else {
+                        emptySet()
+                    },
                     historyTarget = preservedHistoryTarget,
                     historyEntries = if (preservedHistoryTarget != null) it.historyEntries else emptyList(),
                     historyLoading = preservedHistoryTarget != null,
@@ -591,7 +635,7 @@ class OrgClockStore(
                     deletingEntry = if (preservedHistoryTarget != null) it.deletingEntry else null,
                     deletingInProgress = false,
                     deleteFailureMessage = if (preservedHistoryTarget != null) it.deleteFailureMessage else null,
-                    createHeadingDialog = null,
+                    createHeadingDialog = if (sameFile) it.createHeadingDialog else null,
                     divergenceSnapshot = divergenceSnapshot,
                     screen = Screen.HeadingList,
                     status = if (updateStatus) status(StatusMessageKey.LoadedFile, StatusTone.Success, file.displayName) else it.status,
@@ -613,7 +657,7 @@ class OrgClockStore(
     }
 
     private suspend fun refreshFilesAndRoute() {
-        uiState.value.rootReference?.let { evaluateAutoGeneration(it) }
+        val revision = navigationRevision
         val preferredFile = uiState.value.selectedFile
         val result = listFiles()
         if (result.isFailure) {
@@ -633,11 +677,16 @@ class OrgClockStore(
                 files = listed,
             )
         }
-        refreshFilesWithOpenClock()
+        scope.launch { refreshFilesWithOpenClock() }
+        if (revision != navigationRevision ||
+            uiState.value.selectedFile?.fileId != preferredFile?.fileId
+        ) {
+            return
+        }
         val preferred = preferredFile?.let { selected -> listed.firstOrNull { it.fileId == selected.fileId } }
         val today = listed.firstOrNull { it.displayName == "${todayProvider()}.org" }
         if (preferred != null) {
-            loadHeadingsFor(preferred)
+            loadHeadingsFor(preferred, navigationRevision = revision)
         } else if (preferredFile != null) {
             val divergenceSnapshot = recoveryStateFactory.selectedFileMissing(preferredFile.fileId)
             _uiState.update {
@@ -662,7 +711,7 @@ class OrgClockStore(
                 )
             }
         } else if (today != null) {
-            loadHeadingsFor(today)
+            loadHeadingsFor(today, navigationRevision = revision)
         } else {
             _uiState.update {
                 it.copy(
@@ -677,7 +726,12 @@ class OrgClockStore(
                 )
             }
         }
-        uiState.value.rootReference?.let { refreshAutoGenerationRuntimeState(it) }
+        uiState.value.rootReference?.let { rootReference ->
+            scope.launch {
+                evaluateAutoGeneration(rootReference)
+                refreshAutoGenerationRuntimeState(rootReference)
+            }
+        }
     }
 
     private suspend fun refreshTemplateCandidates() {
@@ -742,10 +796,12 @@ class OrgClockStore(
         _uiState.update { it.copy(rootReference = rootReference, status = status(StatusMessageKey.RootSet, StatusTone.Success)) }
         val scheduleConfig = loadRootScheduleConfig(rootReference)
         applyScheduleConfig(scheduleConfig)
-        syncRootScheduleConfig(scheduleConfig)
-        refreshTemplateState(rootReference, scheduleConfig)
-        refreshAutoGenerationRuntimeState(rootReference)
         refreshFilesAndRoute()
+        scope.launch {
+            syncRootScheduleConfig(scheduleConfig)
+            refreshTemplateState(rootReference, scheduleConfig)
+            refreshAutoGenerationRuntimeState(rootReference)
+        }
     }
 
     private suspend fun refreshSelectedFileHeadings() {
@@ -822,12 +878,10 @@ class OrgClockStore(
         }
     }
 
-    private suspend fun startClock(path: HeadingPath) {
-        val file = uiState.value.selectedFile ?: run { finishClockMutation(path); return }
-        val item = uiState.value.headings.firstOrNull { it.node.path == path } ?: run { finishClockMutation(path); return }
+    private suspend fun startClock(target: ClockMutationTarget) {
         val optimisticStartedAt = nowProvider()
-        updateHeadingOpenClock(path, OpenClockState(optimisticStartedAt))
-        val result = try { startClock(file.fileId, path) } finally { finishClockMutation(path) }
+        updateHeadingOpenClock(target, OpenClockState(optimisticStartedAt))
+        val result = try { startClock(target.fileId, target.path) } finally { finishClockMutation(target) }
         val nextStatus = if (result.isSuccess) {
             status(StatusMessageKey.ClockStarted, StatusTone.Success)
         } else {
@@ -840,44 +894,40 @@ class OrgClockStore(
         }
         if (result.isSuccess) {
             val startedAt = result.getOrThrow().startedAt ?: optimisticStartedAt
-            updateHeadingOpenClock(path, OpenClockState(startedAt))
+            updateHeadingOpenClock(target, OpenClockState(startedAt))
             _uiState.update { it.copy(status = nextStatus) }
             refreshFilesWithOpenClock()
         } else {
-            applySaveRoundTripMismatchIfNeeded(file.fileId, result.exceptionOrNull())
-            updateHeadingOpenClock(path, item.openClock)
+            applySaveRoundTripMismatchIfNeeded(target.fileId, result.exceptionOrNull())
+            updateHeadingOpenClock(target, target.previousOpenClock)
             _uiState.update { it.copy(status = nextStatus) }
         }
     }
 
-    private suspend fun stopClock(path: HeadingPath) {
-        val file = uiState.value.selectedFile ?: run { finishClockMutation(path); return }
-        val item = uiState.value.headings.firstOrNull { it.node.path == path } ?: run { finishClockMutation(path); return }
-        updateHeadingOpenClock(path, null)
-        val result = try { stopClock(file.fileId, path) } finally { finishClockMutation(path) }
+    private suspend fun stopClock(target: ClockMutationTarget) {
+        updateHeadingOpenClock(target, null)
+        val result = try { stopClock(target.fileId, target.path) } finally { finishClockMutation(target) }
         val nextStatus = if (result.isSuccess) status(StatusMessageKey.ClockStopped, StatusTone.Success) else status(StatusMessageKey.StopFailed, StatusTone.Error, result.exceptionOrNull()?.message ?: "")
         if (result.isSuccess) {
             _uiState.update { it.copy(status = nextStatus) }
             refreshFilesWithOpenClock()
         } else {
-            applySaveRoundTripMismatchIfNeeded(file.fileId, result.exceptionOrNull())
-            updateHeadingOpenClock(path, item.openClock)
+            applySaveRoundTripMismatchIfNeeded(target.fileId, result.exceptionOrNull())
+            updateHeadingOpenClock(target, target.previousOpenClock)
             _uiState.update { it.copy(status = nextStatus) }
         }
     }
 
-    private suspend fun cancelClock(path: HeadingPath) {
-        val file = uiState.value.selectedFile ?: run { finishClockMutation(path); return }
-        val item = uiState.value.headings.firstOrNull { it.node.path == path } ?: run { finishClockMutation(path); return }
-        updateHeadingOpenClock(path, null)
-        val result = try { cancelClock(file.fileId, path) } finally { finishClockMutation(path) }
+    private suspend fun cancelClock(target: ClockMutationTarget) {
+        updateHeadingOpenClock(target, null)
+        val result = try { cancelClock(target.fileId, target.path) } finally { finishClockMutation(target) }
         val nextStatus = if (result.isSuccess) status(StatusMessageKey.ClockCancelled, StatusTone.Warning) else status(StatusMessageKey.CancelFailed, StatusTone.Error, result.exceptionOrNull()?.message ?: "")
         if (result.isSuccess) {
             _uiState.update { it.copy(status = nextStatus) }
             refreshFilesWithOpenClock()
         } else {
-            applySaveRoundTripMismatchIfNeeded(file.fileId, result.exceptionOrNull())
-            updateHeadingOpenClock(path, item.openClock)
+            applySaveRoundTripMismatchIfNeeded(target.fileId, result.exceptionOrNull())
+            updateHeadingOpenClock(target, target.previousOpenClock)
             _uiState.update { it.copy(status = nextStatus) }
         }
     }
@@ -1051,8 +1101,18 @@ class OrgClockStore(
         _uiState.update { state -> state.copy(pendingClockOps = if (pending) state.pendingClockOps + path else state.pendingClockOps - path) }
     }
 
-    private fun updateHeadingOpenClock(path: HeadingPath, openClock: OpenClockState?) {
-        _uiState.update { state -> state.copy(headings = state.headings.map { if (it.node.path == path) it.copy(openClock = openClock) else it }) }
+    private fun updateHeadingOpenClock(target: ClockMutationTarget, openClock: OpenClockState?) {
+        _uiState.update { state ->
+            if (state.selectedFile?.fileId != target.fileId) {
+                state
+            } else {
+                state.copy(
+                    headings = state.headings.map {
+                        if (it.node.path == target.path) it.copy(openClock = openClock) else it
+                    },
+                )
+            }
+        }
     }
 
     private fun applySaveRoundTripMismatchIfNeeded(fileId: String, error: Throwable?) {
@@ -1079,22 +1139,37 @@ class OrgClockStore(
         }
     }
 
-    private fun beginClockMutation(path: HeadingPath): Boolean {
+    private fun clockMutationTarget(path: HeadingPath): ClockMutationTarget? {
+        val state = uiState.value
+        val fileId = state.selectedFile?.fileId ?: return null
+        val item = state.headings.firstOrNull { it.node.path == path } ?: return null
+        return ClockMutationTarget(
+            fileId = fileId,
+            path = path,
+            previousOpenClock = item.openClock,
+        )
+    }
+
+    private fun beginClockMutation(target: ClockMutationTarget): Boolean {
         val added = withGuard(inFlightClockOpsMutex) {
-            inFlightClockOps.add(path)
+            inFlightClockOps.add(ClockMutationKey(target.fileId, target.path))
         }
         if (!added) {
             return false
         }
-        updatePendingClock(path, true)
+        if (uiState.value.selectedFile?.fileId == target.fileId) {
+            updatePendingClock(target.path, true)
+        }
         return true
     }
 
-    private fun finishClockMutation(path: HeadingPath) {
+    private fun finishClockMutation(target: ClockMutationTarget) {
         withGuard(inFlightClockOpsMutex) {
-            inFlightClockOps.remove(path)
+            inFlightClockOps.remove(ClockMutationKey(target.fileId, target.path))
         }
-        updatePendingClock(path, false)
+        if (uiState.value.selectedFile?.fileId == target.fileId) {
+            updatePendingClock(target.path, false)
+        }
     }
 
     private fun beginEditSave(): Boolean {
