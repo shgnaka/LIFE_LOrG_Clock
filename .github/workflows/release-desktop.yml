@@ -44,6 +44,8 @@ jobs:
           }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          [[ "$TAG" == *-* ]] && IS_PRERELEASE=true || IS_PRERELEASE=false
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release tag
         uses: actions/checkout@v4
@@ -100,7 +102,13 @@ jobs:
     steps:
       - name: Resolve release tag
         id: release
-        run: echo "tag=${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          [[ "$TAG" == *-* ]] && IS_PRERELEASE=true || IS_PRERELEASE=false
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Download installers
         uses: actions/download-artifact@v4
@@ -114,5 +122,6 @@ jobs:
         with:
           tag_name: ${{ steps.release.outputs.tag }}
           generate_release_notes: true
+          prerelease: ${{ steps.release.outputs.is_prerelease }}
           files: release-assets/*
           fail_on_unmatched_files: true

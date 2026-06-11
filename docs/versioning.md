@@ -49,6 +49,20 @@ suffix. Build metadata such as `+sha.abc1234` may identify local or CI builds,
 but it does not change release precedence and should not be used for public
 release tags.
 
+Pushing a pre-release tag runs the `Release Desktop Installers` workflow. The
+workflow builds the Windows and Linux installers and publishes the associated
+GitHub Release with its **Pre-release** flag enabled.
+
+For example, create and push the first `1.0.0` release candidate with:
+
+```bash
+git tag -a v1.0.0-rc.1 -m "Org Clock v1.0.0-rc.1"
+git push origin v1.0.0-rc.1
+```
+
+Do not move or reuse a published pre-release tag. Fix the problem and increment
+the suffix, for example from `rc.1` to `rc.2`.
+
 ## Platform build numbers
 
 Store-facing build numbers are not part of SemVer:
@@ -82,4 +96,6 @@ versions.
 2. Update platform product versions and monotonically increasing build numbers.
 3. Verify release builds and migration/sync compatibility.
 4. Create an annotated `vMAJOR.MINOR.PATCH` tag, or a permitted pre-release tag.
-5. Push the tag and publish generated release notes and artifacts.
+5. Push the tag. The desktop release workflow publishes generated release notes,
+   installers, and checksums; pre-release tags are marked as GitHub
+   Pre-releases.
