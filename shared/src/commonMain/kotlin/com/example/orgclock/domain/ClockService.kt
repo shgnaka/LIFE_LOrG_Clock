@@ -135,7 +135,7 @@ class ClockService(
 
             val firstLines = runCatching { parser.appendOpenClock(doc.lines, headingPath, now, timeZone) }
                 .getOrElse { return@runExclusive Result.failure(it) }
-            val startedEvent = recordStartedEvent(fileId, doc.date, headingPath, now)
+            val startedEvent = recordStartedEvent(doc.date.toString() + ".org", doc.date, headingPath, now)
             if (startedEvent.isFailure) {
                 return@runExclusive Result.failure(startedEvent.exceptionOrNull()!!)
             }
@@ -193,7 +193,7 @@ class ClockService(
             }
             val closeResult = runCatching { parser.closeLatestOpenClock(doc.lines, headingPath, now, timeZone) }
                 .getOrElse { return@runExclusive Result.failure(it) }
-            val stoppedEvent = recordStoppedEvent(fileId, doc.date, headingPath, now)
+            val stoppedEvent = recordStoppedEvent(doc.date.toString() + ".org", doc.date, headingPath, now)
             if (stoppedEvent.isFailure) {
                 return@runExclusive Result.failure(stoppedEvent.exceptionOrNull()!!)
             }
@@ -221,7 +221,7 @@ class ClockService(
             }
             val cancelled = runCatching { parser.cancelLatestOpenClock(doc.lines, headingPath) }
                 .getOrElse { return@runExclusive Result.failure(it) }
-            val cancelledEvent = recordCancelledEvent(fileId, doc.date, headingPath, Clock.System.now())
+            val cancelledEvent = recordCancelledEvent(doc.date.toString() + ".org", doc.date, headingPath, Clock.System.now())
             if (cancelledEvent.isFailure) {
                 return@runExclusive Result.failure(cancelledEvent.exceptionOrNull()!!)
             }

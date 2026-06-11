@@ -5,6 +5,7 @@ package com.example.orgclock.desktop
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -69,6 +71,8 @@ import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
 import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.datetime.TimeZone
@@ -108,7 +112,7 @@ private fun DesktopApp() {
     }
     DisposableEffect(runtime) {
         onDispose {
-            runtime.stop()
+            graph.close()
         }
     }
 
@@ -131,6 +135,7 @@ private fun DesktopApp() {
                 DesktopHostCard(
                     state = state,
                     syncState = syncState,
+                    syncPairingCode = graph.currentSyncPairingCode(),
                     onPickRoot = {
                         chooseRootDirectory(state.rootReference)?.let { root ->
                             store.onAction(OrgClockUiAction.PickRoot(root))
@@ -152,6 +157,7 @@ private fun DesktopApp() {
 private fun DesktopHostCard(
     state: OrgClockUiState,
     syncState: DesktopEventSyncRuntimeState,
+    syncPairingCode: String?,
     onPickRoot: () -> Unit,
     onAction: (OrgClockUiAction) -> Unit,
     onSyncNow: () -> Unit,
@@ -207,6 +213,7 @@ private fun DesktopHostCard(
                 Screen.Settings -> SettingsPane(
                     state = state,
                     syncState = syncState,
+                    syncPairingCode = syncPairingCode,
                     onChangeRoot = onPickRoot,
                     onBack = { onAction(OrgClockUiAction.BackFromSettings) },
                     onReloadFiles = { onAction(OrgClockUiAction.RefreshFiles) },
@@ -521,6 +528,7 @@ private fun HeadingRow(
 private fun SettingsPane(
     state: OrgClockUiState,
     syncState: DesktopEventSyncRuntimeState,
+    syncPairingCode: String?,
     onChangeRoot: () -> Unit,
     onBack: () -> Unit,
     onReloadFiles: () -> Unit,
@@ -544,6 +552,7 @@ private fun SettingsPane(
         )
         DesktopSyncSettingsCard(
             state = syncState,
+            pairingCode = syncPairingCode,
             onSyncNow = onSyncNow,
         )
         FileMonitoringSettingsCard(
@@ -905,6 +914,7 @@ private fun AboutDesktopSettingsCard() {
 @Composable
 private fun DesktopSyncSettingsCard(
     state: DesktopEventSyncRuntimeState,
+    pairingCode: String?,
     onSyncNow: () -> Unit,
 ) {
     val status = when {
@@ -942,6 +952,15 @@ private fun DesktopSyncSettingsCard(
             value = state.quarantinedEventCount.toString(),
         )
         SettingsFieldRow(label = "Peer count", value = peerSummary)
+        if (pairingCode != null) {
+            Text("Scan this QR code on another Org Clock device. It expires in 2 minutes and can be used only once.")
+            PairingQrCode(pairingCode)
+        } else {
+            SettingsMessageBlock(
+                text = "No LAN IPv4 address is available. Connect this desktop to the same network as the other device.",
+                tone = SettingsMessageTone.Warning,
+            )
+        }
         state.lastError?.takeIf { it.isNotBlank() }?.let { error ->
             SettingsMessageBlock(text = error, tone = SettingsMessageTone.Warning)
         }
@@ -1443,5 +1462,32 @@ private fun chooseRootDirectory(currentRoot: RootReference?): RootReference? {
         chooser.selectedFile?.toPath()?.toAbsolutePath()?.normalize()?.toString()?.let(::RootReference)
     } else {
         null
+    }
+}
+
+@Composable
+private fun PairingQrCode(value: String) {
+    val matrix = remember(value) {
+        QRCodeWriter().encode(value, BarcodeFormat.QR_CODE, 45, 45)
+    }
+    Canvas(
+        modifier = Modifier
+            .size(220.dp)
+            .background(Color.White)
+            .padding(10.dp),
+    ) {
+        val cellWidth = size.width / matrix.width
+        val cellHeight = size.height / matrix.height
+        for (x in 0 until matrix.width) {
+            for (y in 0 until matrix.height) {
+                if (matrix[x, y]) {
+                    drawRect(
+                        color = Color.Black,
+                        topLeft = androidx.compose.ui.geometry.Offset(x * cellWidth, y * cellHeight),
+                        size = androidx.compose.ui.geometry.Size(cellWidth, cellHeight),
+                    )
+                }
+            }
+        }
     }
 }

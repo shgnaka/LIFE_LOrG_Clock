@@ -18,6 +18,7 @@ import com.example.orgclock.sync.ClockEventStoreSnapshot
 import com.example.orgclock.sync.PeerPairingDraft
 import com.example.orgclock.sync.PeerProbeResult
 import com.example.orgclock.sync.PeerRegistrationRequest
+import com.example.orgclock.sync.SyncPairingCodeCodec
 import com.example.orgclock.sync.PeerTrustRole
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.sync.toClockEventSyncState
@@ -512,6 +513,26 @@ class OrgClockStore(
         is OrgClockUiAction.SyncUpdatePeerDeviceId -> { _uiState.update { it.copy(syncPeerDeviceId = action.value) }; true }
         is OrgClockUiAction.SyncUpdatePeerDisplayName -> { _uiState.update { it.copy(syncPeerDisplayName = action.value) }; true }
         is OrgClockUiAction.SyncUpdatePeerPublicKey -> { _uiState.update { it.copy(syncPeerPublicKey = action.value) }; true }
+        is OrgClockUiAction.SyncUpdatePeerEndpoint -> { _uiState.update { it.copy(syncPeerEndpoint = action.value) }; true }
+        is OrgClockUiAction.SyncApplyPairingCode -> {
+            SyncPairingCodeCodec.decode(action.value).fold(
+                onSuccess = { code ->
+                    _uiState.update {
+                        it.copy(
+                            syncPeerInput = code.peerId,
+                            syncPeerDeviceId = code.deviceId,
+                            syncPeerDisplayName = code.displayName,
+                            syncPeerPublicKey = code.publicKeyBase64,
+                            syncPeerEndpoint = code.endpoint,
+                            syncPeerViewerModeEnabled = code.role == com.example.orgclock.sync.PeerTrustRole.Viewer,
+                            syncPeerInputError = null,
+                        )
+                    }
+                },
+                onFailure = { error -> _uiState.update { it.copy(syncPeerInputError = error.message ?: "invalid pairing QR code") } },
+            )
+            true
+        }
         is OrgClockUiAction.SyncSetPeerViewerMode -> { _uiState.update { it.copy(syncPeerViewerModeEnabled = action.enabled) }; true }
         OrgClockUiAction.SyncAddPeer -> { scope.launch { addPeer() }; true }
         is OrgClockUiAction.SyncRevokePeer -> { scope.launch { revokePeer(action.peerId) }; true }

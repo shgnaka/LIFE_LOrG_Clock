@@ -21,6 +21,11 @@ class SyncIntegrationService(
     private val peerSyncCheckpointStore: PeerSyncCheckpointStore? = null,
     private val peerHealthChecker: PeerHealthChecker = HttpPeerHealthChecker(),
     private val runtimeManager: SyncRuntimeManager? = null,
+    private val pairingInvitationExchange: suspend (String, String, String) -> Result<String> =
+        ::exchangeDesktopPairingInvitation,
+    private val securePeerProbe: suspend (String, String) -> Result<Unit> = { endpoint, credential ->
+        AndroidLanSyncTransport(endpoint, credential).probe()
+    },
 ) {
     private val peerStates = linkedMapOf<String, SyncPeerState>()
     private val recoveryService = ClockEventRecoveryService()
@@ -315,38 +320,37 @@ class SyncIntegrationService(
             reachable = probe.reachable,
             lastCheckedAtEpochMs = probe.checkedAtEpochMs,
         )
-        if (probe.reachable) {
-            peerTrustStore.trust(normalized)
-        }
+        if (probe.reachable) peerTrustStore.trust(normalized)
         refreshStateSnapshot()
         return probe
     }
 
     suspend fun pairTrustedPeer(request: PeerRegistrationRequest): PeerProbeResult {
         val normalized = request.peerId.trim()
-        if (normalized.isBlank()) {
-            return PeerProbeResult(
-                peerId = normalized,
-                reachable = false,
-                checkedAtEpochMs = System.currentTimeMillis(),
-                reason = "peer id is empty",
-            )
+        val endpoint = request.endpoint?.trim().orEmpty()
+        if (normalized.isBlank() || endpoint.isBlank()) {
+            return PeerProbeResult(normalized, false, System.currentTimeMillis(), "peer endpoint is empty")
         }
-        if (request.publicKeyBase64.isBlank()) {
-            return PeerProbeResult(
-                peerId = normalized,
-                reachable = false,
-                checkedAtEpochMs = System.currentTimeMillis(),
-                reason = "public key is empty",
-            )
+        val invitation = SyncPairingInvitationCodec.decode(request.publicKeyBase64).getOrElse { error ->
+            return PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "invalid pairing invitation")
         }
-        peerTrustStore.trust(request.toPeerTrustRecord())
-        val probe = peerHealthChecker.probe(normalized)
-        updatePeerState(
-            peerId = normalized,
-            reachable = probe.reachable,
-            lastCheckedAtEpochMs = probe.checkedAtEpochMs,
+        if (invitation.expiresAtEpochMs <= System.currentTimeMillis()) {
+            return PeerProbeResult(normalized, false, System.currentTimeMillis(), "pairing QR code expired")
+        }
+        val durableCredential = pairingInvitationExchange(
+            endpoint,
+            request.publicKeyBase64,
+            deviceIdProvider.getOrCreate(),
+        ).getOrElse { error ->
+            return PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "pairing failed")
+        }
+        val verifiedRequest = request.copy(publicKeyBase64 = durableCredential)
+        peerTrustStore.trust(verifiedRequest.toPeerTrustRecord())
+        val probe = securePeerProbe(endpoint, durableCredential).fold(
+            onSuccess = { PeerProbeResult(normalized, true, System.currentTimeMillis()) },
+            onFailure = { error -> PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "probe failed") },
         )
+        updatePeerState(normalized, probe.reachable, probe.checkedAtEpochMs)
         refreshStateSnapshot()
         return probe
     }
@@ -361,12 +365,17 @@ class SyncIntegrationService(
                 reason = "peer id is empty",
             )
         }
-        val probe = peerHealthChecker.probe(normalized)
-        updatePeerState(
-            peerId = normalized,
-            reachable = probe.reachable,
-            lastCheckedAtEpochMs = probe.checkedAtEpochMs,
-        )
+        val record = peerTrustStore.getTrustRecord(normalized)
+        val endpoint = record?.endpoint
+        val probe = if (endpoint?.startsWith("https://") == true && SyncTransportCredentialCodec.decode(record.publicKeyBase64).isSuccess) {
+            AndroidLanSyncTransport(endpoint, record.publicKeyBase64).probe().fold(
+                onSuccess = { PeerProbeResult(normalized, true, System.currentTimeMillis()) },
+                onFailure = { error -> PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "probe failed") },
+            )
+        } else {
+            peerHealthChecker.probe(normalized)
+        }
+        updatePeerState(peerId = normalized, reachable = probe.reachable, lastCheckedAtEpochMs = probe.checkedAtEpochMs)
         refreshStateSnapshot()
         return probe
     }

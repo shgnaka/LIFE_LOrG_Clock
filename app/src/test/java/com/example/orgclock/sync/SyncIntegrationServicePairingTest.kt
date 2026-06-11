@@ -19,15 +19,8 @@ class SyncIntegrationServicePairingTest {
             },
             runtimePrefs = TestSyncRuntimePrefs(),
             peerTrustStore = store,
-            peerHealthChecker = object : PeerHealthChecker {
-                override suspend fun probe(peerId: String): PeerProbeResult {
-                    return PeerProbeResult(
-                        peerId = peerId,
-                        reachable = true,
-                        checkedAtEpochMs = 1234L,
-                    )
-                }
-            },
+            pairingInvitationExchange = { _, _, _ -> Result.success("credential-a") },
+            securePeerProbe = { _, _ -> Result.success(Unit) },
         )
 
         val result = service.pairTrustedPeer(
@@ -35,8 +28,9 @@ class SyncIntegrationServicePairingTest {
                 peerId = "peer-a",
                 deviceId = "device-a",
                 displayName = "Desktop Host",
-                publicKeyBase64 = "pk-a",
+                publicKeyBase64 = validInvitation(),
                 role = PeerTrustRole.Viewer,
+                endpoint = "https://desktop.local:8787",
                 requestedAt = Instant.parse("2026-03-10T09:00:00Z"),
             ),
         )
@@ -46,7 +40,7 @@ class SyncIntegrationServicePairingTest {
         val record = store.getTrustRecord("peer-a")
         assertEquals("Desktop Host", record?.displayName)
         assertEquals(PeerTrustRole.Viewer, record?.role)
-        assertEquals("pk-a", record?.publicKeyBase64)
+        assertEquals("credential-a", record?.publicKeyBase64)
         assertEquals("peer-a", service.snapshot.value.trustedPeers.single())
         val peerState = service.snapshot.value.peerStates.single()
         assertEquals("Desktop Host", peerState.displayName)
@@ -67,16 +61,8 @@ class SyncIntegrationServicePairingTest {
             },
             runtimePrefs = TestSyncRuntimePrefs(),
             peerTrustStore = store,
-            peerHealthChecker = object : PeerHealthChecker {
-                override suspend fun probe(peerId: String): PeerProbeResult {
-                    return PeerProbeResult(
-                        peerId = peerId,
-                        reachable = false,
-                        checkedAtEpochMs = 1234L,
-                        reason = "unreachable",
-                    )
-                }
-            },
+            pairingInvitationExchange = { _, _, _ -> Result.success("credential-a") },
+            securePeerProbe = { _, _ -> Result.failure(IllegalStateException("unreachable")) },
         )
 
         val result = service.pairTrustedPeer(
@@ -84,8 +70,9 @@ class SyncIntegrationServicePairingTest {
                 peerId = "peer-a",
                 deviceId = "device-a",
                 displayName = "Desktop Host",
-                publicKeyBase64 = "pk-a",
+                publicKeyBase64 = validInvitation(),
                 role = PeerTrustRole.Viewer,
+                endpoint = "https://desktop.local:8787",
                 requestedAt = Instant.parse("2026-03-10T09:00:00Z"),
             ),
         )
@@ -95,6 +82,14 @@ class SyncIntegrationServicePairingTest {
         assertEquals(PeerTrustRole.Viewer, store.getTrustRecord("peer-a")?.role)
     }
 }
+
+private fun validInvitation(): String = SyncPairingInvitationCodec.encode(
+    SyncPairingInvitation(
+        token = "one-time-token",
+        certificateSha256 = "ab".repeat(32),
+        expiresAtEpochMs = System.currentTimeMillis() + 60_000,
+    ),
+)
 
 private class RecordingPeerTrustStore : PeerTrustStore {
     private val records = linkedMapOf<String, PeerTrustRecord>()

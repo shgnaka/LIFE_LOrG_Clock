@@ -1,6 +1,11 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
+val desktopPackageVersion = providers.gradleProperty("desktop.version")
+    .orElse(providers.environmentVariable("ORG_CLOCK_DESKTOP_VERSION"))
+    .getOrElse("1.0.0")
+    .removePrefix("v")
+
 val desktopTargetFormats = when {
     org.gradle.internal.os.OperatingSystem.current().isMacOsX -> arrayOf(TargetFormat.Dmg)
     org.gradle.internal.os.OperatingSystem.current().isWindows -> arrayOf(TargetFormat.Msi)
@@ -29,6 +34,8 @@ dependencies {
     implementation(compose.material3)
     implementation(project(":shared"))
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
 
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
@@ -41,7 +48,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(*desktopTargetFormats)
             packageName = "org-clock-desktop"
-            packageVersion = "1.0.0"
+            packageVersion = desktopPackageVersion
             description = "Cross-platform desktop MVP host for Org Clock."
             vendor = "shgnaka"
         }

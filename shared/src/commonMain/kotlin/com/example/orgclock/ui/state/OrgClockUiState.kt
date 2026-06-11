@@ -109,6 +109,7 @@ data class OrgClockUiState(
     val syncPeerDeviceId: String = "",
     val syncPeerDisplayName: String = "",
     val syncPeerPublicKey: String = "",
+    val syncPeerEndpoint: String = "",
     val syncPeerViewerModeEnabled: Boolean = false,
     val syncPeerInputError: String? = null,
     val syncPeerBusy: Boolean = false,

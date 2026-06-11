@@ -1,0 +1,114 @@
+name: Release Desktop Installers
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing v-prefixed tag to publish"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release-${{ github.ref }}-${{ inputs.release_tag || '' }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: desktop-windows
+          - os: ubuntu-latest
+            artifact: desktop-linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}"
+          [[ "$TAG" == v* ]] || { echo "::error::Release tag must start with v"; exit 1; }
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Build installers
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x ./gradlew
+          ./gradlew --stacktrace packageDesktopCurrentOs -Pdesktop.version="${{ steps.release.outputs.version }}"
+
+      - name: Collect Linux installers
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find desktopApp/build/compose/binaries/main -type f -name '*.deb' -exec cp {} release-assets/ \;
+          tar -C desktopApp/build/compose/binaries/main/app -czf release-assets/org-clock-desktop-${{ steps.release.outputs.version }}-linux-portable.tar.gz .
+          test -n "$(find release-assets -type f -print -quit)"
+          (cd release-assets && sha256sum * > SHA256SUMS-linux.txt)
+
+      - name: Collect Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          Get-ChildItem desktopApp/build/compose/binaries/main -Recurse -Filter *.msi | Copy-Item -Destination release-assets
+          if (-not (Get-ChildItem release-assets -Filter *.msi)) { throw "MSI installer was not generated" }
+          Get-ChildItem release-assets -File | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)" | Add-Content release-assets/SHA256SUMS-windows.txt
+          }
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        run: echo "tag=${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download installers
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          generate_release_notes: true
+          files: release-assets/*
+          fail_on_unmatched_files: true
