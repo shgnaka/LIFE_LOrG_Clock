@@ -72,7 +72,9 @@ Store-facing build numbers are not part of SemVer:
 - iOS `CFBundleShortVersionString` is the product version;
   `CFBundleVersion` is a monotonically increasing integer.
 - Desktop package versions are derived from the Git tag without the leading
-  `v`.
+  `v`. Windows MSI metadata uses the numeric `MAJOR.MINOR.PATCH` portion because
+  MSI does not accept SemVer pre-release identifiers; the Git tag, GitHub
+  Release, and installer filename retain the complete pre-release version.
 
 Rebuilding an existing product version for a store may increment only the
 platform build number. It must not replace or move an existing Git tag or
