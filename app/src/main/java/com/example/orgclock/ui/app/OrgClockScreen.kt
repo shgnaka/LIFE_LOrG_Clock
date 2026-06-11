@@ -174,8 +174,8 @@ fun OrgClockScreen(
     zoneIdProvider: () -> ZoneId,
     nowProvider: () -> ZonedDateTime,
     onPickRoot: () -> Unit,
-    onScanPairingCode: () -> Unit,
     onAction: (OrgClockUiAction) -> Unit,
+    onScanPairingCode: () -> Unit = {},
 ) {
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         when (state.screen) {
