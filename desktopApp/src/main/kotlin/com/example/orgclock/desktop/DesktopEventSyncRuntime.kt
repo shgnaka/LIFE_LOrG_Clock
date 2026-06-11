@@ -18,6 +18,7 @@ import com.example.orgclock.sync.DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT
 import com.example.orgclock.sync.PeerSyncCheckpointStore
 import com.example.orgclock.sync.PeerTrustRecord
 import com.example.orgclock.sync.PeerTrustRole
+import com.example.orgclock.sync.RemoteClockEventApplier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -65,6 +66,7 @@ class DesktopEventSyncRuntime(
     private val deviceIdProvider: () -> String,
     private val snapshotFlowProvider: () -> StateFlow<ClockEventStoreSnapshot>? = { null },
     private val snapshotPublisher: (ClockEventStoreSnapshot) -> Unit = {},
+    private val remoteEventApplier: RemoteClockEventApplier = RemoteClockEventApplier { Result.success(Unit) },
     private val transportProvider: DesktopEventSyncTransportProvider = DesktopEventSyncTransportProvider { null },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
@@ -199,8 +201,13 @@ class DesktopEventSyncRuntime(
         checkpointStore: PeerSyncCheckpointStore,
     ) {
         val checkpoint = checkpointStore.get(peer.peerId)
-        val pending = store.listSince(checkpoint?.lastSentCursor, DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT)
-        if (pending.isEmpty()) return
+        val scanned = store.listSince(checkpoint?.lastSentCursor, DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT)
+        if (scanned.isEmpty()) return
+        val pending = scanned.filter { it.event.deviceId == localPeerId }
+        if (pending.isEmpty()) {
+            checkpointStore.markSent(peer.peerId, scanned.last().cursor, Clock.System.now().toEpochMilliseconds())
+            return
+        }
         val response = transport.push(
             ClockEventPushRequest(
                 sourcePeerId = localPeerId,
@@ -219,8 +226,7 @@ class DesktopEventSyncRuntime(
             publishSnapshot(store, checkpointQuarantineStore(), reason)
             throw IllegalStateException("push rejected for ${peer.peerId}: $reason")
         }
-        val acceptedCursor = response.acceptedCursor ?: pending.last().cursor
-        checkpointStore.markSent(peer.peerId, acceptedCursor, Clock.System.now().toEpochMilliseconds())
+        checkpointStore.markSent(peer.peerId, scanned.last().cursor, Clock.System.now().toEpochMilliseconds())
     }
 
     private suspend fun fetchRemoteEvents(
@@ -266,6 +272,8 @@ class DesktopEventSyncRuntime(
             return false
         }
         val appended = response.events.mapNotNull { stored ->
+            if (store.contains(stored.event.eventId)) return@mapNotNull null
+            remoteEventApplier.apply(stored.event).getOrThrow()
             when (store.append(stored.event)) {
                 is AppendClockEventResult.Appended -> stored
                 is AppendClockEventResult.Duplicate -> null

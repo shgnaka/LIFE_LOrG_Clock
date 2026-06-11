@@ -10,6 +10,8 @@ import com.example.orgclock.presentation.RootReference
 import com.example.orgclock.sync.ClockEventStore
 import com.example.orgclock.sync.ClockEventStoreSnapshot
 import com.example.orgclock.sync.JdbcClockEventStore
+import com.example.orgclock.sync.RemoteClockEventApplier
+import com.example.orgclock.sync.RepositoryRemoteClockEventApplier
 import com.example.orgclock.sync.StoreBackedClockEventRecorder
 import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
@@ -39,6 +41,7 @@ class DesktopAppGraph(
     private val settingsStore: DesktopSettingsStore = DesktopSettingsStore(),
     private val rootScheduleStore: DesktopRootScheduleStore = DesktopRootScheduleStore(),
     private val clockEnvironment: ClockEnvironment = DesktopSystemClockEnvironment,
+    private val syncIdentity: DesktopSyncIdentity = DesktopSyncIdentity(),
     private val repositoryFactory: (Path) -> ClockRepository = ::DesktopFileOrgRepository,
     private val coordinatorFactory: () -> FileOperationCoordinator = ::InMemoryFileOperationCoordinator,
     private val watchRootChanges: Boolean = true,
@@ -50,9 +53,12 @@ class DesktopAppGraph(
     private var peerSyncCheckpointStore: DesktopPeerSyncCheckpointStore? = null
     private var quarantineStore: DesktopClockEventSyncQuarantineStore? = null
     private var clockService: ClockService? = null
+    private var remoteClockEventApplier: RemoteClockEventApplier? = null
     private var openClockScanner: DesktopOpenClockScanner? = null
     private var rootWatcher: DesktopRootWatcher? = null
     private var scope: CoroutineScope? = null
+    private var lanSyncServer: DesktopLanSyncServer? = null
+    private val pairingManager = DesktopPairingManager()
     private val externalChangeFlow = MutableStateFlow<ExternalChangeNotice?>(null)
     private val clockEventSyncSnapshotFlow = MutableStateFlow(ClockEventStoreSnapshot(null, null, 0))
     private val desktopEventSyncRuntimeInstance: DesktopEventSyncRuntime by lazy {
@@ -62,11 +68,21 @@ class DesktopAppGraph(
             peerSyncCheckpointStoreProvider = { peerSyncCheckpointStore },
             quarantineStoreProvider = { quarantineStore },
             deviceIdProvider = {
-                currentRootPath?.let { "desktop-${it.toString().hashCode()}" } ?: "desktop-standalone"
+                currentRootPath?.let(syncIdentity::deviceId) ?: "desktop-standalone"
             },
             snapshotFlowProvider = { clockEventSyncSnapshotFlow },
             snapshotPublisher = { clockEventSyncSnapshotFlow.value = it },
-            transportProvider = DesktopEventSyncTransportProvider { null },
+            remoteEventApplier = RemoteClockEventApplier { event ->
+                remoteClockEventApplier?.apply(event)
+                    ?: Result.failure(IllegalStateException("org root is not open"))
+            },
+            transportProvider = DesktopEventSyncTransportProvider { peerId ->
+                peerTrustStore?.getTrustRecord(peerId)?.let { record ->
+                    record.endpoint?.let { endpoint ->
+                        DesktopLanSyncTransport(endpoint, record.publicKeyBase64)
+                    }
+                }
+            },
         )
     }
     private var externalChangeRevision = 0L
@@ -168,6 +184,18 @@ class DesktopAppGraph(
 
     fun currentRootReference(): RootReference? = currentRootPath?.let { RootReference(it.toString()) }
 
+    fun currentSyncPairingCode(): String? = currentRootPath?.let { root ->
+        val tls = syncIdentity.tlsIdentity(root)
+        syncIdentity.pairingCode(root, pairingManager.currentInvitation(tls.certificateSha256))
+    }
+
+    fun close() {
+        lanSyncServer?.close()
+        lanSyncServer = null
+        rootWatcher?.stop()
+        desktopEventSyncRuntimeInstance.stop()
+    }
+
     fun desktopEventSyncRuntime(): DesktopEventSyncRuntime {
         DesktopEventSyncRuntimeEntryPoint.runtime = desktopEventSyncRuntimeInstance
         return desktopEventSyncRuntimeInstance
@@ -184,12 +212,13 @@ class DesktopAppGraph(
         val trustStore = DesktopPeerTrustStore()
         val checkpointStore = DesktopPeerSyncCheckpointStore(desktopCheckpointStorePreferences(normalized))
         val quarantineStore = DesktopClockEventSyncQuarantineStore(desktopQuarantineStorePreferences(normalized))
+        val fileOperationCoordinator = coordinatorFactory()
         val clockService = ClockService(
             repository,
-            fileOperationCoordinator = coordinatorFactory(),
+            fileOperationCoordinator = fileOperationCoordinator,
             clockEventRecorder = StoreBackedClockEventRecorder(
                 store = eventStore,
-                deviceIdProvider = { "desktop-${normalized.toString().hashCode()}" },
+                deviceIdProvider = { syncIdentity.deviceId(normalized) },
                 snapshotPublisher = { clockEventSyncSnapshotFlow.value = it },
             ),
         )
@@ -200,7 +229,23 @@ class DesktopAppGraph(
         this.peerSyncCheckpointStore = checkpointStore
         this.quarantineStore = quarantineStore
         this.clockService = clockService
+        this.remoteClockEventApplier = RepositoryRemoteClockEventApplier(
+            repository = repository,
+            clockService = ClockService(repository, fileOperationCoordinator = fileOperationCoordinator),
+            timeZoneProvider = clockEnvironment::currentTimeZone,
+        )
         this.openClockScanner = DesktopOpenClockScanner(repository)
+        if (watchRootChanges) {
+            lanSyncServer?.close()
+            lanSyncServer = DesktopLanSyncServer(
+                localDeviceId = { syncIdentity.deviceId(normalized) },
+                eventStore = { this.clockEventStore },
+                trustStore = { this.peerTrustStore },
+                tlsIdentity = { syncIdentity.tlsIdentity(normalized) },
+                pairingManager = pairingManager,
+                remoteEventApplier = requireNotNull(remoteClockEventApplier),
+            ).also { it.start() }
+        }
         clockEventSyncSnapshotFlow.value = ClockEventStoreSnapshot(null, null, 0)
         desktopEventSyncRuntimeInstance.onRootOpened()
         rootWatcher?.stop()

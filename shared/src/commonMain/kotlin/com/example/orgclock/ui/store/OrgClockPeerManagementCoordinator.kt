@@ -24,6 +24,7 @@ class OrgClockPeerManagementCoordinator(
         val deviceId = uiState.value.syncPeerDeviceId.trim()
         val displayName = uiState.value.syncPeerDisplayName.trim().ifBlank { input }
         val publicKey = uiState.value.syncPeerPublicKey.trim()
+        val endpoint = uiState.value.syncPeerEndpoint.trim()
         val validation = validatePeerId(input)
         if (validation != null) {
             uiState.update { it.copy(syncPeerInputError = validation) }
@@ -47,6 +48,7 @@ class OrgClockPeerManagementCoordinator(
             deviceId = deviceId,
             displayName = displayName,
             publicKeyBase64 = publicKey,
+            endpoint = endpoint,
             viewerModeEnabled = uiState.value.syncPeerViewerModeEnabled,
         ).toRegistrationRequest(nowProvider())
         val probe = syncPairTrustedPeer(request)
@@ -61,6 +63,7 @@ class OrgClockPeerManagementCoordinator(
                 syncPeerDeviceId = "",
                 syncPeerDisplayName = "",
                 syncPeerPublicKey = "",
+                syncPeerEndpoint = "",
                 syncPeerViewerModeEnabled = false,
                 syncPeerInputError = null,
                 status = status(StatusMessageKey.SyncPeerAdded, StatusTone.Success, arrayOf(input)),

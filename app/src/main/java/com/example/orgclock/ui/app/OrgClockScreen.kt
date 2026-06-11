@@ -174,6 +174,7 @@ fun OrgClockScreen(
     zoneIdProvider: () -> ZoneId,
     nowProvider: () -> ZonedDateTime,
     onPickRoot: () -> Unit,
+    onScanPairingCode: () -> Unit,
     onAction: (OrgClockUiAction) -> Unit,
 ) {
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -313,6 +314,7 @@ fun OrgClockScreen(
                 onSyncUpdatePeerDisplayName = { onAction(OrgClockUiAction.SyncUpdatePeerDisplayName(it)) },
                 onSyncUpdatePeerPublicKey = { onAction(OrgClockUiAction.SyncUpdatePeerPublicKey(it)) },
                 onSyncSetPeerViewerMode = { onAction(OrgClockUiAction.SyncSetPeerViewerMode(it)) },
+                onScanPairingCode = onScanPairingCode,
                 onSyncAddPeer = { onAction(OrgClockUiAction.SyncAddPeer) },
                 onSyncRevokePeer = { onAction(OrgClockUiAction.SyncRevokePeer(it)) },
                 onSyncProbePeer = { onAction(OrgClockUiAction.SyncProbePeer(it)) },
@@ -1059,6 +1061,7 @@ private fun SettingsScreen(
     onSyncUpdatePeerDisplayName: (String) -> Unit,
     onSyncUpdatePeerPublicKey: (String) -> Unit,
     onSyncSetPeerViewerMode: (Boolean) -> Unit,
+    onScanPairingCode: () -> Unit,
     onSyncAddPeer: () -> Unit,
     onSyncRevokePeer: (String) -> Unit,
     onSyncProbePeer: (String) -> Unit,
@@ -1467,6 +1470,11 @@ private fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(stringResource(R.string.sync_peer_viewer_role_label))
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onScanPairingCode, enabled = !syncPeerBusy) {
+                            Text("Scan pairing QR")
+                        }
                     }
                     Button(
                         onClick = onSyncAddPeer,

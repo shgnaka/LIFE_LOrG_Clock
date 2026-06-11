@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
@@ -37,6 +38,9 @@ import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.viewmodel.OrgClockViewModel
+import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScanning
+import com.google.mlkit.vision.barcode.common.Barcode
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -125,6 +129,14 @@ fun OrgClockRoute(
     val viewModel: OrgClockViewModel = viewModel(factory = factory)
     val state by viewModel.uiState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val context = LocalContext.current
+    val pairingScanner = remember(context) {
+        val options = GmsBarcodeScannerOptions.Builder()
+            .setBarcodeFormats(Barcode.FORMAT_QR_CODE)
+            .enableAutoZoom()
+            .build()
+        GmsBarcodeScanning.getClient(context, options)
+    }
 
     val rootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -207,6 +219,15 @@ fun OrgClockRoute(
         zoneIdProvider = dependencies.zoneIdProvider,
         nowProvider = dependencies.nowProvider,
         onPickRoot = { rootPicker.launch(null) },
+        onScanPairingCode = {
+            pairingScanner.startScan()
+                .addOnSuccessListener { barcode ->
+                    barcode.rawValue?.let { viewModel.onAction(OrgClockUiAction.SyncApplyPairingCode(it)) }
+                }
+                .addOnFailureListener { _ ->
+                    viewModel.onAction(OrgClockUiAction.SyncApplyPairingCode("scan-error:"))
+                }
+        },
         onAction = viewModel::onAction,
     )
 }

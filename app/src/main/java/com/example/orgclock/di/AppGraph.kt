@@ -29,6 +29,7 @@ import com.example.orgclock.sync.ClockEventStoreSnapshot
 import com.example.orgclock.sync.ClockCommandKind
 import com.example.orgclock.sync.PeerRegistrationRequest
 import com.example.orgclock.sync.RoomClockEventStore
+import com.example.orgclock.sync.RepositoryRemoteClockEventApplier
 import com.example.orgclock.sync.DefaultClockCommandExecutor
 import com.example.orgclock.sync.AndroidEventSyncRuntime
 import com.example.orgclock.sync.AndroidEventSyncRuntimeEntryPoint
@@ -145,6 +146,7 @@ class DefaultAppGraph(
             appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE),
         )
     }
+    private val peerTrustStore by lazy { SharedPreferencesPeerTrustStore(prefs) }
     private val peerSyncCheckpointStore by lazy {
         SharedPreferencesPeerSyncCheckpointStore(prefs)
     }
@@ -154,12 +156,23 @@ class DefaultAppGraph(
     private val androidEventSyncRuntime: AndroidEventSyncRuntime by lazy {
         AndroidEventSyncRuntime(
             clockEventStore = clockEventStore,
-            peerTrustStore = SharedPreferencesPeerTrustStore(prefs),
+            peerTrustStore = peerTrustStore,
             peerSyncCheckpointStore = peerSyncCheckpointStore,
             quarantineStore = clockEventSyncQuarantineStore,
             deviceIdProvider = deviceIdProvider,
             snapshotPublisher = { clockEventSyncSnapshotFlow.value = it },
-            transportProvider = AndroidEventSyncTransportProvider { null },
+            remoteEventApplier = RepositoryRemoteClockEventApplier(
+                repository = repository,
+                clockService = ClockService(repository, fileOperationCoordinator = fileOperationCoordinator),
+                timeZoneProvider = clockEnvironment::currentTimeZone,
+            ),
+            transportProvider = AndroidEventSyncTransportProvider { peerId ->
+                peerTrustStore.getTrustRecord(peerId)?.let { record ->
+                    record.endpoint?.let { endpoint ->
+                        AndroidLanSyncTransport(endpoint, record.publicKeyBase64)
+                    }
+                }
+            },
         )
     }
     private val clockEventRecorder by lazy {
@@ -204,7 +217,7 @@ class DefaultAppGraph(
             commandExecutor = commandExecutor,
             deviceIdProvider = deviceIdProvider,
             runtimePrefs = runtimePrefs,
-            peerTrustStore = SharedPreferencesPeerTrustStore(prefs),
+            peerTrustStore = peerTrustStore,
             clockEventStoreProvider = { clockEventStore },
             peerSyncCheckpointStore = peerSyncCheckpointStore,
             runtimeManager = runtimeManager,

@@ -36,6 +36,7 @@ class AndroidEventSyncRuntime(
     private val quarantineStore: ClockEventSyncQuarantineStore = NoOpClockEventSyncQuarantineStore,
     private val deviceIdProvider: DeviceIdProvider,
     private val snapshotPublisher: (ClockEventStoreSnapshot) -> Unit = {},
+    private val remoteEventApplier: RemoteClockEventApplier = RemoteClockEventApplier { Result.success(Unit) },
     private val transportProvider: AndroidEventSyncTransportProvider = AndroidEventSyncTransportProvider { null },
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
 ) {
@@ -127,8 +128,13 @@ class AndroidEventSyncRuntime(
         transport: ClockEventSyncTransport,
     ) {
         val checkpoint = peerSyncCheckpointStore.get(peer.peerId)
-        val pending = clockEventStore.listSince(checkpoint?.lastSentCursor, DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT)
-        if (pending.isEmpty()) return
+        val scanned = clockEventStore.listSince(checkpoint?.lastSentCursor, DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT)
+        if (scanned.isEmpty()) return
+        val pending = scanned.filter { it.event.deviceId == localPeerId }
+        if (pending.isEmpty()) {
+            peerSyncCheckpointStore.markSent(peer.peerId, scanned.last().cursor, Clock.System.now().toEpochMilliseconds())
+            return
+        }
         val response = transport.push(
             ClockEventPushRequest(
                 sourcePeerId = localPeerId,
@@ -145,8 +151,7 @@ class AndroidEventSyncRuntime(
             )
             throw IllegalStateException("push rejected for ${peer.peerId}: $reason")
         }
-        val acceptedCursor = response.acceptedCursor ?: pending.last().cursor
-        peerSyncCheckpointStore.markSent(peer.peerId, acceptedCursor, Clock.System.now().toEpochMilliseconds())
+        peerSyncCheckpointStore.markSent(peer.peerId, scanned.last().cursor, Clock.System.now().toEpochMilliseconds())
     }
 
     private suspend fun fetchRemoteEvents(
@@ -188,6 +193,8 @@ class AndroidEventSyncRuntime(
             return false
         }
         val appended = response.events.mapNotNull { stored ->
+            if (clockEventStore.contains(stored.event.eventId)) return@mapNotNull null
+            remoteEventApplier.apply(stored.event).getOrThrow()
             when (clockEventStore.append(stored.event)) {
                 is AppendClockEventResult.Appended -> stored
                 is AppendClockEventResult.Duplicate -> null

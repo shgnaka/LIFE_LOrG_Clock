@@ -315,38 +315,37 @@ class SyncIntegrationService(
             reachable = probe.reachable,
             lastCheckedAtEpochMs = probe.checkedAtEpochMs,
         )
-        if (probe.reachable) {
-            peerTrustStore.trust(normalized)
-        }
+        if (probe.reachable) peerTrustStore.trust(normalized)
         refreshStateSnapshot()
         return probe
     }
 
     suspend fun pairTrustedPeer(request: PeerRegistrationRequest): PeerProbeResult {
         val normalized = request.peerId.trim()
-        if (normalized.isBlank()) {
-            return PeerProbeResult(
-                peerId = normalized,
-                reachable = false,
-                checkedAtEpochMs = System.currentTimeMillis(),
-                reason = "peer id is empty",
-            )
+        val endpoint = request.endpoint?.trim().orEmpty()
+        if (normalized.isBlank() || endpoint.isBlank()) {
+            return PeerProbeResult(normalized, false, System.currentTimeMillis(), "peer endpoint is empty")
         }
-        if (request.publicKeyBase64.isBlank()) {
-            return PeerProbeResult(
-                peerId = normalized,
-                reachable = false,
-                checkedAtEpochMs = System.currentTimeMillis(),
-                reason = "public key is empty",
-            )
+        val invitation = SyncPairingInvitationCodec.decode(request.publicKeyBase64).getOrElse { error ->
+            return PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "invalid pairing invitation")
         }
-        peerTrustStore.trust(request.toPeerTrustRecord())
-        val probe = peerHealthChecker.probe(normalized)
-        updatePeerState(
-            peerId = normalized,
-            reachable = probe.reachable,
-            lastCheckedAtEpochMs = probe.checkedAtEpochMs,
+        if (invitation.expiresAtEpochMs <= System.currentTimeMillis()) {
+            return PeerProbeResult(normalized, false, System.currentTimeMillis(), "pairing QR code expired")
+        }
+        val durableCredential = exchangeDesktopPairingInvitation(
+            endpoint = endpoint,
+            encodedInvitation = request.publicKeyBase64,
+            localDeviceId = deviceIdProvider.getOrCreate(),
+        ).getOrElse { error ->
+            return PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "pairing failed")
+        }
+        val verifiedRequest = request.copy(publicKeyBase64 = durableCredential)
+        val probe = AndroidLanSyncTransport(endpoint, durableCredential).probe().fold(
+            onSuccess = { PeerProbeResult(normalized, true, System.currentTimeMillis()) },
+            onFailure = { error -> PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "probe failed") },
         )
+        if (probe.reachable) peerTrustStore.trust(verifiedRequest.toPeerTrustRecord())
+        updatePeerState(normalized, probe.reachable, probe.checkedAtEpochMs)
         refreshStateSnapshot()
         return probe
     }
@@ -361,12 +360,16 @@ class SyncIntegrationService(
                 reason = "peer id is empty",
             )
         }
-        val probe = peerHealthChecker.probe(normalized)
-        updatePeerState(
-            peerId = normalized,
-            reachable = probe.reachable,
-            lastCheckedAtEpochMs = probe.checkedAtEpochMs,
-        )
+        val record = peerTrustStore.getTrustRecord(normalized)
+        val probe = if (record?.endpoint?.startsWith("https://") == true && SyncTransportCredentialCodec.decode(record.publicKeyBase64).isSuccess) {
+            AndroidLanSyncTransport(record.endpoint, record.publicKeyBase64).probe().fold(
+                onSuccess = { PeerProbeResult(normalized, true, System.currentTimeMillis()) },
+                onFailure = { error -> PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "probe failed") },
+            )
+        } else {
+            peerHealthChecker.probe(normalized)
+        }
+        updatePeerState(peerId = normalized, reachable = probe.reachable, lastCheckedAtEpochMs = probe.checkedAtEpochMs)
         refreshStateSnapshot()
         return probe
     }

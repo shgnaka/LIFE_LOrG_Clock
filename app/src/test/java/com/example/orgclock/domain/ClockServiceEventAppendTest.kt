@@ -34,7 +34,7 @@ class ClockServiceEventAppendTest {
 
         assertTrue(result.isSuccess)
         assertEquals(listOf(ClockEventType.Started), recorder.events.map { it.type })
-        assertEquals("f1", recorder.events.single().fileName)
+        assertEquals("2026-03-18.org", recorder.events.single().fileName)
     }
 
     @Test
