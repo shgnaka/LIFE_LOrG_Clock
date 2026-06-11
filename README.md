@@ -19,3 +19,4 @@
 - [Android 実機インストール手順](docs/install-debug-guide.md)
 - [Android 手動スモークテスト](docs/manual-smoke-test.md)
 - [Desktop MVP 手動スモークテスト（Windows / Linux）](docs/desktop-manual-smoke-test.md)
+- [バージョニング方針](docs/versioning.md)

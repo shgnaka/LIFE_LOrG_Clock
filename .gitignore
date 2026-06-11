@@ -1,6 +1,11 @@
 # Gradle files
 .gradle/
+.kotlin/
 build/
+
+# Local agent/runtime workspaces
+.codex
+_winrun/
 
 # Local configuration file (sdk path, etc)
 local.properties
