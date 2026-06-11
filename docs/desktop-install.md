@@ -26,4 +26,4 @@ tar -xzf org-clock-desktop-*-linux-portable.tar.gz
 
 ## リリース方法
 
-`v1.2.3`形式のタグをpushすると、GitHub ActionsがWindowsとLinuxのインストーラを生成し、同じGitHub Releaseへチェックサム付きで公開します。既存タグは`Release Desktop Installers` workflowの手動実行でも再公開できます。
+`v1.2.3`形式のタグをpushすると、GitHub ActionsがWindowsとLinuxのインストーラを生成し、同じGitHub Releaseへチェックサム付きで公開します。`v1.2.3-rc.1`のようなプレリリースタグも利用でき、その場合はGitHub ReleaseのPre-releaseフラグが自動的に有効になります。既存タグは`Release Desktop Installers` workflowの手動実行でも再公開できます。

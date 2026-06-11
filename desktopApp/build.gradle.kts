@@ -6,6 +6,9 @@ val desktopPackageVersion = providers.gradleProperty("desktop.version")
     .getOrElse("1.0.0")
     .removePrefix("v")
 
+// MSI only accepts a numeric MAJOR.MINOR.BUILD version.
+val desktopMsiPackageVersion = desktopPackageVersion.substringBefore("-")
+
 val desktopTargetFormats = when {
     org.gradle.internal.os.OperatingSystem.current().isMacOsX -> arrayOf(TargetFormat.Dmg)
     org.gradle.internal.os.OperatingSystem.current().isWindows -> arrayOf(TargetFormat.Msi)
@@ -51,6 +54,10 @@ compose.desktop {
             packageVersion = desktopPackageVersion
             description = "Cross-platform desktop MVP host for Org Clock."
             vendor = "shgnaka"
+
+            windows {
+                msiPackageVersion = desktopMsiPackageVersion
+            }
         }
     }
 }
