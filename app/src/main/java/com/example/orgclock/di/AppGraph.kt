@@ -34,6 +34,7 @@ import com.example.orgclock.sync.DefaultClockCommandExecutor
 import com.example.orgclock.sync.AndroidEventSyncRuntime
 import com.example.orgclock.sync.AndroidEventSyncRuntimeEntryPoint
 import com.example.orgclock.sync.AndroidEventSyncTransportProvider
+import com.example.orgclock.sync.AndroidLanSyncTransport
 import com.example.orgclock.sync.LocalClockOperationPublisher
 import com.example.orgclock.sync.RuntimeSyncIntegrationFeatureFlag
 import com.example.orgclock.sync.RoomCommandIdStore

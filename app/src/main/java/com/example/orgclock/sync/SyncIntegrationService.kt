@@ -361,8 +361,9 @@ class SyncIntegrationService(
             )
         }
         val record = peerTrustStore.getTrustRecord(normalized)
-        val probe = if (record?.endpoint?.startsWith("https://") == true && SyncTransportCredentialCodec.decode(record.publicKeyBase64).isSuccess) {
-            AndroidLanSyncTransport(record.endpoint, record.publicKeyBase64).probe().fold(
+        val endpoint = record?.endpoint
+        val probe = if (endpoint?.startsWith("https://") == true && SyncTransportCredentialCodec.decode(record.publicKeyBase64).isSuccess) {
+            AndroidLanSyncTransport(endpoint, record.publicKeyBase64).probe().fold(
                 onSuccess = { PeerProbeResult(normalized, true, System.currentTimeMillis()) },
                 onFailure = { error -> PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "probe failed") },
             )

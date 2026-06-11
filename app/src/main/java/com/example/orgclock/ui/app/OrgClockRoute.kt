@@ -38,9 +38,9 @@ import com.example.orgclock.ui.state.OrgClockUiAction
 import com.example.orgclock.ui.state.OrgClockUiState
 import com.example.orgclock.ui.state.Screen
 import com.example.orgclock.ui.viewmodel.OrgClockViewModel
-import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.android.gms.mlkit.vision.codescanner.GmsBarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
+import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
