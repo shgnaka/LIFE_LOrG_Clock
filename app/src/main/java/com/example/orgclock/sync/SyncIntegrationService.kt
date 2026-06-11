@@ -21,6 +21,11 @@ class SyncIntegrationService(
     private val peerSyncCheckpointStore: PeerSyncCheckpointStore? = null,
     private val peerHealthChecker: PeerHealthChecker = HttpPeerHealthChecker(),
     private val runtimeManager: SyncRuntimeManager? = null,
+    private val pairingInvitationExchange: suspend (String, String, String) -> Result<String> =
+        ::exchangeDesktopPairingInvitation,
+    private val securePeerProbe: suspend (String, String) -> Result<Unit> = { endpoint, credential ->
+        AndroidLanSyncTransport(endpoint, credential).probe()
+    },
 ) {
     private val peerStates = linkedMapOf<String, SyncPeerState>()
     private val recoveryService = ClockEventRecoveryService()
@@ -332,19 +337,19 @@ class SyncIntegrationService(
         if (invitation.expiresAtEpochMs <= System.currentTimeMillis()) {
             return PeerProbeResult(normalized, false, System.currentTimeMillis(), "pairing QR code expired")
         }
-        val durableCredential = exchangeDesktopPairingInvitation(
-            endpoint = endpoint,
-            encodedInvitation = request.publicKeyBase64,
-            localDeviceId = deviceIdProvider.getOrCreate(),
+        val durableCredential = pairingInvitationExchange(
+            endpoint,
+            request.publicKeyBase64,
+            deviceIdProvider.getOrCreate(),
         ).getOrElse { error ->
             return PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "pairing failed")
         }
         val verifiedRequest = request.copy(publicKeyBase64 = durableCredential)
-        val probe = AndroidLanSyncTransport(endpoint, durableCredential).probe().fold(
+        peerTrustStore.trust(verifiedRequest.toPeerTrustRecord())
+        val probe = securePeerProbe(endpoint, durableCredential).fold(
             onSuccess = { PeerProbeResult(normalized, true, System.currentTimeMillis()) },
             onFailure = { error -> PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "probe failed") },
         )
-        if (probe.reachable) peerTrustStore.trust(verifiedRequest.toPeerTrustRecord())
         updatePeerState(normalized, probe.reachable, probe.checkedAtEpochMs)
         refreshStateSnapshot()
         return probe
