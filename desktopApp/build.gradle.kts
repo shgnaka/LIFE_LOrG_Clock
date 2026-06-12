@@ -54,7 +54,7 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(*desktopTargetFormats)
-            modules("java.sql")
+            modules("java.sql", "jdk.httpserver")
             packageName = if (desktopSmokePackage) {
                 "org-clock-desktop-smoke"
             } else {

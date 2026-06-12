@@ -5,6 +5,10 @@ import com.example.orgclock.domain.ClockService
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.sync.JdbcClockEventStore
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import java.nio.charset.StandardCharsets
@@ -64,6 +68,29 @@ internal object DesktopSmokeTestCommand {
                     require(template.exists()) { "Template fixture is missing" }
                     require(template.readText().contains("Packaged runtime")) { "Template contents were not readable" }
                 }
+                checks += check("desktop_graph_root_open") {
+                    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                    val graph = DesktopAppGraph(watchRootChanges = true)
+                    try {
+                        val store = graph.createStore(scope)
+                        store.onAction(com.example.orgclock.ui.state.OrgClockUiAction.Initialize)
+                        waitFor("Desktop graph initialization") {
+                            store.uiState.value.screen == com.example.orgclock.presentation.Screen.RootSetup
+                        }
+                        store.onAction(com.example.orgclock.ui.state.OrgClockUiAction.PickRoot(
+                            com.example.orgclock.presentation.RootReference(root.toString()),
+                        ))
+                        waitFor("Desktop graph root open") {
+                            graph.currentRootReference() != null
+                        }
+                        require(graph.currentRootReference()?.rawValue == root.toString()) {
+                            "Desktop graph did not open the smoke root"
+                        }
+                    } finally {
+                        graph.close()
+                        scope.cancel()
+                    }
+                }
             }
         }.fold(
             onSuccess = { 0 },
@@ -117,6 +144,14 @@ internal object DesktopSmokeTestCommand {
             onSuccess = { SmokeCheck(name, true, null) },
             onFailure = { SmokeCheck(name, false, it.stackTraceToString()) },
         )
+
+    private suspend fun waitFor(description: String, condition: () -> Boolean) {
+        repeat(250) {
+            if (condition()) return
+            kotlinx.coroutines.delay(20)
+        }
+        error("$description timed out")
+    }
 
     private fun reportJson(root: Path, checks: List<SmokeCheck>): String = buildString {
         append("{\n")
