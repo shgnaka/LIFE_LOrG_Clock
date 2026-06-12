@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.datetime.Clock
 import java.util.logging.Logger
@@ -74,6 +75,7 @@ class DesktopEventSyncRuntime(
     private val _state = MutableStateFlow(DesktopEventSyncRuntimeState())
     val state: StateFlow<DesktopEventSyncRuntimeState> = _state.asStateFlow()
     private var snapshotObserver: Job? = null
+    private var syncJob: Job? = null
 
     fun onAppStarted() {
         start("startup")
@@ -98,7 +100,14 @@ class DesktopEventSyncRuntime(
     fun stop() {
         snapshotObserver?.cancel()
         snapshotObserver = null
+        cancelPendingSync()
         _state.update { it.copy(running = false) }
+    }
+
+    @Synchronized
+    fun cancelPendingSync() {
+        syncJob?.cancel()
+        syncJob = null
     }
 
     fun setMode(mode: DesktopEventSyncMode) {
@@ -140,9 +149,18 @@ class DesktopEventSyncRuntime(
         }
     }
 
+    @Synchronized
     private fun scheduleSync(reason: String) {
-        scope.launch {
-            syncNow(reason)
+        if (syncJob?.isActive == true) return
+        syncJob = scope.launch {
+            try {
+                syncNow(reason)
+            } finally {
+                val completedJob = currentCoroutineContext()[Job]
+                synchronized(this@DesktopEventSyncRuntime) {
+                    if (syncJob === completedJob) syncJob = null
+                }
+            }
         }
     }
 

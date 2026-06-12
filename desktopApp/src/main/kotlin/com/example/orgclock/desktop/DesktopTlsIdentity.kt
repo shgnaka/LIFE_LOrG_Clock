@@ -33,7 +33,7 @@ class DesktopTlsIdentity private constructor(
         fun loadOrCreate(rootPath: Path): DesktopTlsIdentity {
             ensureProvider()
             val rootKey = MessageDigest.getInstance("SHA-256")
-                .digest(rootPath.toAbsolutePath().normalize().toString().encodeToByteArray())
+                .digest(stableRootKey(rootPath).encodeToByteArray())
                 .joinToString("") { "%02x".format(it) }
                 .take(24)
             val directory = Path.of(System.getProperty("user.home"), ".orgclock", "tls", rootKey)

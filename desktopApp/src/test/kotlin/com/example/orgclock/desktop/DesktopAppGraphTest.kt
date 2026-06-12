@@ -51,7 +51,7 @@ class DesktopAppGraphTest {
     fun restoresSavedRootOnStartupThroughSharedStore() = runTest {
         val root = tempRoot()
         write(root.resolve("2026-03-10.org"), "* Work\n** Task\n")
-        val store = DesktopSettingsStore(testNode())
+        val store = DesktopSettingsStore(testNode(), fallbackFile = null)
         store.save(DesktopHostSettings(lastRootReference = RootReference(root.toString())))
         val scheduleStore = DesktopRootScheduleStore(testNode())
 
@@ -79,7 +79,7 @@ class DesktopAppGraphTest {
     fun pickingRootPersistsAndEnablesDesktopClockOperations() = runTest {
         val root = tempRoot()
         write(root.resolve("2026-03-10.org"), "* Work\n** Task\n")
-        val settingsStore = DesktopSettingsStore(testNode())
+        val settingsStore = DesktopSettingsStore(testNode(), fallbackFile = null)
         val scheduleStore = DesktopRootScheduleStore(testNode())
         val graph = DesktopAppGraph(
             settingsStore = settingsStore,
@@ -119,7 +119,7 @@ class DesktopAppGraphTest {
         val template = root.resolve("project-template.org")
         write(daily, "* Work\n** Task\n")
         write(template, "* Template\n")
-        val settingsStore = DesktopSettingsStore(testNode())
+        val settingsStore = DesktopSettingsStore(testNode(), fallbackFile = null)
         val scheduleStore = DesktopRootScheduleStore(testNode())
         val graph = DesktopAppGraph(
             settingsStore = settingsStore,
@@ -158,7 +158,7 @@ class DesktopAppGraphTest {
         val hiddenTemplate = root.resolve(".orgclock-template.org")
         write(root.resolve("2026-03-10.org"), "* Work\n** Task\n")
         write(hiddenTemplate, "* Default Template\n")
-        val settingsStore = DesktopSettingsStore(testNode())
+        val settingsStore = DesktopSettingsStore(testNode(), fallbackFile = null)
         val scheduleStore = DesktopRootScheduleStore(testNode())
         scheduleStore.save(
             RootScheduleConfig(
@@ -193,7 +193,7 @@ class DesktopAppGraphTest {
         val root = tempRoot()
         write(root.resolve("2026-03-10.org"), "* Work\n** Task\n")
         val graph = DesktopAppGraph(
-            settingsStore = DesktopSettingsStore(testNode()).also {
+            settingsStore = DesktopSettingsStore(testNode(), fallbackFile = null).also {
                 it.save(DesktopHostSettings(lastRootReference = RootReference(root.toString())))
             },
             rootScheduleStore = DesktopRootScheduleStore(testNode()),
@@ -217,7 +217,7 @@ class DesktopAppGraphTest {
     @OptIn(ExperimentalCoroutinesApi::class)
     fun staleSavedRoot_isClearedAndReturnsToRootSetup() = runTest {
         val root = tempRoot()
-        val settingsStore = DesktopSettingsStore(testNode())
+        val settingsStore = DesktopSettingsStore(testNode(), fallbackFile = null)
         settingsStore.save(DesktopHostSettings(lastRootReference = RootReference(root.toString())))
         Files.deleteIfExists(root)
 
@@ -234,6 +234,82 @@ class DesktopAppGraphTest {
 
         assertEquals(Screen.RootSetup, store.uiState.value.screen)
         assertEquals(null, settingsStore.load().lastRootReference)
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun lanSyncServerFailure_doesNotPreventRootFromOpening() = runTest {
+        val root = tempRoot()
+        write(root.resolve("2026-03-10.org"), "* Work\n** Task\n")
+        val graph = DesktopAppGraph(
+            settingsStore = DesktopSettingsStore(testNode(), fallbackFile = null),
+            rootScheduleStore = DesktopRootScheduleStore(testNode()),
+            clockEnvironment = fixedClockEnvironment(),
+            lanSyncServerFactory = { _, _, _, _, _ ->
+                throw IllegalStateException("port is already in use")
+            },
+            watchRootChanges = true,
+        )
+        val store = graph.createStore(this)
+
+        store.onAction(OrgClockUiAction.PickRoot(RootReference(root.toString())))
+        advanceUntilIdle()
+
+        assertEquals(Screen.HeadingList, store.uiState.value.screen)
+        assertEquals(root.toString(), graph.currentRootReference()?.rawValue)
+        assertEquals("2026-03-10.org", store.uiState.value.selectedFile?.displayName)
+        graph.close()
+        coroutineContext.cancelChildren()
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun switchingRoot_stopsOldRuntimeBeforeStartingNewRuntime() = runTest {
+        val firstRoot = tempRoot()
+        val secondRoot = tempRoot()
+        write(firstRoot.resolve("2026-03-10.org"), "* First\n")
+        write(secondRoot.resolve("2026-03-10.org"), "* Second\n")
+        var activeRuntime = false
+        var starts = 0
+        val graph = DesktopAppGraph(
+            settingsStore = DesktopSettingsStore(testNode(), fallbackFile = null),
+            rootScheduleStore = DesktopRootScheduleStore(testNode()),
+            clockEnvironment = fixedClockEnvironment(),
+            lanSyncServerFactory = { root, eventStore, trustStore, templateStore, applier ->
+                object : DesktopLanSyncServer(
+                    port = 0,
+                    localDeviceId = { root.toString() },
+                    eventStore = { eventStore },
+                    trustStore = { trustStore },
+                    tlsIdentity = { DesktopTlsIdentity.loadOrCreate(root) },
+                    pairingManager = DesktopPairingManager(),
+                    remoteEventApplier = applier,
+                    templateStore = { templateStore },
+                ) {
+                    override fun start() {
+                        check(!activeRuntime) { "old runtime is still active" }
+                        activeRuntime = true
+                        starts += 1
+                    }
+
+                    override fun close() {
+                        activeRuntime = false
+                    }
+                }
+            },
+            watchRootChanges = true,
+        )
+        val store = graph.createStore(this)
+
+        store.onAction(OrgClockUiAction.PickRoot(RootReference(firstRoot.toString())))
+        advanceUntilIdle()
+        store.onAction(OrgClockUiAction.PickRoot(RootReference(secondRoot.toString())))
+        advanceUntilIdle()
+
+        assertEquals(2, starts)
+        assertEquals(secondRoot.toString(), graph.currentRootReference()?.rawValue)
+        graph.close()
         coroutineContext.cancelChildren()
     }
 
