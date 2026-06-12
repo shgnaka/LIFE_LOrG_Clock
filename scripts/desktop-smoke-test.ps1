@@ -12,7 +12,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $artifacts = Join-Path $repoRoot $ArtifactsDirectory
-$smokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "org-clock-desktop-smoke\org-root-日本語"
+$smokeRoot = Join-Path ([System.IO.Path]::GetTempPath()) "org-clock-desktop-smoke\org-root"
 $report = Join-Path $artifacts "smoke-report.json"
 $msiLog = Join-Path $artifacts "msi-install.log"
 
