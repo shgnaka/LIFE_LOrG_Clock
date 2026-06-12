@@ -7,6 +7,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
+import java.nio.file.StandardCopyOption
+import java.io.IOException
 import java.security.MessageDigest
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -27,7 +29,7 @@ class DesktopFileOrgRepository(
     private val backupPolicy: BackupPolicyConfig = BackupPolicyConfig(),
     private val nowMsProvider: () -> Long = System::currentTimeMillis,
 ) : ClockRepository {
-    private val rootPath: Path = rootDirectory.absolute().normalize().createDirectories()
+    private val rootPath: Path = rootDirectory.absolute().normalize().createDirectories().toRealPath()
     private val lastClockBackupByFileId = mutableMapOf<String, Long>()
 
     init {
@@ -113,7 +115,7 @@ class DesktopFileOrgRepository(
         createIfMissing: Boolean,
         writeIntent: FileWriteIntent,
     ): SaveResult {
-        val normalizedPath = path.toAbsolutePath().normalize()
+        val normalizedPath = canonicalTarget(path)
         if (!isUnderRoot(normalizedPath)) {
             return SaveResult.ValidationError("File is outside repository root")
         }
@@ -155,14 +157,19 @@ class DesktopFileOrgRepository(
             val lineSeparator = existingRawText?.let(::detectLineSeparator) ?: "\n"
             val trailingNewline = existingRawText?.endsWith('\n') ?: false
             val outputText = formatOutputText(lines, lineSeparator, trailingNewline)
-            Files.writeString(
-                normalizedPath,
-                outputText,
-                StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE,
-            )
+            val tempPath = Files.createTempFile(normalizedPath.parent, ".${normalizedPath.fileName}.", ".tmp")
+            try {
+                Files.writeString(
+                    tempPath,
+                    outputText,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE,
+                )
+                replaceFile(tempPath, normalizedPath)
+            } finally {
+                Files.deleteIfExists(tempPath)
+            }
             val roundTripRawText = normalizedPath.readText(StandardCharsets.UTF_8)
             val roundTripLines = parseLines(roundTripRawText)
             val expectedCanonicalText = canonicalText(lines)
@@ -192,7 +199,12 @@ class DesktopFileOrgRepository(
         if (existingRawText.isNullOrEmpty()) return false
 
         val backupName = ".${path.name}.bak.${backupStamp(nowMs)}"
-        val backupPath = path.parent.resolve(backupName)
+        var backupPath = path.parent.resolve(backupName)
+        var collisionIndex = 1
+        while (backupPath.exists()) {
+            backupPath = path.parent.resolve("$backupName.$collisionIndex")
+            collisionIndex += 1
+        }
         backupPath.writeText(existingRawText, StandardCharsets.UTF_8)
 
         val backups = path.parent.listDirectoryEntries(".${path.name}.bak.*")
@@ -204,7 +216,7 @@ class DesktopFileOrgRepository(
     }
 
     private fun resolveExistingFile(fileId: String): Path {
-        val path = runCatching { Path.of(fileId).toAbsolutePath().normalize() }
+        val path = runCatching { Path.of(fileId).toRealPath() }
             .getOrElse { throw IllegalArgumentException("Invalid file id") }
         require(isUnderRoot(path)) { "File is outside repository root" }
         require(path.exists() && path.isRegularFile()) { "File not found" }
@@ -212,6 +224,33 @@ class DesktopFileOrgRepository(
     }
 
     private fun isUnderRoot(path: Path): Boolean = path.startsWith(rootPath)
+
+    private fun canonicalTarget(path: Path): Path {
+        val absolute = path.toAbsolutePath().normalize()
+        return if (absolute.exists()) {
+            absolute.toRealPath()
+        } else {
+            absolute.parent.toRealPath().resolve(absolute.fileName)
+        }
+    }
+
+    private fun replaceFile(source: Path, target: Path) {
+        try {
+            Files.move(
+                source,
+                target,
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING,
+            )
+        } catch (atomicError: IOException) {
+            try {
+                Files.move(source, target, StandardCopyOption.REPLACE_EXISTING)
+            } catch (fallbackError: IOException) {
+                fallbackError.addSuppressed(atomicError)
+                throw fallbackError
+            }
+        }
+    }
 
     private fun dailyPath(date: LocalDate): Path = rootPath.resolve("$date.org")
 
