@@ -135,10 +135,17 @@ class DesktopAppGraphTest {
         advanceUntilIdle()
         store.onAction(OrgClockUiAction.OpenTemplateFilePicker)
         advanceUntilIdle()
-        store.onAction(OrgClockUiAction.SelectTemplateFile(store.uiState.value.templateCandidateFiles.first { it.fileId == template.toString() }))
+        val canonicalTemplate = template.toRealPath()
+        store.onAction(
+            OrgClockUiAction.SelectTemplateFile(
+                store.uiState.value.templateCandidateFiles.first {
+                    Path.of(it.fileId).toRealPath() == canonicalTemplate
+                },
+            ),
+        )
         advanceUntilIdle()
 
-        assertEquals(template.toString(), scheduleStore.load(root.toString()).templateFileUri)
+        assertEquals(canonicalTemplate.toString(), scheduleStore.load(root.toString()).templateFileUri)
         assertEquals(TemplateReferenceMode.Explicit, store.uiState.value.templateFileStatus.referenceMode)
 
         val restoredState = graph.createStore(this).run {
@@ -146,7 +153,7 @@ class DesktopAppGraphTest {
             advanceUntilIdle()
             uiState.value
         }
-        assertEquals(template.toString(), restoredState.templateFileStatus.fileId)
+        assertEquals(canonicalTemplate.toString(), restoredState.templateFileStatus.fileId)
         assertEquals(TemplateReferenceMode.Explicit, restoredState.templateFileStatus.referenceMode)
         coroutineContext.cancelChildren()
     }

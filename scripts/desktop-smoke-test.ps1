@@ -46,6 +46,24 @@ function Start-ProcessWithTimeout {
     return $process
 }
 
+function Write-SmokeDiagnostics {
+    param(
+        [string]$Executable,
+        [int]$ExitCode
+    )
+
+    Write-Host "Smoke executable: $Executable"
+    Write-Host "Smoke root: $smokeRoot"
+    Write-Host "Smoke report: $report"
+    Write-Host "Smoke exit code: $ExitCode"
+    if (Test-Path $report) {
+        Write-Host "Smoke report contents:"
+        Get-Content $report -Raw -Encoding UTF8 | Write-Host
+    } else {
+        Write-Warning "Smoke report was not generated."
+    }
+}
+
 if (-not $SkipBuild) {
     $packageTask = if ($RuntimeOnly) { ":desktopApp:createDistributable" } else { ":desktopApp:packageMsi" }
     if (-not $SmokePackageVersion) {
@@ -66,6 +84,7 @@ if ($RuntimeOnly) {
         "--smoke-test", "--root", "`"$smokeRoot`"", "--report", "`"$report`""
     ) "Distributable executable smoke test"
     if ($runtimeSmoke.ExitCode -ne 0) {
+        Write-SmokeDiagnostics $runtimeExe $runtimeSmoke.ExitCode
         throw "Distributable executable smoke test failed with exit code $($runtimeSmoke.ExitCode)"
     }
     $result = Get-Content $report -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -142,6 +161,7 @@ try {
             "--smoke-test", "--root", "`"$smokeRoot`"", "--report", "`"$report`""
         ) "Packaged executable smoke test"
         if ($installedSmoke.ExitCode -ne 0) {
+            Write-SmokeDiagnostics $exe $installedSmoke.ExitCode
             throw "Packaged executable smoke test failed with exit code $($installedSmoke.ExitCode)"
         }
         $result = Get-Content $report -Raw -Encoding UTF8 | ConvertFrom-Json
