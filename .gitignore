@@ -1,5 +1,6 @@
 # Gradle files
 .gradle/
+.gradle-*/
 .kotlin/
 build/
 
@@ -13,6 +14,7 @@ local.properties
 # Log/OS Files
 *.log
 artifacts/ci/
+artifacts/desktop-smoke/
 
 # Android Studio generated files and folders
 captures/

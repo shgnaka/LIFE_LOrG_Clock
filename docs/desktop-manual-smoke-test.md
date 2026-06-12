@@ -30,6 +30,29 @@ Desktop MVP は Windows / Linux の起動・配布・基本操作確認を対象
 - Windows 環境では `.msi` が確認できる
 - Linux 環境では `.deb` またはportable `.tar.gz` が確認できる
 
+Windowsでは、MSIのインストール、配布exe内のSQLite、org読み書き、clock操作、
+テンプレート読込、ショートカット、アンインストールを自動確認できます。
+
+```powershell
+.\scripts\desktop-smoke-test.ps1
+```
+
+スクリプトは既存のリリース版と修復・更新処理が衝突しないよう、
+スモーク専用の一時的なMSIバージョンを自動採番する。
+
+既にMSIを生成済みの場合:
+
+```powershell
+.\scripts\desktop-smoke-test.ps1 -SkipBuild
+```
+
+既存の管理者インストールや端末ポリシーによりMSIのサイレントインストールが
+できない開発端末では、配布ランタイム部分だけを検査できます。
+
+```powershell
+.\scripts\desktop-smoke-test.ps1 -RuntimeOnly
+```
+
 ## 4. GitHub Release install path
 1. `vX.Y.Z` tag build completes in `Release Desktop Installers`
 2. GitHub Release Assets contains Windows `.msi` and Linux `.deb` / portable `.tar.gz`

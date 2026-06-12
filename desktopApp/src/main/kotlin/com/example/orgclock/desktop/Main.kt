@@ -81,7 +81,15 @@ import kotlinx.datetime.toLocalDateTime
 import java.io.File
 import javax.swing.JFileChooser
 
-fun main() = application {
+fun main(args: Array<String>) {
+    if (DesktopSmokeTestCommand.isRequested(args)) {
+        DesktopSmokeTestCommand.run(args)
+        return
+    }
+    launchDesktopApplication()
+}
+
+private fun launchDesktopApplication() = application {
     Window(
         onCloseRequest = ::exitApplication,
         title = "Org Clock Desktop",
