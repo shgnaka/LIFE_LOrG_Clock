@@ -66,6 +66,7 @@ import com.example.orgclock.ui.state.OrgDivergenceRecommendedAction
 import com.example.orgclock.ui.state.OrgDivergenceSeverity
 import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateReferenceMode
+import com.example.orgclock.template.TemplateSyncOutcome
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
@@ -80,7 +81,15 @@ import kotlinx.datetime.toLocalDateTime
 import java.io.File
 import javax.swing.JFileChooser
 
-fun main() = application {
+fun main(args: Array<String>) {
+    if (DesktopSmokeTestCommand.isRequested(args)) {
+        DesktopSmokeTestCommand.run(args)
+        return
+    }
+    launchDesktopApplication()
+}
+
+private fun launchDesktopApplication() = application {
     Window(
         onCloseRequest = ::exitApplication,
         title = "Org Clock Desktop",
@@ -97,6 +106,8 @@ private fun DesktopApp() {
     val runtime = remember(graph) { graph.desktopEventSyncRuntime() }
     val state by store.uiState.collectAsState()
     val syncState by runtime.state.collectAsState()
+    var templateSyncMessage by remember { mutableStateOf<String?>(null) }
+    var templateSyncInProgress by remember { mutableStateOf(false) }
 
     LaunchedEffect(store) {
         store.onAction(OrgClockUiAction.Initialize)
@@ -136,6 +147,26 @@ private fun DesktopApp() {
                     state = state,
                     syncState = syncState,
                     syncPairingCode = graph.currentSyncPairingCode(),
+                    templateSyncMessage = templateSyncMessage,
+                    templateSyncInProgress = templateSyncInProgress,
+                    onSyncTemplate = {
+                        scope.launch {
+                            templateSyncInProgress = true
+                            templateSyncMessage = graph.syncTemplateNow().fold(
+                                onSuccess = { outcome ->
+                                    when (outcome) {
+                                        TemplateSyncOutcome.AlreadyCurrent -> "Template is already synchronized."
+                                        is TemplateSyncOutcome.Downloaded -> "Template downloaded from the paired device."
+                                        is TemplateSyncOutcome.Uploaded -> "Template uploaded to the paired device."
+                                        is TemplateSyncOutcome.Conflict -> "Template conflict detected. Neither version was overwritten."
+                                    }
+                                },
+                                onFailure = { it.message ?: "Template sync failed." },
+                            )
+                            templateSyncInProgress = false
+                            store.onAction(OrgClockUiAction.RefreshTemplateStatus)
+                        }
+                    },
                     onPickRoot = {
                         chooseRootDirectory(state.rootReference)?.let { root ->
                             store.onAction(OrgClockUiAction.PickRoot(root))
@@ -158,6 +189,9 @@ private fun DesktopHostCard(
     state: OrgClockUiState,
     syncState: DesktopEventSyncRuntimeState,
     syncPairingCode: String?,
+    templateSyncMessage: String?,
+    templateSyncInProgress: Boolean,
+    onSyncTemplate: () -> Unit,
     onPickRoot: () -> Unit,
     onAction: (OrgClockUiAction) -> Unit,
     onSyncNow: () -> Unit,
@@ -214,6 +248,9 @@ private fun DesktopHostCard(
                     state = state,
                     syncState = syncState,
                     syncPairingCode = syncPairingCode,
+                    templateSyncMessage = templateSyncMessage,
+                    templateSyncInProgress = templateSyncInProgress,
+                    onSyncTemplate = onSyncTemplate,
                     onChangeRoot = onPickRoot,
                     onBack = { onAction(OrgClockUiAction.BackFromSettings) },
                     onReloadFiles = { onAction(OrgClockUiAction.RefreshFiles) },
@@ -269,6 +306,11 @@ private fun RootSetupPane(onPickRoot: () -> Unit) {
         Button(onClick = onPickRoot) {
             Text("Select local directory")
         }
+        Text(
+            text = "After selecting a root, use its template or synchronize one from a paired device in Settings.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFFD3E6D6),
+        )
     }
 }
 
@@ -529,6 +571,9 @@ private fun SettingsPane(
     state: OrgClockUiState,
     syncState: DesktopEventSyncRuntimeState,
     syncPairingCode: String?,
+    templateSyncMessage: String?,
+    templateSyncInProgress: Boolean,
+    onSyncTemplate: () -> Unit,
     onChangeRoot: () -> Unit,
     onBack: () -> Unit,
     onReloadFiles: () -> Unit,
@@ -549,6 +594,9 @@ private fun SettingsPane(
         TemplateSettingsCard(
             state = state,
             onAction = onAction,
+            syncMessage = templateSyncMessage,
+            syncInProgress = templateSyncInProgress,
+            onSyncTemplate = onSyncTemplate,
         )
         DesktopSyncSettingsCard(
             state = syncState,
@@ -737,6 +785,9 @@ private fun OrgRootSettingsCard(
 private fun TemplateSettingsCard(
     state: OrgClockUiState,
     onAction: (OrgClockUiAction) -> Unit,
+    syncMessage: String?,
+    syncInProgress: Boolean,
+    onSyncTemplate: () -> Unit,
 ) {
     val status = state.templateFileStatus
     val source = when (status.referenceMode) {
@@ -778,6 +829,9 @@ private fun TemplateSettingsCard(
         }
         SettingsMessageBlock(text = message, tone = tone)
         SettingsActionRow {
+            Button(onClick = onSyncTemplate, enabled = !syncInProgress) {
+                Text(if (syncInProgress) "Synchronizing..." else "Sync with paired device")
+            }
             Button(
                 onClick = { onAction(OrgClockUiAction.OpenTemplateFilePicker) },
                 enabled = state.rootReference != null,
@@ -800,6 +854,16 @@ private fun TemplateSettingsCard(
                     Text("Create default template file")
                 }
             }
+        }
+        syncMessage?.let {
+            SettingsMessageBlock(
+                text = it,
+                tone = if (it.contains("failed", ignoreCase = true) || it.contains("conflict", ignoreCase = true)) {
+                    SettingsMessageTone.Warning
+                } else {
+                    SettingsMessageTone.Success
+                },
+            )
         }
     }
 }

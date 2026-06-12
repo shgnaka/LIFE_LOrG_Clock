@@ -16,6 +16,7 @@ import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.template.TemplateSyncOutcome
 import com.example.orgclock.time.toKotlinInstantCompat
 import com.example.orgclock.time.toKotlinLocalDateCompat
 import com.example.orgclock.ui.state.OrgClockUiAction
@@ -56,6 +57,9 @@ class OrgClockViewModel(
     syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     runAutoGenerationCatchUp: suspend (RootReference) -> Unit,
     createDefaultTemplateFile: suspend (RootReference) -> Result<String> = { Result.failure(UnsupportedOperationException("template file creation unavailable")) },
+    syncTemplateNow: suspend () -> Result<TemplateSyncOutcome> = {
+        Result.failure(UnsupportedOperationException("template sharing unavailable"))
+    },
     syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
     clockEventSyncSnapshotFlow: StateFlow<ClockEventStoreSnapshot> = OrgClockStore.NO_CLOCK_EVENT_SYNC_SNAPSHOT_FLOW,
@@ -120,6 +124,7 @@ class OrgClockViewModel(
         syncRootScheduleConfig = syncRootScheduleConfig,
         runAutoGenerationCatchUp = runAutoGenerationCatchUp,
         createDefaultTemplateFileAction = createDefaultTemplateFile,
+        syncTemplateNow = syncTemplateNow,
         syncTemplateTaggedHeading = syncTemplateTaggedHeading,
         syncSnapshotFlow = syncSnapshotFlow,
         clockEventSyncSnapshotFlow = clockEventSyncSnapshotFlow,

@@ -66,6 +66,13 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --stacktrace packageDesktopCurrentOs -Pdesktop.version="${{ steps.release.outputs.version }}"
 
+      - name: Smoke test Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          & .\scripts\desktop-smoke-test.ps1 -SkipBuild
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Collect Linux installers
         if: runner.os == 'Linux'
         shell: bash

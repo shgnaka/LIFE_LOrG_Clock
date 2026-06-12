@@ -10,13 +10,19 @@ import javax.net.ssl.SSLContext
 import javax.net.ssl.X509TrustManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.example.orgclock.template.TemplateFetchRequest
+import com.example.orgclock.template.TemplateFetchResponse
+import com.example.orgclock.template.TemplatePushRequest
+import com.example.orgclock.template.TemplatePushResult
+import com.example.orgclock.template.TemplateSharingJsonCodec
+import com.example.orgclock.template.TemplateSyncTransport
 
 class AndroidLanSyncTransport(
     endpoint: String,
     encodedCredential: String,
     private val connectTimeoutMs: Int = 5_000,
     private val readTimeoutMs: Int = 10_000,
-) : ClockEventSyncTransport {
+) : ClockEventSyncTransport, TemplateSyncTransport {
     private val endpoint = endpoint.trimEnd('/')
     private val credential = SyncTransportCredentialCodec.decode(encodedCredential).getOrThrow()
     private val sslContext = pinnedSslContext(credential.certificateSha256)
@@ -29,6 +35,16 @@ class AndroidLanSyncTransport(
 
     override suspend fun acknowledge(ack: ClockEventTransportAck): ClockEventTransportAckResult =
         ClockEventTransportJsonCodec.decodeAckResult(post("/v1/events/ack", ClockEventTransportJsonCodec.encodeAck(ack)))
+
+    override suspend fun fetchTemplate(request: TemplateFetchRequest): TemplateFetchResponse =
+        TemplateSharingJsonCodec.decodeFetchResponse(
+            post("/v1/template/fetch", TemplateSharingJsonCodec.encodeFetchRequest(request)),
+        )
+
+    override suspend fun pushTemplate(request: TemplatePushRequest): TemplatePushResult =
+        TemplateSharingJsonCodec.decodePushResult(
+            post("/v1/template/push", TemplateSharingJsonCodec.encodePushRequest(request)),
+        )
 
     suspend fun probe(): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {

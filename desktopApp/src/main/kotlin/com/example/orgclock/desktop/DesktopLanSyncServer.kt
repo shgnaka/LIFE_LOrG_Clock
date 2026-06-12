@@ -11,6 +11,9 @@ import com.example.orgclock.sync.RemoteClockEventApplier
 import com.example.orgclock.sync.SyncPairingExchangeJsonCodec
 import com.example.orgclock.sync.SyncPairingExchangeResponse
 import com.example.orgclock.sync.SyncTransportCredentialCodec
+import com.example.orgclock.template.SharedTemplateStore
+import com.example.orgclock.template.TemplateFetchResponse
+import com.example.orgclock.template.TemplateSharingJsonCodec
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpsConfigurator
 import com.sun.net.httpserver.HttpsServer
@@ -27,6 +30,7 @@ class DesktopLanSyncServer(
     private val tlsIdentity: () -> DesktopTlsIdentity,
     private val pairingManager: DesktopPairingManager,
     private val remoteEventApplier: RemoteClockEventApplier,
+    private val templateStore: () -> SharedTemplateStore?,
 ) : AutoCloseable {
     private var server: HttpsServer? = null
 
@@ -93,6 +97,30 @@ class DesktopLanSyncServer(
                 requireSource(peer, ack.sourcePeerId)
                 requireTarget(ack.targetPeerId)
                 ClockEventTransportJsonCodec.encodeAckResult(ClockEventTransportAckResult.Accepted)
+            } }
+            createContext("/v1/template/fetch") { exchange -> handleAuthorized(exchange) { body, peer ->
+                require(peer.role == com.example.orgclock.sync.PeerTrustRole.Full) { "viewer peers cannot access templates" }
+                val request = TemplateSharingJsonCodec.decodeFetchRequest(body)
+                requireSource(peer, request.sourcePeerId)
+                requireTarget(request.targetPeerId)
+                val revision = runBlocking {
+                    (templateStore() ?: error("template store is unavailable")).readRevision().getOrThrow()
+                }
+                TemplateSharingJsonCodec.encodeFetchResponse(
+                    TemplateFetchResponse(localDeviceId(), request.sourcePeerId, revision),
+                )
+            } }
+            createContext("/v1/template/push") { exchange -> handleAuthorized(exchange) { body, peer ->
+                require(peer.role == com.example.orgclock.sync.PeerTrustRole.Full) { "viewer peers cannot update templates" }
+                val request = TemplateSharingJsonCodec.decodePushRequest(body)
+                requireSource(peer, request.sourcePeerId)
+                requireTarget(request.targetPeerId)
+                val result = runBlocking {
+                    (templateStore() ?: error("template store is unavailable"))
+                        .writeRevision(request.revision, request.expectedCurrentRevisionId)
+                        .getOrThrow()
+                }
+                TemplateSharingJsonCodec.encodePushResult(result)
             } }
             start()
         }

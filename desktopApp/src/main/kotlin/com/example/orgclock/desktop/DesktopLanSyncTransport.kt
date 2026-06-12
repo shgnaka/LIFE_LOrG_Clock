@@ -9,6 +9,12 @@ import com.example.orgclock.sync.ClockEventTransportAck
 import com.example.orgclock.sync.ClockEventTransportAckResult
 import com.example.orgclock.sync.ClockEventTransportJsonCodec
 import com.example.orgclock.sync.SyncTransportCredentialCodec
+import com.example.orgclock.template.TemplateFetchRequest
+import com.example.orgclock.template.TemplateFetchResponse
+import com.example.orgclock.template.TemplatePushRequest
+import com.example.orgclock.template.TemplatePushResult
+import com.example.orgclock.template.TemplateSharingJsonCodec
+import com.example.orgclock.template.TemplateSyncTransport
 import java.net.URI
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -22,7 +28,7 @@ class DesktopLanSyncTransport(
     encodedCredential: String,
     private val connectTimeoutMs: Int = 5_000,
     private val readTimeoutMs: Int = 10_000,
-) : ClockEventSyncTransport {
+) : ClockEventSyncTransport, TemplateSyncTransport {
     private val endpoint = endpoint.trimEnd('/')
     private val credential = SyncTransportCredentialCodec.decode(encodedCredential).getOrThrow()
     private val sslContext = pinnedSslContext(credential.certificateSha256)
@@ -35,6 +41,16 @@ class DesktopLanSyncTransport(
 
     override suspend fun acknowledge(ack: ClockEventTransportAck): ClockEventTransportAckResult =
         ClockEventTransportJsonCodec.decodeAckResult(post("/v1/events/ack", ClockEventTransportJsonCodec.encodeAck(ack)))
+
+    override suspend fun fetchTemplate(request: TemplateFetchRequest): TemplateFetchResponse =
+        TemplateSharingJsonCodec.decodeFetchResponse(
+            post("/v1/template/fetch", TemplateSharingJsonCodec.encodeFetchRequest(request)),
+        )
+
+    override suspend fun pushTemplate(request: TemplatePushRequest): TemplatePushResult =
+        TemplateSharingJsonCodec.decodePushResult(
+            post("/v1/template/push", TemplateSharingJsonCodec.encodePushRequest(request)),
+        )
 
     private fun post(path: String, body: String): String {
         val connection = (URI.create(endpoint + path).toURL().openConnection() as HttpsURLConnection).apply {

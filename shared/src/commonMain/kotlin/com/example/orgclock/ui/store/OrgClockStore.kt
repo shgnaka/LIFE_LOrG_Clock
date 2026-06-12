@@ -29,6 +29,7 @@ import com.example.orgclock.template.ScheduleWeekday
 import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
+import com.example.orgclock.template.TemplateSyncOutcome
 import com.example.orgclock.ui.state.ClockEditDraft
 import com.example.orgclock.ui.state.CreateHeadingDialogState
 import com.example.orgclock.ui.state.CreateHeadingMode
@@ -90,6 +91,9 @@ class OrgClockStore(
     private val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     private val runAutoGenerationCatchUp: suspend (RootReference) -> Unit,
     private val createDefaultTemplateFileAction: suspend (RootReference) -> Result<String> = { Result.failure(UnsupportedOperationException("template file creation unavailable")) },
+    private val syncTemplateNow: suspend () -> Result<TemplateSyncOutcome> = {
+        Result.failure(UnsupportedOperationException("template sharing unavailable"))
+    },
     private val externalChangeFlow: StateFlow<ExternalChangeNotice?> = NO_EXTERNAL_CHANGE_FLOW,
     private val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
     private val syncSnapshotFlow: StateFlow<SyncIntegrationSnapshot> = MutableStateFlow(SyncIntegrationSnapshot()),
@@ -321,6 +325,10 @@ class OrgClockStore(
         }
         OrgClockUiAction.CreateDefaultTemplateFile -> {
             scope.launch { createDefaultTemplateFile() }
+            true
+        }
+        OrgClockUiAction.SyncTemplateNow -> {
+            scope.launch { synchronizeTemplate() }
             true
         }
         else -> false
@@ -1420,6 +1428,30 @@ class OrgClockStore(
         _uiState.update {
             it.copy(
                 status = status(StatusMessageKey.TemplateFileCreated, StatusTone.Success, result.getOrThrow()),
+            )
+        }
+    }
+
+    private suspend fun synchronizeTemplate() {
+        _uiState.update { it.copy(templateSyncInProgress = true, templateSyncMessage = null) }
+        val message = syncTemplateNow().fold(
+            onSuccess = { outcome ->
+                when (outcome) {
+                    TemplateSyncOutcome.AlreadyCurrent -> "Template is already synchronized."
+                    is TemplateSyncOutcome.Downloaded -> "Template downloaded from the paired device."
+                    is TemplateSyncOutcome.Uploaded -> "Template uploaded to the paired device."
+                    is TemplateSyncOutcome.Conflict -> "Template conflict detected. Neither version was overwritten."
+                }
+            },
+            onFailure = { it.message ?: "Template sync failed." },
+        )
+        uiState.value.rootReference?.let { root ->
+            refreshTemplateState(root, loadRootScheduleConfig(root))
+        }
+        _uiState.update {
+            it.copy(
+                templateSyncInProgress = false,
+                templateSyncMessage = message,
             )
         }
     }

@@ -8,6 +8,9 @@ val desktopPackageVersion = providers.gradleProperty("desktop.version")
 
 // MSI only accepts a numeric MAJOR.MINOR.BUILD version.
 val desktopMsiPackageVersion = desktopPackageVersion.substringBefore("-")
+val desktopSmokePackage = providers.gradleProperty("desktop.smoke")
+    .map(String::toBoolean)
+    .getOrElse(false)
 
 val desktopTargetFormats = when {
     org.gradle.internal.os.OperatingSystem.current().isMacOsX -> arrayOf(TargetFormat.Dmg)
@@ -37,6 +40,7 @@ dependencies {
     implementation(compose.material3)
     implementation(project(":shared"))
     implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.6.1")
+    implementation("org.xerial:sqlite-jdbc:3.49.1.0")
     implementation("com.google.zxing:core:3.5.3")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.78.1")
 
@@ -50,13 +54,25 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(*desktopTargetFormats)
-            packageName = "org-clock-desktop"
+            modules("java.sql")
+            packageName = if (desktopSmokePackage) {
+                "org-clock-desktop-smoke"
+            } else {
+                "org-clock-desktop"
+            }
             packageVersion = desktopPackageVersion
             description = "Cross-platform desktop MVP host for Org Clock."
             vendor = "shgnaka"
 
             windows {
                 msiPackageVersion = desktopMsiPackageVersion
+                if (desktopSmokePackage) {
+                    upgradeUuid = "5357c806-49d7-4c2c-b07b-c62bf85cf67a"
+                }
+                perUserInstall = true
+                menu = true
+                menuGroup = "Org Clock"
+                shortcut = true
             }
         }
     }

@@ -19,6 +19,9 @@ import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateAvailability
 import com.example.orgclock.template.TemplateFileStatus
 import com.example.orgclock.template.TemplateReferenceMode
+import com.example.orgclock.template.SharedTemplateStore
+import com.example.orgclock.template.TemplateSharingService
+import com.example.orgclock.template.TemplateSyncOutcome
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.today
 import com.example.orgclock.ui.store.OrgClockStore
@@ -52,6 +55,7 @@ class DesktopAppGraph(
     private var peerTrustStore: DesktopPeerTrustStore? = null
     private var peerSyncCheckpointStore: DesktopPeerSyncCheckpointStore? = null
     private var quarantineStore: DesktopClockEventSyncQuarantineStore? = null
+    private var sharedTemplateStore: SharedTemplateStore? = null
     private var clockService: ClockService? = null
     private var remoteClockEventApplier: RemoteClockEventApplier? = null
     private var openClockScanner: DesktopOpenClockScanner? = null
@@ -189,6 +193,21 @@ class DesktopAppGraph(
         syncIdentity.pairingCode(root, pairingManager.currentInvitation(tls.certificateSha256))
     }
 
+    suspend fun syncTemplateNow(): Result<TemplateSyncOutcome> = runCatching {
+        val localRoot = currentRootPath ?: error("org root is not open")
+        val localPeerId = syncIdentity.deviceId(localRoot)
+        val peer = peerTrustStore?.listTrustRecords()
+            ?.firstOrNull { it.isActive && it.role == com.example.orgclock.sync.PeerTrustRole.Full && it.endpoint != null }
+            ?: error("No paired full-access device is available")
+        val transport = DesktopLanSyncTransport(peer.endpoint!!, peer.publicKeyBase64)
+        TemplateSharingService(
+            localStore = sharedTemplateStore ?: error("template store is unavailable"),
+            transport = transport,
+            localPeerId = localPeerId,
+            remotePeerId = peer.peerId,
+        ).synchronize().getOrThrow()
+    }
+
     fun close() {
         lanSyncServer?.close()
         lanSyncServer = null
@@ -212,6 +231,15 @@ class DesktopAppGraph(
         val trustStore = DesktopPeerTrustStore()
         val checkpointStore = DesktopPeerSyncCheckpointStore(desktopCheckpointStorePreferences(normalized))
         val quarantineStore = DesktopClockEventSyncQuarantineStore(desktopQuarantineStorePreferences(normalized))
+        val templateStore = DesktopSharedTemplateStore(
+            rootPath = normalized,
+            deviceId = syncIdentity.deviceId(normalized),
+            templatePathProvider = {
+                rootScheduleStore.load(normalized.toString()).templateFileUri
+                    ?.let(Path::of)
+                    ?: normalized.resolve(TEMPLATE_FILE_NAME)
+            },
+        )
         val fileOperationCoordinator = coordinatorFactory()
         val clockService = ClockService(
             repository,
@@ -228,6 +256,7 @@ class DesktopAppGraph(
         this.peerTrustStore = trustStore
         this.peerSyncCheckpointStore = checkpointStore
         this.quarantineStore = quarantineStore
+        this.sharedTemplateStore = templateStore
         this.clockService = clockService
         this.remoteClockEventApplier = RepositoryRemoteClockEventApplier(
             repository = repository,
@@ -244,6 +273,7 @@ class DesktopAppGraph(
                 tlsIdentity = { syncIdentity.tlsIdentity(normalized) },
                 pairingManager = pairingManager,
                 remoteEventApplier = requireNotNull(remoteClockEventApplier),
+                templateStore = { this.sharedTemplateStore },
             ).also { it.start() }
         }
         clockEventSyncSnapshotFlow.value = ClockEventStoreSnapshot(null, null, 0)

@@ -50,6 +50,7 @@ sealed interface OrgClockUiAction {
     data object ClearExplicitTemplateFile : OrgClockUiAction
     data class SelectTemplateFile(val file: OrgFileEntry) : OrgClockUiAction
     data object CreateDefaultTemplateFile : OrgClockUiAction
+    data object SyncTemplateNow : OrgClockUiAction
     data class ToggleNotificationEnabled(val enabled: Boolean) : OrgClockUiAction
     data class ChangeNotificationDisplayMode(val mode: NotificationDisplayMode) : OrgClockUiAction
     data object RequestNotificationPermissionHandled : OrgClockUiAction
