@@ -5,11 +5,16 @@ import com.example.orgclock.domain.ClockService
 import com.example.orgclock.model.HeadingPath
 import com.example.orgclock.sync.JdbcClockEventStore
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.prefs.Preferences
 import kotlin.io.path.absolute
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
@@ -64,6 +69,50 @@ internal object DesktopSmokeTestCommand {
                     require(template.exists()) { "Template fixture is missing" }
                     require(template.readText().contains("Packaged runtime")) { "Template contents were not readable" }
                 }
+                checks += check("desktop_graph_root_open") {
+                    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+                    val preferences = Preferences.userRoot().node(
+                        "com/example/orgclock/desktop/smoke/${System.nanoTime()}",
+                    )
+                    val fallbackFile = root.resolve(".orgclock/smoke-root.txt")
+                    val graph = DesktopAppGraph(
+                        settingsStore = DesktopSettingsStore(preferences, fallbackFile),
+                        rootScheduleStore = DesktopRootScheduleStore(preferences.node("schedule")),
+                        watchRootChanges = true,
+                    )
+                    try {
+                        val store = graph.createStore(scope)
+                        store.onAction(com.example.orgclock.ui.state.OrgClockUiAction.Initialize)
+                        store.onAction(com.example.orgclock.ui.state.OrgClockUiAction.PickRoot(
+                            com.example.orgclock.presentation.RootReference(root.toString()),
+                        ))
+                        waitFor("Desktop graph root open", details = {
+                            val state = store.uiState.value
+                            "screen=${state.screen}, status=${state.status.text.key}, " +
+                                "root=${state.rootReference?.rawValue}, files=${state.files.size}"
+                        }) {
+                            val state = store.uiState.value
+                            graph.currentRootReference()?.rawValue
+                                ?.let(Path::of)
+                                ?.let { runCatching { it.toRealPath() }.getOrNull() } == root.toRealPath() &&
+                                state.files.any { it.displayName == "2026-01-02.org" }
+                        }
+                        require(
+                            graph.currentRootReference()?.rawValue
+                                ?.let(Path::of)
+                                ?.toRealPath() == root.toRealPath(),
+                        ) {
+                            "Desktop graph did not open the smoke root"
+                        }
+                    } finally {
+                        graph.close()
+                        scope.cancel()
+                        runCatching {
+                            preferences.removeNode()
+                            preferences.parent()?.flush()
+                        }
+                    }
+                }
             }
         }.fold(
             onSuccess = { 0 },
@@ -117,6 +166,18 @@ internal object DesktopSmokeTestCommand {
             onSuccess = { SmokeCheck(name, true, null) },
             onFailure = { SmokeCheck(name, false, it.stackTraceToString()) },
         )
+
+    private suspend fun waitFor(
+        description: String,
+        details: () -> String = { "" },
+        condition: () -> Boolean,
+    ) {
+        repeat(250) {
+            if (condition()) return
+            kotlinx.coroutines.delay(20)
+        }
+        error("$description timed out: ${details()}")
+    }
 
     private fun reportJson(root: Path, checks: List<SmokeCheck>): String = buildString {
         append("{\n")

@@ -83,8 +83,15 @@ import javax.swing.JFileChooser
 
 fun main(args: Array<String>) {
     if (DesktopSmokeTestCommand.isRequested(args)) {
-        DesktopSmokeTestCommand.run(args)
-        return
+        val exitCode = runCatching { DesktopSmokeTestCommand.run(args) }
+            .fold(
+                onSuccess = { 0 },
+                onFailure = {
+                    it.printStackTrace()
+                    1
+                },
+            )
+        kotlin.system.exitProcess(exitCode)
     }
     launchDesktopApplication()
 }

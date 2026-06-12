@@ -14,6 +14,7 @@ import java.nio.file.StandardWatchEventKinds.ENTRY_MODIFY
 import java.nio.file.StandardWatchEventKinds.OVERFLOW
 import java.nio.file.WatchService
 import java.nio.file.WatchKey
+import java.nio.file.ClosedWatchServiceException
 import kotlin.io.path.extension
 import kotlin.io.path.exists
 import kotlin.io.path.isDirectory
@@ -41,7 +42,10 @@ class DesktopRootWatcher(
             while (isActive) {
                 val key = try {
                     watchService.take()
-                } catch (_: Throwable) {
+                } catch (_: ClosedWatchServiceException) {
+                    break
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
                     break
                 }
                 var overflowed = false

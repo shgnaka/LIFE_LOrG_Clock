@@ -47,6 +47,24 @@ class DesktopAppGraph(
     private val syncIdentity: DesktopSyncIdentity = DesktopSyncIdentity(),
     private val repositoryFactory: (Path) -> ClockRepository = ::DesktopFileOrgRepository,
     private val coordinatorFactory: () -> FileOperationCoordinator = ::InMemoryFileOperationCoordinator,
+    private val pairingManager: DesktopPairingManager = DesktopPairingManager(),
+    private val lanSyncServerFactory: (
+        Path,
+        ClockEventStore,
+        DesktopPeerTrustStore,
+        SharedTemplateStore,
+        RemoteClockEventApplier,
+    ) -> DesktopLanSyncServer = { root, eventStore, trustStore, templateStore, applier ->
+        DesktopLanSyncServer(
+            localDeviceId = { syncIdentity.deviceId(root) },
+            eventStore = { eventStore },
+            trustStore = { trustStore },
+            tlsIdentity = { syncIdentity.tlsIdentity(root) },
+            pairingManager = pairingManager,
+            remoteEventApplier = applier,
+            templateStore = { templateStore },
+        )
+    },
     private val watchRootChanges: Boolean = true,
 ) {
     private var currentRootPath: Path? = null
@@ -62,7 +80,6 @@ class DesktopAppGraph(
     private var rootWatcher: DesktopRootWatcher? = null
     private var scope: CoroutineScope? = null
     private var lanSyncServer: DesktopLanSyncServer? = null
-    private val pairingManager = DesktopPairingManager()
     private val externalChangeFlow = MutableStateFlow<ExternalChangeNotice?>(null)
     private val clockEventSyncSnapshotFlow = MutableStateFlow(ClockEventStoreSnapshot(null, null, 0))
     private val desktopEventSyncRuntimeInstance: DesktopEventSyncRuntime by lazy {
@@ -250,6 +267,14 @@ class DesktopAppGraph(
                 snapshotPublisher = { clockEventSyncSnapshotFlow.value = it },
             ),
         )
+        val remoteClockEventApplier = RepositoryRemoteClockEventApplier(
+            repository = repository,
+            clockService = ClockService(repository, fileOperationCoordinator = fileOperationCoordinator),
+            timeZoneProvider = clockEnvironment::currentTimeZone,
+        )
+        desktopEventSyncRuntimeInstance.cancelPendingSync()
+        lanSyncServer?.close()
+        rootWatcher?.stop()
         currentRootPath = normalized
         this.repository = repository
         this.clockEventStore = eventStore
@@ -258,36 +283,29 @@ class DesktopAppGraph(
         this.quarantineStore = quarantineStore
         this.sharedTemplateStore = templateStore
         this.clockService = clockService
-        this.remoteClockEventApplier = RepositoryRemoteClockEventApplier(
-            repository = repository,
-            clockService = ClockService(repository, fileOperationCoordinator = fileOperationCoordinator),
-            timeZoneProvider = clockEnvironment::currentTimeZone,
-        )
+        this.remoteClockEventApplier = remoteClockEventApplier
         this.openClockScanner = DesktopOpenClockScanner(repository)
-        if (watchRootChanges) {
-            lanSyncServer?.close()
-            lanSyncServer = DesktopLanSyncServer(
-                localDeviceId = { syncIdentity.deviceId(normalized) },
-                eventStore = { this.clockEventStore },
-                trustStore = { this.peerTrustStore },
-                tlsIdentity = { syncIdentity.tlsIdentity(normalized) },
-                pairingManager = pairingManager,
-                remoteEventApplier = requireNotNull(remoteClockEventApplier),
-                templateStore = { this.sharedTemplateStore },
-            ).also { it.start() }
+        lanSyncServer = if (watchRootChanges) {
+            runCatching {
+                lanSyncServerFactory(normalized, eventStore, trustStore, templateStore, remoteClockEventApplier)
+                    .also { it.start() }
+            }.getOrNull()
+        } else {
+            null
+        }
+        rootWatcher = scope?.takeIf { watchRootChanges }?.let { scope ->
+            runCatching {
+                DesktopRootWatcher(
+                    rootPath = normalized,
+                    scope = scope,
+                    onChange = { notice ->
+                        externalChangeFlow.value = notice.copy(revision = ++externalChangeRevision)
+                    },
+                ).also { it.start() }
+            }.getOrNull()
         }
         clockEventSyncSnapshotFlow.value = ClockEventStoreSnapshot(null, null, 0)
         desktopEventSyncRuntimeInstance.onRootOpened()
-        rootWatcher?.stop()
-        scope?.takeIf { watchRootChanges }?.let { scope ->
-            rootWatcher = DesktopRootWatcher(
-                rootPath = normalized,
-                scope = scope,
-                onChange = { notice ->
-                    externalChangeFlow.value = notice.copy(revision = ++externalChangeRevision)
-                },
-            ).also { it.start() }
-        }
     }
 
     private fun normalizeRoot(rootReference: RootReference): Path {
@@ -351,12 +369,12 @@ class DesktopAppGraph(
     }
 
     private fun desktopCheckpointStorePreferences(rootPath: Path): java.util.prefs.Preferences {
-        val nodeName = "com/example/orgclock/desktop/sync/checkpoints/${rootPath.toString().hashCode()}"
+        val nodeName = "com/example/orgclock/desktop/sync/checkpoints/${stableRootKey(rootPath).hashCode()}"
         return java.util.prefs.Preferences.userRoot().node(nodeName)
     }
 
     private fun desktopQuarantineStorePreferences(rootPath: Path): java.util.prefs.Preferences {
-        val nodeName = "com/example/orgclock/desktop/sync/quarantine/${rootPath.toString().hashCode()}"
+        val nodeName = "com/example/orgclock/desktop/sync/quarantine/${stableRootKey(rootPath).hashCode()}"
         return java.util.prefs.Preferences.userRoot().node(nodeName)
     }
 

@@ -6,11 +6,14 @@ import com.example.orgclock.template.TemplatePushResult
 import kotlinx.datetime.Clock
 import java.nio.charset.StandardCharsets
 import java.nio.file.Path
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
+import java.io.IOException
 import java.security.MessageDigest
 import java.util.prefs.Preferences
 import kotlin.io.path.exists
 import kotlin.io.path.readText
-import kotlin.io.path.writeText
 
 class DesktopSharedTemplateStore(
     private val rootPath: Path,
@@ -54,7 +57,7 @@ class DesktopSharedTemplateStore(
         }
         val content = canonicalContent(revision.content)
         require(stableHash(content) == revision.contentHash) { "Template content hash mismatch" }
-        templatePath.writeText(content, StandardCharsets.UTF_8)
+        atomicWriteText(templatePath, content)
         persistMetadata(
             prefix,
             revision.revisionId,
@@ -67,11 +70,42 @@ class DesktopSharedTemplateStore(
     }
 
     private fun templatePath(): Path {
-        val path = templatePathProvider().toAbsolutePath().normalize()
-        require(path.startsWith(rootPath.toAbsolutePath().normalize())) {
+        val root = rootPath.toRealPath()
+        val requested = templatePathProvider().toAbsolutePath().normalize()
+        val path = if (requested.exists()) {
+            requested.toRealPath()
+        } else {
+            requested.parent.toRealPath().resolve(requested.fileName)
+        }
+        require(path.startsWith(root)) {
             "Shared template must be inside the org root"
         }
         return path
+    }
+
+    private fun atomicWriteText(path: Path, content: String) {
+        val temp = Files.createTempFile(path.parent, ".${path.fileName}.", ".tmp")
+        try {
+            Files.writeString(
+                temp,
+                content,
+                StandardCharsets.UTF_8,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE,
+            )
+            try {
+                Files.move(temp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            } catch (atomicError: IOException) {
+                try {
+                    Files.move(temp, path, StandardCopyOption.REPLACE_EXISTING)
+                } catch (fallbackError: IOException) {
+                    fallbackError.addSuppressed(atomicError)
+                    throw fallbackError
+                }
+            }
+        } finally {
+            Files.deleteIfExists(temp)
+        }
     }
 
     private fun revisionFromPreferences(

@@ -20,9 +20,10 @@ import com.sun.net.httpserver.HttpsServer
 import java.net.InetSocketAddress
 import java.security.MessageDigest
 import java.util.concurrent.Executors
+import java.util.concurrent.ExecutorService
 import kotlinx.coroutines.runBlocking
 
-class DesktopLanSyncServer(
+open class DesktopLanSyncServer(
     private val port: Int = DesktopSyncIdentity.DEFAULT_PORT,
     private val localDeviceId: () -> String,
     private val eventStore: () -> ClockEventStore?,
@@ -33,12 +34,16 @@ class DesktopLanSyncServer(
     private val templateStore: () -> SharedTemplateStore?,
 ) : AutoCloseable {
     private var server: HttpsServer? = null
+    private var executor: ExecutorService? = null
 
-    fun start() {
+    open fun start() {
         if (server != null) return
-        server = HttpsServer.create(InetSocketAddress("0.0.0.0", port), 0).apply {
+        val executor = Executors.newFixedThreadPool(4) { Thread(it, "org-clock-lan-sync").apply { isDaemon = true } }
+        this.executor = executor
+        try {
+            server = HttpsServer.create(InetSocketAddress("0.0.0.0", port), 0).apply {
             httpsConfigurator = HttpsConfigurator(tlsIdentity().sslContext)
-            executor = Executors.newFixedThreadPool(4) { Thread(it, "org-clock-lan-sync").apply { isDaemon = true } }
+            this.executor = executor
             createContext("/v1/health") { exchange ->
                 if (exchange.requestMethod != "GET") exchange.respond(405, "method not allowed")
                 else exchange.respond(200, "ok", "text/plain; charset=utf-8")
@@ -122,11 +127,20 @@ class DesktopLanSyncServer(
                 }
                 TemplateSharingJsonCodec.encodePushResult(result)
             } }
-            start()
+                start()
+            }
+        } catch (error: Throwable) {
+            close()
+            throw error
         }
     }
 
-    override fun close() { server?.stop(0); server = null }
+    override open fun close() {
+        server?.stop(0)
+        server = null
+        executor?.shutdownNow()
+        executor = null
+    }
 
     private fun handlePost(exchange: HttpExchange, handler: (String) -> String) {
         if (exchange.requestMethod != "POST") return exchange.respond(405, "method not allowed")
