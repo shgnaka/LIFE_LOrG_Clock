@@ -6,6 +6,7 @@ on:
       - ".github/workflows/verify-desktop-linux.yml"
       - ".github/workflows/verify-desktop-windows.yml"
       - "desktopApp/**"
+      - "scripts/desktop-smoke-test.ps1"
       - "shared/**"
       - "build.gradle.kts"
       - "settings.gradle.kts"
@@ -23,6 +24,7 @@ on:
       - ".github/workflows/verify-desktop-linux.yml"
       - ".github/workflows/verify-desktop-windows.yml"
       - "desktopApp/**"
+      - "scripts/desktop-smoke-test.ps1"
       - "shared/**"
       - "build.gradle.kts"
       - "settings.gradle.kts"
@@ -76,6 +78,12 @@ jobs:
           & .\gradlew.bat --stacktrace packageDesktopCurrentOs *>&1 | Tee-Object -FilePath artifacts/desktop-windows/package-desktop-current-os.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Smoke test installed Windows package
+        shell: pwsh
+        run: |
+          & .\scripts\desktop-smoke-test.ps1 -SkipBuild
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Upload desktop artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -84,3 +92,4 @@ jobs:
           path: |
             desktopApp/build/compose/binaries/main
             artifacts/desktop-windows
+            artifacts/desktop-smoke
