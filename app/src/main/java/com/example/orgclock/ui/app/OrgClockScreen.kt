@@ -252,6 +252,8 @@ fun OrgClockScreen(
                 autoGenerationRuntimeState = state.autoGenerationRuntimeState,
                 templateFileStatus = state.templateFileStatus,
                 templateAutoGenerationFailure = state.templateAutoGenerationFailure,
+                templateSyncInProgress = state.templateSyncInProgress,
+                templateSyncMessage = state.templateSyncMessage,
                 syncFeatureVisible = state.syncFeatureVisible,
                 syncDebugVisible = state.syncDebugVisible,
                 syncRuntimeEnabled = state.syncRuntimeEnabled,
@@ -303,6 +305,7 @@ fun OrgClockScreen(
                 },
                 onOpenTemplateFilePicker = { onAction(OrgClockUiAction.OpenTemplateFilePicker) },
                 onClearExplicitTemplateFile = { onAction(OrgClockUiAction.ClearExplicitTemplateFile) },
+                onSyncTemplateNow = { onAction(OrgClockUiAction.SyncTemplateNow) },
                 onSyncFlushNow = { onAction(OrgClockUiAction.SyncFlushNow) },
                 onSyncEnableStandard = { onAction(OrgClockUiAction.SyncEnableStandard) },
                 onSyncEnableActive = { onAction(OrgClockUiAction.SyncEnableActive) },
@@ -390,6 +393,11 @@ private fun RootSetupScreen(
                 Button(onClick = onPickRoot) {
                     Text(stringResource(R.string.select_org_directory))
                 }
+                Text(
+                    "After choosing a root, you can use its template or download a template from a paired device.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }
@@ -1017,6 +1025,8 @@ private fun SettingsScreen(
     autoGenerationRuntimeState: TemplateAutoGenerationRuntimeState,
     templateFileStatus: TemplateFileStatus,
     templateAutoGenerationFailure: String?,
+    templateSyncInProgress: Boolean,
+    templateSyncMessage: String?,
     syncFeatureVisible: Boolean,
     syncDebugVisible: Boolean,
     syncRuntimeEnabled: Boolean,
@@ -1050,6 +1060,7 @@ private fun SettingsScreen(
     onSaveAutoGenerationSchedule: () -> Unit,
     onOpenTemplateFilePicker: () -> Unit,
     onClearExplicitTemplateFile: () -> Unit,
+    onSyncTemplateNow: () -> Unit,
     onSyncFlushNow: () -> Unit,
     onSyncEnableStandard: () -> Unit,
     onSyncEnableActive: () -> Unit,
@@ -1241,6 +1252,9 @@ private fun SettingsScreen(
                     )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = onSyncTemplateNow, enabled = !templateSyncInProgress) {
+                        Text(if (templateSyncInProgress) "Synchronizing..." else "Sync with paired device")
+                    }
                     Button(onClick = onOpenTemplateFilePicker) {
                         Text(stringResource(R.string.template_choose_file))
                     }
@@ -1249,6 +1263,17 @@ private fun SettingsScreen(
                             Text(stringResource(R.string.template_use_legacy))
                         }
                     }
+                }
+                templateSyncMessage?.let { message ->
+                    Text(
+                        text = message,
+                        color = if (message.contains("conflict", true) || message.contains("failed", true)) {
+                            StateWarningFg
+                        } else {
+                            MaterialTheme.colorScheme.primary
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(

@@ -99,6 +99,8 @@ data class OrgClockUiState(
     val autoGenerationRuntimeState: TemplateAutoGenerationRuntimeState = TemplateAutoGenerationRuntimeState(),
     val templateCandidateFiles: List<OrgFileEntry> = emptyList(),
     val selectingTemplateFile: Boolean = false,
+    val templateSyncInProgress: Boolean = false,
+    val templateSyncMessage: String? = null,
     val showPerfOverlay: Boolean = false,
     val syncFeatureVisible: Boolean = false,
     val syncDebugVisible: Boolean = false,

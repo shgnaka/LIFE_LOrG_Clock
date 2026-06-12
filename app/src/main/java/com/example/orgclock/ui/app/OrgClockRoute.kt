@@ -32,6 +32,7 @@ import com.example.orgclock.sync.SyncIntegrationSnapshot
 import com.example.orgclock.template.RootScheduleConfig
 import com.example.orgclock.template.TemplateAutoGenerationRuntimeState
 import com.example.orgclock.template.TemplateFileStatus
+import com.example.orgclock.template.TemplateSyncOutcome
 import com.example.orgclock.ui.store.OrgClockStore
 import com.example.orgclock.ui.perf.PerformanceMonitor
 import com.example.orgclock.ui.state.OrgClockUiAction
@@ -77,6 +78,9 @@ data class OrgClockRouteDependencies(
     val syncRootScheduleConfig: suspend (RootScheduleConfig) -> Unit,
     val runAutoGenerationCatchUp: suspend (RootReference) -> Unit,
     val syncTemplateTaggedHeading: suspend (String) -> Result<Boolean> = { Result.success(false) },
+    val syncTemplateNow: suspend () -> Result<TemplateSyncOutcome> = {
+        Result.failure(UnsupportedOperationException("template sharing unavailable"))
+    },
     val syncNotificationService: (Boolean, NotificationDisplayMode) -> Unit,
     val stopNotificationService: () -> Unit,
     val openAppNotificationSettings: () -> Unit,
@@ -273,6 +277,7 @@ private fun orgClockViewModelFactory(
                 syncRootScheduleConfig = dependencies.syncRootScheduleConfig,
                 runAutoGenerationCatchUp = dependencies.runAutoGenerationCatchUp,
                 syncTemplateTaggedHeading = dependencies.syncTemplateTaggedHeading,
+                syncTemplateNow = dependencies.syncTemplateNow,
                 syncSnapshotFlow = dependencies.syncSnapshotFlow,
                 clockEventSyncSnapshotFlow = dependencies.clockEventSyncSnapshotFlow,
                 syncPairTrustedPeer = dependencies.syncPairTrustedPeer,

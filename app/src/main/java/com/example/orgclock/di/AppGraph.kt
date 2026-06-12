@@ -54,6 +54,8 @@ import com.example.orgclock.template.TemplateAutoGenerationEntryPoint
 import com.example.orgclock.template.TemplateAutoGenerationRuntimeStore
 import com.example.orgclock.template.TemplateAutoGenerationScheduler
 import com.example.orgclock.template.TemplateSyncService
+import com.example.orgclock.template.AndroidSharedTemplateStore
+import com.example.orgclock.template.TemplateSharingService
 import androidx.lifecycle.lifecycleScope
 import com.example.orgclock.time.ClockEnvironment
 import com.example.orgclock.time.SystemClockEnvironment
@@ -127,6 +129,18 @@ class DefaultAppGraph(
                 prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)
                     ?.let { rootScheduleStore.load(it).templateFileUri }
             },
+        )
+    }
+    private val sharedTemplateStore by lazy {
+        AndroidSharedTemplateStore(
+            repository = safRepository,
+            preferences = prefs,
+            rootUriProvider = { prefs.getString(NotificationPrefs.KEY_ROOT_URI, null) },
+            templateFileUriProvider = {
+                prefs.getString(NotificationPrefs.KEY_ROOT_URI, null)
+                    ?.let { rootScheduleStore.load(it).templateFileUri }
+            },
+            deviceIdProvider = deviceIdProvider::getOrCreate,
         )
     }
     private val templateAutoGenerationScheduler by lazy {
@@ -362,6 +376,24 @@ class DefaultAppGraph(
             },
             syncTemplateTaggedHeading = { fileId ->
                 templateSyncService.syncFromFile(fileId)
+            },
+            syncTemplateNow = {
+                runCatching {
+                    val localPeerId = deviceIdProvider.getOrCreate()
+                    val peer = peerTrustStore.listTrustRecords()
+                        .firstOrNull {
+                            it.isActive &&
+                                it.role == com.example.orgclock.sync.PeerTrustRole.Full &&
+                                it.endpoint != null
+                        }
+                        ?: error("No paired full-access device is available")
+                    TemplateSharingService(
+                        localStore = sharedTemplateStore,
+                        transport = AndroidLanSyncTransport(peer.endpoint!!, peer.publicKeyBase64),
+                        localPeerId = localPeerId,
+                        remotePeerId = peer.peerId,
+                    ).synchronize().getOrThrow()
+                }
             },
             syncNotificationService = { enabled, mode ->
                 ClockInNotificationService.sync(
