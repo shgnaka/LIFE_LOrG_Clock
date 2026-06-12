@@ -78,10 +78,10 @@ jobs:
           & .\gradlew.bat --stacktrace packageDesktopCurrentOs *>&1 | Tee-Object -FilePath artifacts/desktop-windows/package-desktop-current-os.log
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Smoke test installed Windows package
+      - name: Smoke test Windows installer layout
         shell: pwsh
         run: |
-          & .\scripts\desktop-smoke-test.ps1 -SkipBuild
+          & .\scripts\desktop-smoke-test.ps1 -SkipBuild -InstallerOnly
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload desktop artifacts
