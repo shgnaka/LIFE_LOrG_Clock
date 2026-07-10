@@ -20,9 +20,11 @@ class SyncIntegrationService(
     private val clockEventStoreProvider: () -> ClockEventStore? = { null },
     private val peerSyncCheckpointStore: PeerSyncCheckpointStore? = null,
     private val peerHealthChecker: PeerHealthChecker = HttpPeerHealthChecker(),
-    private val runtimeManager: SyncRuntimeManager? = null,
-    private val pairingInvitationExchange: suspend (String, String, String) -> Result<String> =
+    private val runtimeManager: SyncRuntimeCoordinator? = null,
+    private val pairingInvitationExchange: suspend (String, String, String, String?, PeerTrustRole) -> Result<SyncPairingExchangeOutcome> =
         ::exchangeDesktopPairingInvitation,
+    private val localSigningPublicKeyProvider: (() -> Result<String>)? = null,
+    private val syncCoreTransportCredentialStore: SyncCoreTransportCredentialStore? = null,
     private val securePeerProbe: suspend (String, String) -> Result<Unit> = { endpoint, credential ->
         AndroidLanSyncTransport(endpoint, credential).probe()
     },
@@ -39,6 +41,7 @@ class SyncIntegrationService(
     )
     val snapshot: StateFlow<SyncIntegrationSnapshot> = _snapshot.asStateFlow()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var appliedCoordinatorMode: SyncRuntimeMode? = null
 
     init {
         scope.launch {
@@ -73,7 +76,7 @@ class SyncIntegrationService(
             .onFailure { error ->
                 logger.fine(
                     "sync.report.failed commandId=${result.commandId} " +
-                        "status=${result.status.wireValue} reason=${error.message ?: "unknown"}",
+                        "status=${result.status.wireValue} reason=${error::class.simpleName ?: "unknown"}",
                 )
                 updateLastResult(result, error.message ?: "Failed to report sync result")
                 refreshStateSnapshot()
@@ -103,7 +106,7 @@ class SyncIntegrationService(
         logger.fine("sync.poll.received count=${incoming.size}")
         for (command in incoming) {
             if (command.verificationState != IncomingVerificationState.Verified) {
-                logger.fine("sync.incoming.rejected commandId=${command.commandId} reason=${command.verificationReason}")
+                logger.fine("sync.incoming.rejected commandId=${command.commandId} reason=verification_failed")
                 continue
             }
             if (!command.replayCheckPassed) {
@@ -119,8 +122,13 @@ class SyncIntegrationService(
     /** Enables standard runtime mode (periodic/background managed path). */
     suspend fun enableStandardMode() {
         if (!featureFlag.isEnabled()) return
+        if (runtimeManager != null && appliedCoordinatorMode == SyncRuntimeMode.Standard) {
+            refreshStateSnapshot()
+            return
+        }
         runtimePrefs.setSelectedMode(SyncRuntimeMode.Standard)
         runtimeManager?.enableStandardMode() ?: syncCoreClient.start()
+        if (runtimeManager != null) appliedCoordinatorMode = SyncRuntimeMode.Standard
         _snapshot.update { it.copy(runtimeMode = SyncRuntimeMode.Standard) }
         refreshStateSnapshot()
     }
@@ -128,16 +136,26 @@ class SyncIntegrationService(
     /** Enables active runtime mode (foreground/short tick path). */
     suspend fun enableActiveMode() {
         if (!featureFlag.isEnabled()) return
+        if (runtimeManager != null && appliedCoordinatorMode == SyncRuntimeMode.Active) {
+            refreshStateSnapshot()
+            return
+        }
         runtimePrefs.setSelectedMode(SyncRuntimeMode.Active)
         runtimeManager?.enableActiveMode() ?: syncCoreClient.start()
+        if (runtimeManager != null) appliedCoordinatorMode = SyncRuntimeMode.Active
         _snapshot.update { it.copy(runtimeMode = SyncRuntimeMode.Active) }
         refreshStateSnapshot()
     }
 
     /** Stops sync runtime processing regardless of currently selected mode. */
     suspend fun stopRuntime() {
+        if (runtimeManager != null && appliedCoordinatorMode == SyncRuntimeMode.Off) {
+            refreshStateSnapshot()
+            return
+        }
         runtimePrefs.setSelectedMode(SyncRuntimeMode.Off)
         runtimeManager?.stop() ?: syncCoreClient.stop()
+        if (runtimeManager != null) appliedCoordinatorMode = SyncRuntimeMode.Off
         _snapshot.update { it.copy(runtimeMode = SyncRuntimeMode.Off) }
         refreshStateSnapshot()
     }
@@ -164,7 +182,7 @@ class SyncIntegrationService(
                 }
                 flushNow()
             }.onFailure { error ->
-                logger.fine("sync.startup.failed reason=${error.message ?: "unknown"}")
+                logger.fine("sync.startup.failed reason=${error::class.simpleName ?: "unknown"}")
                 _snapshot.update { it.copy(lastError = error.message ?: "sync startup failed") }
             }
         }
@@ -256,6 +274,10 @@ class SyncIntegrationService(
         if (!peerTrustStore.isTrusted(command.targetPeerId)) {
             return SubmitResult.Rejected("peer is not trusted: ${command.targetPeerId}")
         }
+        val targetRecord = peerTrustStore.getTrustRecord(command.targetPeerId)
+        if (targetRecord?.role == PeerTrustRole.Viewer) {
+            return SubmitResult.Rejected("peer is viewer-only: ${command.targetPeerId}")
+        }
         val result = syncCoreClient.submitOutgoing(command)
         if (result is SubmitResult.Submitted) {
             updatePeerState(
@@ -331,20 +353,82 @@ class SyncIntegrationService(
         if (normalized.isBlank() || endpoint.isBlank()) {
             return PeerProbeResult(normalized, false, System.currentTimeMillis(), "peer endpoint is empty")
         }
-        val invitation = SyncPairingInvitationCodec.decode(request.publicKeyBase64).getOrElse { error ->
-            return PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "invalid pairing invitation")
+        val v2Invitation = SyncPairingInvitationV2Codec.decode(request.publicKeyBase64).getOrNull()
+        val v1Invitation = if (v2Invitation == null) {
+            SyncPairingInvitationCodec.decode(request.publicKeyBase64).getOrElse { error ->
+                return PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "invalid pairing invitation")
+            }
+        } else {
+            null
         }
-        if (invitation.expiresAtEpochMs <= System.currentTimeMillis()) {
+        val expiresAtEpochMs = v2Invitation?.expiresAtEpochMs ?: requireNotNull(v1Invitation).expiresAtEpochMs
+        if (expiresAtEpochMs <= System.currentTimeMillis()) {
             return PeerProbeResult(normalized, false, System.currentTimeMillis(), "pairing QR code expired")
         }
-        val durableCredential = pairingInvitationExchange(
+        val localSigningPublicKey = if (v2Invitation != null) {
+            localSigningPublicKeyProvider?.invoke()?.getOrElse { error ->
+                return PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "local signing key unavailable")
+            } ?: return PeerProbeResult(normalized, false, System.currentTimeMillis(), "local signing key unavailable")
+        } else {
+            null
+        }
+        val exchangeOutcome = pairingInvitationExchange(
             endpoint,
             request.publicKeyBase64,
             deviceIdProvider.getOrCreate(),
+            localSigningPublicKey,
+            request.role,
         ).getOrElse { error ->
             return PeerProbeResult(normalized, false, System.currentTimeMillis(), error.message ?: "pairing failed")
         }
-        val verifiedRequest = request.copy(publicKeyBase64 = durableCredential)
+        val existingRecord = peerTrustStore.getTrustRecord(normalized)
+        val existingSigningKey = existingRecord
+            ?.resolveSyncCoreSigningPublicKeyBase64()
+            ?.takeIf { it.isNotBlank() }
+        val exchangeSigningKey = exchangeOutcome.hostSigningPublicKeyBase64
+            ?: request.signingPublicKeyBase64
+        val exchangeSigningAlg = exchangeOutcome.hostSigningAlg
+            ?: v2Invitation?.hostSigningAlg
+            ?: request.signingAlg
+        if (
+            existingSigningKey != null &&
+            exchangeSigningKey != null &&
+            existingSigningKey != exchangeSigningKey
+        ) {
+            return PeerProbeResult(
+                normalized,
+                false,
+                System.currentTimeMillis(),
+                "peer signing key changed; explicit re-pair required",
+            )
+        }
+        if (
+            existingSigningKey != null &&
+            exchangeSigningKey != null &&
+            existingRecord != null &&
+            existingRecord.signingAlg != exchangeSigningAlg
+        ) {
+            return PeerProbeResult(
+                normalized,
+                false,
+                System.currentTimeMillis(),
+                "peer signing alg changed; explicit re-pair required",
+            )
+        }
+        val durableCredential = exchangeOutcome.encodedTransportCredential
+        SyncTransportCredentialCodec.decode(durableCredential).getOrNull()?.let { credential ->
+            syncCoreTransportCredentialStore?.put(normalized, credential)
+        }
+        val verifiedRequest = request.copy(
+            deviceId = exchangeOutcome.hostDeviceId ?: request.deviceId,
+            displayName = exchangeOutcome.hostDisplayName ?: request.displayName,
+            publicKeyBase64 = durableCredential,
+            signingPublicKeyBase64 = exchangeOutcome.hostSigningPublicKeyBase64 ?: request.signingPublicKeyBase64,
+            signingAlg = exchangeSigningAlg,
+            certificateSha256 = exchangeOutcome.certificateSha256 ?: v2Invitation?.certificateSha256 ?: requireNotNull(v1Invitation).certificateSha256,
+            transportCredentialRef = normalized,
+            role = exchangeOutcome.grantedRole ?: request.role,
+        )
         peerTrustStore.trust(verifiedRequest.toPeerTrustRecord())
         val probe = securePeerProbe(endpoint, durableCredential).fold(
             onSuccess = { PeerProbeResult(normalized, true, System.currentTimeMillis()) },
@@ -384,7 +468,9 @@ class SyncIntegrationService(
         val normalized = peerId.trim()
         if (normalized.isBlank()) return
         peerTrustStore.revoke(normalized)
+        syncCoreTransportCredentialStore?.delete(normalized)
         peerSyncCheckpointStore?.clear(normalized)
+        runCatching { syncCoreClient.revokePeer(normalized) }
         if (runtimePrefs.defaultPeerId() == normalized) {
             runtimePrefs.setDefaultPeerId(null)
             _snapshot.update { it.copy(defaultPeerId = null) }

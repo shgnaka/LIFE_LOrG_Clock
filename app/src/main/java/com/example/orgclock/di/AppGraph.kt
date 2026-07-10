@@ -35,6 +35,9 @@ import com.example.orgclock.sync.AndroidEventSyncRuntime
 import com.example.orgclock.sync.AndroidEventSyncRuntimeEntryPoint
 import com.example.orgclock.sync.AndroidEventSyncTransportProvider
 import com.example.orgclock.sync.AndroidLanSyncTransport
+import com.example.orgclock.sync.AndroidKeystoreSyncCoreTransportCredentialStore
+import com.example.orgclock.sync.AndroidKeystoreSyncCoreEnvelopeSigner
+import com.example.orgclock.sync.InRepositorySyncCoreClientFactory
 import com.example.orgclock.sync.LocalClockOperationPublisher
 import com.example.orgclock.sync.RuntimeSyncIntegrationFeatureFlag
 import com.example.orgclock.sync.RoomCommandIdStore
@@ -107,7 +110,11 @@ class DefaultAppGraph(
     private val clockInScanner by lazy { ClockInScanner(repository) }
     private val notificationServiceConfig: NotificationServiceConfig = NotificationServiceConfig()
     private val syncCoreClientFactory: SyncCoreClientFactory by lazy {
-        loadSyncCoreClientFactory()
+        if (BuildConfig.SYNC_CORE_INCLUDED) {
+            InRepositorySyncCoreClientFactory()
+        } else {
+            com.example.orgclock.sync.NoOpSyncCoreClientFactory()
+        }
     }
     private val prefs by lazy {
         appContext.getSharedPreferences(NotificationPrefs.PREFS_NAME, Context.MODE_PRIVATE)
@@ -162,6 +169,8 @@ class DefaultAppGraph(
         )
     }
     private val peerTrustStore by lazy { SharedPreferencesPeerTrustStore(prefs) }
+    private val syncCoreTransportCredentialStore by lazy { AndroidKeystoreSyncCoreTransportCredentialStore(appContext) }
+    private val syncCoreEnvelopeSigner by lazy { AndroidKeystoreSyncCoreEnvelopeSigner(deviceIdProvider) }
     private val peerSyncCheckpointStore by lazy {
         SharedPreferencesPeerSyncCheckpointStore(prefs)
     }
@@ -233,6 +242,8 @@ class DefaultAppGraph(
             deviceIdProvider = deviceIdProvider,
             runtimePrefs = runtimePrefs,
             peerTrustStore = peerTrustStore,
+            localSigningPublicKeyProvider = syncCoreEnvelopeSigner::publicKeyBase64,
+            syncCoreTransportCredentialStore = syncCoreTransportCredentialStore,
             clockEventStoreProvider = { clockEventStore },
             peerSyncCheckpointStore = peerSyncCheckpointStore,
             runtimeManager = runtimeManager,
@@ -515,17 +526,6 @@ class DefaultAppGraph(
         return target
     }
 
-    private fun loadSyncCoreClientFactory(): SyncCoreClientFactory {
-        if (!BuildConfig.SYNC_CORE_INCLUDED) {
-            return com.example.orgclock.sync.NoOpSyncCoreClientFactory()
-        }
-        return runCatching {
-            val clazz = Class.forName("com.example.orgclock.sync.SynccoreEngineClientFactory")
-            clazz.getDeclaredConstructor().newInstance() as SyncCoreClientFactory
-        }.getOrElse {
-            com.example.orgclock.sync.NoOpSyncCoreClientFactory()
-        }
-    }
 }
 
 internal fun scheduleSyncPublishAfterLocalSave(

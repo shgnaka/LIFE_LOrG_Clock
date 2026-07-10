@@ -1,11 +1,13 @@
 package com.example.orgclock.sync
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.datetime.Instant
 import kotlinx.datetime.LocalDate
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AndroidEventSyncRuntimeTest {
@@ -68,7 +70,7 @@ class AndroidEventSyncRuntimeTest {
         val checkpoint = checkpoints.get("peer-a")
         assertNotNull(checkpoint)
         assertEquals(ClockEventCursor(2), checkpoint.lastSeenCursor)
-        assertEquals(ClockEventCursor(1), checkpoint.lastSentCursor)
+        assertEquals(ClockEventCursor(2), checkpoint.lastSentCursor)
         assertEquals(1, transport.fetchRequests.size)
         assertEquals(1, transport.pushRequests.size)
         assertEquals(1, transport.ackRequests.size)
@@ -220,14 +222,150 @@ class AndroidEventSyncRuntimeTest {
         assertTrue(snapshots.last().lastRejectReason == null)
         assertEquals(0, snapshots.last().quarantinedEventCount)
     }
+
+    @Test
+    fun syncNow_followsEmptyProgressPageWithoutSkippingLaterEvent() = runTest {
+        val remoteEvent = sampleEvent("remote-later", 9L, "device-remote")
+        val store = InMemoryClockEventStore()
+        val trustStore = StaticPeerTrustStore(peerRecord("peer-a", "device-remote"))
+        val checkpoints = InMemoryPeerSyncCheckpointStore()
+        val transport = RecordingClockEventSyncTransport(
+            fetchResponse = emptyFetchResponse(),
+            pushResponse = emptyPushResponse(),
+        ).apply {
+            fetchResponses += ClockEventFetchResponse(
+                sourcePeerId = "device-local",
+                targetPeerId = "peer-a",
+                events = emptyList(),
+                nextCursor = ClockEventCursor(8),
+                hasMore = true,
+            )
+            fetchResponses += ClockEventFetchResponse(
+                sourcePeerId = "device-local",
+                targetPeerId = "peer-a",
+                events = listOf(StoredClockEvent(ClockEventCursor(9), remoteEvent)),
+                nextCursor = ClockEventCursor(9),
+                hasMore = false,
+            )
+        }
+        val runtime = runtime(store, trustStore, checkpoints, transport, backgroundScope)
+
+        runtime.syncNow("manual")
+
+        assertEquals(listOf(null, ClockEventCursor(8)), transport.fetchRequests.map { it.sinceCursor })
+        assertEquals(listOf("remote-later"), store.readAllForReplay().map { it.event.eventId })
+        assertEquals(ClockEventCursor(9), checkpoints.get("peer-a")?.lastSeenCursor)
+    }
+
+    @Test
+    fun syncNow_doesNotAdvanceOutgoingCheckpointOnPartialAcceptance() = runTest {
+        val store = InMemoryClockEventStore().also { it.seed(sampleEvent("local-1", 1L, "device-local")) }
+        val trustStore = StaticPeerTrustStore(peerRecord("peer-a", "device-remote"))
+        val checkpoints = InMemoryPeerSyncCheckpointStore()
+        val transport = RecordingClockEventSyncTransport(
+            fetchResponse = emptyFetchResponse(),
+            pushResponse = ClockEventPushResponse(
+                sourcePeerId = "peer-a",
+                targetPeerId = "device-local",
+                acceptedCursor = null,
+                rejectedEventIds = listOf("local-1"),
+            ),
+        )
+        val runtime = runtime(store, trustStore, checkpoints, transport, backgroundScope)
+
+        runtime.syncNow("manual")
+
+        assertNull(checkpoints.get("peer-a")?.lastSentCursor)
+        assertTrue(runtime.state.value.lastError?.contains("rejected") == true)
+    }
+
+    @Test
+    fun syncNow_pushesAllLocalBatches() = runTest {
+        val store = InMemoryClockEventStore().also { target ->
+            repeat(DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT + 1) { index ->
+                target.seed(sampleEvent("local-$index", index + 1L, "device-local"))
+            }
+        }
+        val trustStore = StaticPeerTrustStore(peerRecord("peer-a", "device-remote"))
+        val checkpoints = InMemoryPeerSyncCheckpointStore()
+        val transport = RecordingClockEventSyncTransport(
+            fetchResponse = emptyFetchResponse(),
+            pushResponse = emptyPushResponse(),
+            acceptRequestCursor = true,
+        )
+        val runtime = runtime(store, trustStore, checkpoints, transport, backgroundScope)
+
+        runtime.syncNow("manual")
+
+        assertEquals(2, transport.pushRequests.size)
+        assertEquals(DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT, transport.pushRequests.first().events.size)
+        assertEquals(1, transport.pushRequests.last().events.size)
+        assertEquals(
+            ClockEventCursor((DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT + 1).toLong()),
+            checkpoints.get("peer-a")?.lastSentCursor,
+        )
+    }
+
+    @Test
+    fun syncNow_keepsGlobalPendingWhileAnyFullPeerHasNoOutgoingCheckpoint() = runTest {
+        val store = InMemoryClockEventStore().also { it.seed(sampleEvent("local-1", 1L, "device-local")) }
+        val trustStore = StaticPeerTrustStore(
+            peerRecord("peer-a", "device-a"),
+            peerRecord("peer-b", "device-b"),
+        )
+        val checkpoints = InMemoryPeerSyncCheckpointStore()
+        val transport = RecordingClockEventSyncTransport(
+            fetchResponse = emptyFetchResponse(),
+            pushResponse = emptyPushResponse(),
+            acceptRequestCursor = true,
+        )
+        val runtime = AndroidEventSyncRuntime(
+            clockEventStore = store,
+            peerTrustStore = trustStore,
+            peerSyncCheckpointStore = checkpoints,
+            deviceIdProvider = object : DeviceIdProvider {
+                override fun getOrCreate(): String = "device-local"
+            },
+            transportProvider = AndroidEventSyncTransportProvider { peerId ->
+                if (peerId == "peer-a") transport else null
+            },
+            scope = backgroundScope,
+        )
+
+        runtime.syncNow("manual")
+
+        assertEquals(ClockEventCursor(1), checkpoints.get("peer-a")?.lastSentCursor)
+        assertNull(checkpoints.get("peer-b"))
+        assertEquals(1, store.readSnapshot().pendingSyncCount)
+        assertNull(store.readSnapshot().lastSyncedCursor)
+    }
+
+    private fun runtime(
+        store: ClockEventStore,
+        trustStore: PeerTrustStore,
+        checkpoints: PeerSyncCheckpointStore,
+        transport: ClockEventSyncTransport,
+        scope: CoroutineScope,
+    ) = AndroidEventSyncRuntime(
+        clockEventStore = store,
+        peerTrustStore = trustStore,
+        peerSyncCheckpointStore = checkpoints,
+        deviceIdProvider = object : DeviceIdProvider {
+            override fun getOrCreate(): String = "device-local"
+        },
+        transportProvider = AndroidEventSyncTransportProvider { peerId ->
+            if (peerId == "peer-a") transport else null
+        },
+        scope = scope,
+    )
 }
 
 private class StaticPeerTrustStore(
-    private val record: PeerTrustRecord,
+    private vararg val records: PeerTrustRecord,
 ) : PeerTrustStore {
-    override fun isTrusted(peerId: String): Boolean = peerId == record.peerId
+    override fun isTrusted(peerId: String): Boolean = records.any { it.peerId == peerId }
 
-    override fun listTrusted(): List<String> = listOf(record.peerId)
+    override fun listTrusted(): List<String> = records.map { it.peerId }
 
     override fun trust(peerId: String) {}
 
@@ -235,33 +373,40 @@ private class StaticPeerTrustStore(
 
     override fun trust(record: PeerTrustRecord) {}
 
-    override fun getTrustRecord(peerId: String): PeerTrustRecord? = if (peerId == record.peerId) record else null
+    override fun getTrustRecord(peerId: String): PeerTrustRecord? = records.firstOrNull { it.peerId == peerId }
 
-    override fun listTrustRecords(): List<PeerTrustRecord> = listOf(record)
+    override fun listTrustRecords(): List<PeerTrustRecord> = records.toList()
 
     override fun revoke(peerId: String) {}
 
     override fun repair(peerId: String) {}
 
-    override fun getTrustedPublicKey(peerId: String): String? = if (peerId == record.peerId) record.publicKeyBase64 else null
+    override fun getTrustedPublicKey(peerId: String): String? = getTrustRecord(peerId)?.publicKeyBase64
 }
 
 private class RecordingClockEventSyncTransport(
     var fetchResponse: ClockEventFetchResponse,
     var pushResponse: ClockEventPushResponse,
+    private val acceptRequestCursor: Boolean = false,
 ) : ClockEventSyncTransport {
+    val fetchResponses = ArrayDeque<ClockEventFetchResponse>()
     val fetchRequests = mutableListOf<ClockEventFetchRequest>()
     val pushRequests = mutableListOf<ClockEventPushRequest>()
     val ackRequests = mutableListOf<ClockEventTransportAck>()
 
     override suspend fun fetch(request: ClockEventFetchRequest): ClockEventFetchResponse {
         fetchRequests += request
-        return fetchResponse.copy(sourcePeerId = request.sourcePeerId, targetPeerId = request.targetPeerId ?: fetchResponse.targetPeerId)
+        val response = if (fetchResponses.isEmpty()) fetchResponse else fetchResponses.removeFirst()
+        return response.copy(sourcePeerId = request.sourcePeerId, targetPeerId = request.targetPeerId ?: response.targetPeerId)
     }
 
     override suspend fun push(request: ClockEventPushRequest): ClockEventPushResponse {
         pushRequests += request
-        return pushResponse.copy(sourcePeerId = request.targetPeerId, targetPeerId = request.sourcePeerId)
+        return pushResponse.copy(
+            sourcePeerId = request.targetPeerId,
+            targetPeerId = request.sourcePeerId,
+            acceptedCursor = if (acceptRequestCursor) request.events.lastOrNull()?.cursor else pushResponse.acceptedCursor,
+        )
     }
 
     override suspend fun acknowledge(ack: ClockEventTransportAck): ClockEventTransportAckResult {
@@ -273,6 +418,7 @@ private class RecordingClockEventSyncTransport(
 private class InMemoryClockEventStore : ClockEventStore {
     private val events = linkedMapOf<String, StoredClockEvent>()
     private var nextCursor = 1L
+    private var lastSyncedCursor: ClockEventCursor? = null
 
     fun seed(event: ClockEvent) {
         events[event.eventId] = StoredClockEvent(cursor = ClockEventCursor(nextCursor++), event = event)
@@ -298,14 +444,19 @@ private class InMemoryClockEventStore : ClockEventStore {
 
     override suspend fun readSnapshot(): ClockEventStoreSnapshot {
         val lastCursor = events.values.maxByOrNull { it.cursor.value }?.cursor
+        val pendingCount = events.values.count { stored ->
+            lastSyncedCursor == null || stored.cursor.value > lastSyncedCursor!!.value
+        }
         return ClockEventStoreSnapshot(
             lastCursor = lastCursor,
-            lastSyncedCursor = null,
-            pendingSyncCount = events.size,
+            lastSyncedCursor = lastSyncedCursor,
+            pendingSyncCount = pendingCount,
         )
     }
 
-    override suspend fun updateSyncCheckpoint(cursorInclusive: ClockEventCursor) {}
+    override suspend fun updateSyncCheckpoint(cursorInclusive: ClockEventCursor) {
+        lastSyncedCursor = cursorInclusive
+    }
 }
 
 private class InMemoryClockEventSyncQuarantineStore : ClockEventSyncQuarantineStore {
@@ -339,3 +490,23 @@ private fun sampleEvent(eventId: String, cursor: Long, deviceId: String): ClockE
         causalOrder = ClockEventCausalOrder(counter = cursor),
     )
 }
+
+private fun peerRecord(peerId: String, deviceId: String) = PeerTrustRecord(
+    peerId = peerId,
+    deviceId = deviceId,
+    displayName = peerId,
+    publicKeyBase64 = "pk-$peerId",
+    role = PeerTrustRole.Full,
+    registeredAt = Instant.parse("2026-03-10T09:00:00Z"),
+)
+
+private fun emptyFetchResponse() = ClockEventFetchResponse(
+    sourcePeerId = "device-local",
+    targetPeerId = "peer-a",
+    events = emptyList(),
+)
+
+private fun emptyPushResponse() = ClockEventPushResponse(
+    sourcePeerId = "peer-a",
+    targetPeerId = "device-local",
+)

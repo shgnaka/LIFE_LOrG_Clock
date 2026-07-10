@@ -93,7 +93,7 @@ class DesktopEventSyncRuntimeTest {
         val checkpoint = checkpoints.get("peer-a")
         assertNotNull(checkpoint)
         assertEquals(ClockEventCursor(2), checkpoint.lastSeenCursor)
-        assertEquals(ClockEventCursor(1), checkpoint.lastSentCursor)
+        assertEquals(ClockEventCursor(2), checkpoint.lastSentCursor)
         assertEquals(1, transport.fetchRequests.size)
         assertEquals(1, transport.pushRequests.size)
         assertEquals(1, transport.ackRequests.size)

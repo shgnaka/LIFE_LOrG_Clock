@@ -333,6 +333,71 @@ class DefaultClockCommandExecutorTest {
     }
 
     @Test
+    fun hostRuntimeIntegration_modeTransitionsDelegateToCoordinator() = runBlocking {
+        val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to baseFile()))
+        val coordinator = RecordingSyncRuntimeCoordinator()
+        val service = newEnabledService(
+            executor = newExecutor(repo),
+            client = RecordingSyncCoreClient(),
+            runtimeCoordinator = coordinator,
+        )
+
+        service.enableStandardMode()
+        service.enableActiveMode()
+        service.stopRuntime()
+        service.flushNow()
+
+        assertEquals(listOf("standard", "active", "stop", "flush"), coordinator.calls)
+        assertEquals(SyncRuntimeMode.Off, service.snapshot.value.runtimeMode)
+    }
+
+    @Test
+    fun failureIsolation_databaseUnavailableStillAllowsLocalMutation() = runBlocking {
+        val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to baseFile()))
+        val client = RecordingSyncCoreClient().apply {
+            reportErrorMessage = "STORE_UNAVAILABLE: sync DB unavailable"
+        }
+        val service = newEnabledService(newExecutor(repo), client)
+
+        val result = service.executeManualCommand(validCommand())
+
+        assertEquals(ClockResultStatus.Applied, result.status)
+        assertTrue(repo.files["2026-03-01.org"]!!.any { it.startsWith("CLOCK: [") })
+        assertEquals("STORE_UNAVAILABLE: sync DB unavailable", service.snapshot.value.lastError)
+        assertTrue(client.reported.isEmpty())
+    }
+
+    @Test
+    fun syncDisabledRegression_doesNotMutateLocalFileOrStartRuntime() = runBlocking {
+        val initial = baseFile()
+        val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to initial))
+        val client = RecordingSyncCoreClient()
+        val service = SyncIntegrationService(
+            featureFlag = object : SyncIntegrationFeatureFlag {
+                override fun isEnabled(): Boolean = false
+            },
+            syncCoreClient = client,
+            commandExecutor = newExecutor(repo),
+            deviceIdProvider = object : DeviceIdProvider {
+                override fun getOrCreate(): String = "test-device"
+            },
+            runtimePrefs = FakeSyncRuntimePrefs(),
+            peerTrustStore = AlwaysTrustedPeerStore(),
+        )
+
+        val result = service.executeManualCommand(validCommand())
+        service.enableStandardMode()
+        service.enableActiveMode()
+        service.flushNow()
+
+        assertEquals(ClockResultStatus.Rejected, result.status)
+        assertEquals(initial, repo.files["2026-03-01.org"])
+        assertFalse(client.started)
+        assertEquals(0, client.flushCount)
+        assertTrue(client.reported.isEmpty())
+    }
+
+    @Test
     fun syncIntegrationService_reportFailure_updatesSnapshotErrorAndResult() = runBlocking {
         val repo = FakeClockRepository(mutableMapOf("2026-03-01.org" to baseFile()))
         val executor = newExecutor(repo)
@@ -415,6 +480,7 @@ class DefaultClockCommandExecutorTest {
     private fun newEnabledService(
         executor: ClockCommandExecutor,
         client: RecordingSyncCoreClient,
+        runtimeCoordinator: SyncRuntimeCoordinator? = null,
     ): SyncIntegrationService {
         return SyncIntegrationService(
             featureFlag = object : SyncIntegrationFeatureFlag {
@@ -427,6 +493,7 @@ class DefaultClockCommandExecutorTest {
             },
             runtimePrefs = FakeSyncRuntimePrefs(),
             peerTrustStore = AlwaysTrustedPeerStore(),
+            runtimeManager = runtimeCoordinator,
         )
     }
 
@@ -512,6 +579,26 @@ private class RecordingSyncCoreClient : OrgSyncCoreClient {
     override suspend fun observeDeliveryState(): List<SyncDeliveryState> = deliveryStates
 
     override suspend fun metricsSnapshot(): SyncMetricsSnapshot = metrics
+}
+
+private class RecordingSyncRuntimeCoordinator : SyncRuntimeCoordinator {
+    val calls = mutableListOf<String>()
+
+    override suspend fun enableStandardMode() {
+        calls += "standard"
+    }
+
+    override suspend fun enableActiveMode() {
+        calls += "active"
+    }
+
+    override suspend fun stop() {
+        calls += "stop"
+    }
+
+    override suspend fun flushNow() {
+        calls += "flush"
+    }
 }
 
 private class FakeSyncRuntimePrefs : SyncRuntimePrefs {

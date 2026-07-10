@@ -70,6 +70,7 @@ private data class FetchResponseWire(
     val sourcePeerId: String,
     val targetPeerId: String,
     val events: List<StoredEventWire>,
+    val nextCursor: Long? = null,
     val hasMore: Boolean,
 )
 
@@ -131,16 +132,20 @@ private fun FetchRequestWire.toModel() = ClockEventFetchRequest(
 )
 
 private fun ClockEventFetchResponse.toWire() = FetchResponseWire(
-    schema, sourcePeerId, targetPeerId, events.map(StoredClockEvent::toWire), hasMore,
+    schema, sourcePeerId, targetPeerId, events.map(StoredClockEvent::toWire), nextCursor?.value, hasMore,
 )
 
-private fun FetchResponseWire.toModel() = ClockEventFetchResponse(
-    schema = schema,
-    sourcePeerId = sourcePeerId,
-    targetPeerId = targetPeerId,
-    events = events.map(StoredEventWire::toModel),
-    hasMore = hasMore,
-)
+private fun FetchResponseWire.toModel(): ClockEventFetchResponse {
+    val decodedEvents = events.map(StoredEventWire::toModel)
+    return ClockEventFetchResponse(
+        schema = schema,
+        sourcePeerId = sourcePeerId,
+        targetPeerId = targetPeerId,
+        events = decodedEvents,
+        nextCursor = nextCursor?.let(::ClockEventCursor) ?: decodedEvents.lastOrNull()?.cursor,
+        hasMore = hasMore,
+    )
+}
 
 private fun ClockEventPushRequest.toWire() = PushRequestWire(
     schema, sourcePeerId, targetPeerId, events.map(StoredClockEvent::toWire),

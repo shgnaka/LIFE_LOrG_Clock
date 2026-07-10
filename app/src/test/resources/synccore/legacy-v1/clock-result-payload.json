@@ -1,0 +1,7 @@
+{
+  "schema": "clock.result.v1",
+  "command_id": "cmd-fixture-001",
+  "status": "applied",
+  "applied_at": "2026-03-01T12:34:59Z",
+  "by_device_id": "device-b"
+}

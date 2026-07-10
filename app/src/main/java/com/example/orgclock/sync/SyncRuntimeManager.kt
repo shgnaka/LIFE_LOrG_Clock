@@ -6,29 +6,36 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
 
+interface SyncRuntimeCoordinator {
+    suspend fun enableStandardMode()
+    suspend fun enableActiveMode()
+    suspend fun stop()
+    suspend fun flushNow()
+}
+
 class SyncRuntimeManager(
     private val appContext: Context,
     private val runtimeController: SyncRuntimeController,
-) {
-    suspend fun enableStandardMode() {
+) : SyncRuntimeCoordinator {
+    override suspend fun enableStandardMode() {
         runtimeController.enableStandardMode()
         SyncTickerService.stop(appContext)
         schedulePeriodicWork()
     }
 
-    suspend fun enableActiveMode() {
+    override suspend fun enableActiveMode() {
         runtimeController.enableActiveMode()
         cancelPeriodicWork()
         SyncTickerService.start(appContext)
     }
 
-    suspend fun stop() {
+    override suspend fun stop() {
         SyncTickerService.stop(appContext)
         cancelPeriodicWork()
         runtimeController.stop()
     }
 
-    suspend fun flushNow() {
+    override suspend fun flushNow() {
         runtimeController.flushNow()
     }
 

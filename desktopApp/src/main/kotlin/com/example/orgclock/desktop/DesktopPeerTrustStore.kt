@@ -128,6 +128,12 @@ class DesktopPeerTrustStore(
         val deviceId = preferences.get(recordPeerDeviceIdKey(peerId), null)?.takeIf { it.isNotBlank() }
             ?: peerId
         val publicKey = preferences.get(recordPeerPublicKeyKey(peerId), null)?.takeIf { it.isNotBlank() }
+        val signingPublicKey = preferences.get(recordPeerSigningPublicKeyKey(peerId), null)?.takeIf { it.isNotBlank() }
+        val signingAlg = preferences.get(recordPeerSigningAlgKey(peerId), com.example.orgclock.sync.DEFAULT_SYNC_SIGNING_ALG)
+            ?.takeIf { it.isNotBlank() }
+            ?: com.example.orgclock.sync.DEFAULT_SYNC_SIGNING_ALG
+        val transportCredentialRef = preferences.get(recordPeerTransportCredentialRefKey(peerId), null)?.takeIf { it.isNotBlank() }
+        val certificateSha256 = preferences.get(recordPeerCertificateSha256Key(peerId), null)?.takeIf { it.isNotBlank() }
         val registeredAt = preferences.getLong(recordPeerRegisteredAtKey(peerId), MISSING_EPOCH_MILLIS)
         if (publicKey.isNullOrBlank() || registeredAt == MISSING_EPOCH_MILLIS) {
             return null
@@ -150,6 +156,10 @@ class DesktopPeerTrustStore(
             deviceId = deviceId,
             displayName = displayName,
             publicKeyBase64 = publicKey,
+            signingPublicKeyBase64 = signingPublicKey,
+            signingAlg = signingAlg,
+            transportCredentialRef = transportCredentialRef,
+            certificateSha256 = certificateSha256,
             role = role,
             endpoint = endpoint,
             registeredAt = Instant.fromEpochMilliseconds(registeredAt),
@@ -174,6 +184,10 @@ class DesktopPeerTrustStore(
         preferences.put(recordPeerDisplayNameKey(normalized), record.displayName)
         preferences.put(recordPeerDeviceIdKey(normalized), record.deviceId)
         preferences.put(recordPeerPublicKeyKey(normalized), record.publicKeyBase64)
+        putOrRemove(recordPeerSigningPublicKeyKey(normalized), record.signingPublicKeyBase64)
+        preferences.put(recordPeerSigningAlgKey(normalized), record.signingAlg)
+        putOrRemove(recordPeerTransportCredentialRefKey(normalized), record.transportCredentialRef)
+        putOrRemove(recordPeerCertificateSha256Key(normalized), record.certificateSha256)
         preferences.put(recordPeerRoleKey(normalized), record.role.name)
         record.endpoint?.let { preferences.put(recordPeerEndpointKey(normalized), it) }
             ?: preferences.remove(recordPeerEndpointKey(normalized))
@@ -182,6 +196,10 @@ class DesktopPeerTrustStore(
         preferences.putLong(recordPeerRevokedAtKey(normalized), record.revokedAt?.toEpochMilliseconds() ?: MISSING_EPOCH_MILLIS)
         preferences.put(recordPeerActiveTrustKey(normalized), record.isActive.toString())
         preferences.flush()
+    }
+
+    private fun putOrRemove(key: String, value: String?) {
+        if (value.isNullOrBlank()) preferences.remove(key) else preferences.put(key, value)
     }
 
     private fun removeFromTrustedPeerIds(peerId: String) {
@@ -197,6 +215,10 @@ class DesktopPeerTrustStore(
     private fun recordPeerDisplayNameKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_display_name"
     private fun recordPeerDeviceIdKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_device_id"
     private fun recordPeerPublicKeyKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_public_key"
+    private fun recordPeerSigningPublicKeyKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_signing_public_key"
+    private fun recordPeerSigningAlgKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_signing_alg"
+    private fun recordPeerTransportCredentialRefKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_transport_credential_ref"
+    private fun recordPeerCertificateSha256Key(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_certificate_sha256"
     private fun recordPeerRoleKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_role"
     private fun recordPeerEndpointKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_endpoint"
     private fun recordPeerRegisteredAtKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_registered_at"

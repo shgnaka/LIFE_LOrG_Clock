@@ -119,15 +119,31 @@ private fun secureFingerprintEquals(certificate: X509Certificate, expected: Stri
     return MessageDigest.isEqual(actual.encodeToByteArray(), expected.lowercase().encodeToByteArray())
 }
 
+data class SyncPairingExchangeOutcome(
+    val encodedTransportCredential: String,
+    val hostPeerId: String? = null,
+    val hostDeviceId: String? = null,
+    val hostDisplayName: String? = null,
+    val hostSigningPublicKeyBase64: String? = null,
+    val hostSigningAlg: String? = null,
+    val grantedRole: PeerTrustRole? = null,
+    val certificateSha256: String? = null,
+)
+
 suspend fun exchangeDesktopPairingInvitation(
     endpoint: String,
     encodedInvitation: String,
     localDeviceId: String,
-): Result<String> = withContext(Dispatchers.IO) {
+    localSigningPublicKeyBase64: String? = null,
+    requestedRole: PeerTrustRole = PeerTrustRole.Full,
+): Result<SyncPairingExchangeOutcome> = withContext(Dispatchers.IO) {
     runCatching {
-        val invitation = SyncPairingInvitationCodec.decode(encodedInvitation).getOrThrow()
-        require(invitation.expiresAtEpochMs > System.currentTimeMillis()) { "Pairing QR code expired. Refresh it on desktop." }
-        val sslContext = pinnedSslContext(invitation.certificateSha256)
+        val v2Invitation = SyncPairingInvitationV2Codec.decode(encodedInvitation).getOrNull()
+        val v1Invitation = if (v2Invitation == null) SyncPairingInvitationCodec.decode(encodedInvitation).getOrThrow() else null
+        val certificateSha256 = v2Invitation?.certificateSha256 ?: requireNotNull(v1Invitation).certificateSha256
+        val expiresAtEpochMs = v2Invitation?.expiresAtEpochMs ?: requireNotNull(v1Invitation).expiresAtEpochMs
+        require(expiresAtEpochMs > System.currentTimeMillis()) { "Pairing QR code expired. Refresh it on desktop." }
+        val sslContext = pinnedSslContext(certificateSha256)
         val connection = (URI.create(endpoint.trimEnd('/') + "/v1/pair").toURL().openConnection() as HttpsURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 5_000
@@ -135,20 +151,54 @@ suspend fun exchangeDesktopPairingInvitation(
             doOutput = true
             sslSocketFactory = sslContext.socketFactory
             hostnameVerifier = HostnameVerifier { _, session ->
-                runCatching { secureFingerprintEquals(session.peerCertificates.first() as X509Certificate, invitation.certificateSha256) }.getOrDefault(false)
+                runCatching { secureFingerprintEquals(session.peerCertificates.first() as X509Certificate, certificateSha256) }.getOrDefault(false)
             }
             setRequestProperty("Content-Type", "application/json; charset=utf-8")
         }
         try {
-            val body = SyncPairingExchangeJsonCodec.encodeRequest(
-                SyncPairingExchangeRequest(invitation.token, localDeviceId, "Android $localDeviceId"),
-            )
+            val body = if (v2Invitation != null) {
+                val localSigningKey = requireNotNull(localSigningPublicKeyBase64?.takeIf { it.isNotBlank() }) {
+                    "local signing public key is required for pairing v2"
+                }
+                SyncPairingExchangeV2JsonCodec.encodeRequest(
+                    SyncPairingExchangeRequestV2(
+                        invitationToken = v2Invitation.token,
+                        requesterPeerId = localDeviceId,
+                        requesterDeviceId = localDeviceId,
+                        requesterDisplayName = "Android $localDeviceId",
+                        requesterSigningPublicKeyBase64 = localSigningKey,
+                        requesterSigningAlg = DEFAULT_SYNC_SIGNING_ALG,
+                        requestedRole = requestedRole,
+                    ),
+                )
+            } else {
+                SyncPairingExchangeJsonCodec.encodeRequest(
+                    SyncPairingExchangeRequest(requireNotNull(v1Invitation).token, localDeviceId, "Android $localDeviceId"),
+                )
+            }
             connection.outputStream.use { it.write(body.encodeToByteArray()) }
             val status = connection.responseCode
             val response = (if (status in 200..299) connection.inputStream else connection.errorStream)
                 ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
             check(status in 200..299) { "pairing https status=$status: ${response.take(300)}" }
-            SyncPairingExchangeJsonCodec.decodeResponse(response).encodedTransportCredential
+            if (v2Invitation != null) {
+                val decoded = SyncPairingExchangeV2JsonCodec.decodeResponse(response)
+                SyncPairingExchangeOutcome(
+                    encodedTransportCredential = decoded.encodedTransportCredential,
+                    hostPeerId = decoded.hostPeerId,
+                    hostDeviceId = decoded.hostDeviceId,
+                    hostDisplayName = decoded.hostDisplayName,
+                    hostSigningPublicKeyBase64 = decoded.hostSigningPublicKeyBase64,
+                    hostSigningAlg = decoded.hostSigningAlg,
+                    grantedRole = decoded.grantedRole,
+                    certificateSha256 = decoded.certificateSha256,
+                )
+            } else {
+                SyncPairingExchangeOutcome(
+                    encodedTransportCredential = SyncPairingExchangeJsonCodec.decodeResponse(response).encodedTransportCredential,
+                    certificateSha256 = certificateSha256,
+                )
+            }
         } finally {
             connection.disconnect()
         }

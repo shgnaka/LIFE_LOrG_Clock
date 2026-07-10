@@ -271,7 +271,15 @@ fun OrgClockScreen(
                 syncLastError = state.syncLastError,
                 syncViewerPeerCount = state.syncViewerPeerCount,
                 syncViewerProjectionSummary = state.syncViewerProjectionSummary,
-                syncMetricsSummary = "submitted=${state.syncMetrics.commandsSubmittedTotal}, applied=${state.syncMetrics.commandsAppliedTotal}, retries=${state.syncMetrics.retryAttemptsTotal}, depth=${state.syncMetrics.queueDepth}",
+                syncMetricsSummary = buildString {
+                    append("submitted=${state.syncMetrics.commandsSubmittedTotal}, ")
+                    append("applied=${state.syncMetrics.commandsAppliedTotal}, ")
+                    append("retries=${state.syncMetrics.retryAttemptsTotal}, ")
+                    append("depth=${state.syncMetrics.queueDepth}")
+                    if (state.syncMetrics.persistenceErrorTotal > 0) {
+                        append(", persistenceErrors=${state.syncMetrics.persistenceErrorTotal}")
+                    }
+                },
                 syncDeliveryStates = state.syncDeliveryStates.takeLast(3),
                 localClockEventSyncState = state.localClockEventSyncState,
                 divergenceSnapshot = state.divergenceSnapshot,

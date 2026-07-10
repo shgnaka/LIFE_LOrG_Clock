@@ -28,21 +28,26 @@ class DesktopTlsIdentity private constructor(
     companion object {
         private const val KEY_ALIAS = "org-clock-lan-sync"
         private const val STORE_FILE = "lan-sync.p12"
-        private val password = "org-clock-local-sync".toCharArray()
+        private val LEGACY_STORE_PASSWORD = "org-clock-local-sync".toCharArray()
 
         fun loadOrCreate(rootPath: Path): DesktopTlsIdentity {
             ensureProvider()
-            val rootKey = MessageDigest.getInstance("SHA-256")
-                .digest(stableRootKey(rootPath).encodeToByteArray())
-                .joinToString("") { "%02x".format(it) }
-                .take(24)
-            val directory = Path.of(System.getProperty("user.home"), ".orgclock", "tls", rootKey)
+            val password = storePasswordForRoot(rootPath)
+            val directory = storePathForRoot(rootPath).parent
             Files.createDirectories(directory)
             setOwnerOnlyPermissions(directory, isDirectory = true)
             val storePath = directory.resolve(STORE_FILE)
             val keyStore = KeyStore.getInstance("PKCS12")
             if (Files.exists(storePath)) {
-                Files.newInputStream(storePath).use { keyStore.load(it, password) }
+                if (!loadExistingStore(keyStore, storePath, password)) {
+                    if (loadExistingStore(keyStore, storePath, LEGACY_STORE_PASSWORD)) {
+                        Files.newOutputStream(storePath).use { keyStore.store(it, password) }
+                        setOwnerOnlyPermissions(storePath, isDirectory = false)
+                        Files.newInputStream(storePath).use { keyStore.load(it, password) }
+                    } else {
+                        error("Desktop sync-core TLS identity store could not be opened.")
+                    }
+                }
             } else {
                 keyStore.load(null, password)
                 val keyPair = KeyPairGenerator.getInstance("EC").apply { initialize(256) }.generateKeyPair()
@@ -72,6 +77,32 @@ class DesktopTlsIdentity private constructor(
                 init(keyManagers.keyManagers, null, SecureRandom())
             }
             return DesktopTlsIdentity(sslContext, certificate.sha256Hex())
+        }
+
+        internal fun storePathForRoot(rootPath: Path): Path {
+            val rootKey = MessageDigest.getInstance("SHA-256")
+                .digest(stableRootKey(rootPath).encodeToByteArray())
+                .joinToString("") { "%02x".format(it) }
+                .take(24)
+            return Path.of(System.getProperty("user.home"), ".orgclock", "tls", rootKey, STORE_FILE)
+        }
+
+        private fun loadExistingStore(keyStore: KeyStore, storePath: Path, password: CharArray): Boolean =
+            runCatching {
+                Files.newInputStream(storePath).use { keyStore.load(it, password) }
+            }.isSuccess
+
+        private fun storePasswordForRoot(rootPath: Path): CharArray {
+            val material = listOf(
+                "org-clock-desktop-tls-store-v2",
+                stableRootKey(rootPath),
+                System.getProperty("user.name").orEmpty(),
+                System.getProperty("user.home").orEmpty(),
+            ).joinToString("|")
+            return MessageDigest.getInstance("SHA-256")
+                .digest(material.encodeToByteArray())
+                .joinToString("") { "%02x".format(it) }
+                .toCharArray()
         }
 
         private fun ensureProvider() {

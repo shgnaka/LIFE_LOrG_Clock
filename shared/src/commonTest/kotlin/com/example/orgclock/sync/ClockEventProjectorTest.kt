@@ -80,6 +80,37 @@ class ClockEventProjectorTest {
         assertEquals(listOf(ClockProjectionIssueCode.StopBeforeStart), projection.issues.map { it.code })
     }
 
+    @Test
+    fun `projection is independent from local arrival cursor order`() {
+        val started = storedEvent(
+            cursor = 20,
+            eventId = "evt-start",
+            type = ClockEventType.Started,
+            createdAt = "2026-03-18T09:00:00Z",
+            causalCounter = 1,
+        )
+        val stopped = storedEvent(
+            cursor = 10,
+            eventId = "evt-stop",
+            type = ClockEventType.Stopped,
+            createdAt = "2026-03-18T10:00:00Z",
+            causalCounter = 2,
+        )
+
+        val forward = projector.project(listOf(started, stopped))
+        val reversedArrival = projector.project(
+            listOf(
+                started.copy(cursor = ClockEventCursor(1)),
+                stopped.copy(cursor = ClockEventCursor(2)),
+            ).reversed(),
+        )
+
+        assertEquals(forward.activeClocks, reversedArrival.activeClocks)
+        assertEquals(forward.historyEntries, reversedArrival.historyEntries)
+        assertEquals(forward.issues.map { it.code }, reversedArrival.issues.map { it.code })
+        assertEquals(60, forward.historyEntries.single().durationMinutes)
+    }
+
     private fun storedEvent(
         cursor: Long,
         eventId: String,
@@ -88,17 +119,19 @@ class ClockEventProjectorTest {
         logicalDay: String = "2026-03-18",
         fileName: String = "2026-03-18.org",
         headingPath: String = "Work/Project A",
+        causalCounter: Long = cursor,
+        deviceId: String = "device-a",
     ): StoredClockEvent = StoredClockEvent(
         cursor = ClockEventCursor(cursor),
         event = ClockEvent(
             eventId = eventId,
             eventType = type,
-            deviceId = "device-a",
+            deviceId = deviceId,
             createdAt = Instant.parse(createdAt),
             logicalDay = LocalDate.parse(logicalDay),
             fileName = fileName,
             headingPath = HeadingPath.parse(headingPath),
-            causalOrder = ClockEventCausalOrder(counter = cursor),
+            causalOrder = ClockEventCausalOrder(counter = causalCounter),
         ),
     )
 }

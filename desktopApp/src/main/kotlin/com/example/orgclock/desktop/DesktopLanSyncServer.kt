@@ -10,6 +10,7 @@ import com.example.orgclock.sync.PeerTrustRecord
 import com.example.orgclock.sync.RemoteClockEventApplier
 import com.example.orgclock.sync.SyncPairingExchangeJsonCodec
 import com.example.orgclock.sync.SyncPairingExchangeResponse
+import com.example.orgclock.sync.SyncPairingExchangeV2JsonCodec
 import com.example.orgclock.sync.SyncTransportCredentialCodec
 import com.example.orgclock.template.SharedTemplateStore
 import com.example.orgclock.template.TemplateFetchResponse
@@ -17,6 +18,7 @@ import com.example.orgclock.template.TemplateSharingJsonCodec
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpsConfigurator
 import com.sun.net.httpserver.HttpsServer
+import java.io.ByteArrayOutputStream
 import java.net.InetSocketAddress
 import java.security.MessageDigest
 import java.util.concurrent.Executors
@@ -32,9 +34,19 @@ open class DesktopLanSyncServer(
     private val pairingManager: DesktopPairingManager,
     private val remoteEventApplier: RemoteClockEventApplier,
     private val templateStore: () -> SharedTemplateStore?,
+    private val transportCredentialStore: () -> DesktopSyncCoreTransportCredentialStore? = { null },
+    private val localDisplayName: () -> String = { "Org Clock Desktop" },
+    private val localSigningPublicKeyBase64: () -> String? = { null },
+    private var syncCoreIngressReceiver: DesktopSyncCoreIngressReceiver? = null,
+    private val syncCoreIngressMaxBodyBytes: Int = 128 * 1024,
+    private val syncCoreIngressHttpMapper: DesktopSyncCoreIngressHttpMapper = DesktopSyncCoreIngressHttpMapper(),
 ) : AutoCloseable {
     private var server: HttpsServer? = null
     private var executor: ExecutorService? = null
+
+    open fun setSyncCoreIngressReceiver(receiver: DesktopSyncCoreIngressReceiver?) {
+        syncCoreIngressReceiver = receiver
+    }
 
     open fun start() {
         if (server != null) return
@@ -48,14 +60,38 @@ open class DesktopLanSyncServer(
                 if (exchange.requestMethod != "GET") exchange.respond(405, "method not allowed")
                 else exchange.respond(200, "ok", "text/plain; charset=utf-8")
             }
+            createContext("/v1/messages") { exchange -> handleSyncCoreIngress(exchange) }
             createContext("/v1/pair") { exchange -> handlePost(exchange) { body ->
-                val request = SyncPairingExchangeJsonCodec.decodeRequest(body)
-                val credential = pairingManager.exchange(
-                    request,
-                    trustStore() ?: error("org root is not open"),
-                    tlsIdentity().certificateSha256,
-                )
-                SyncPairingExchangeJsonCodec.encodeResponse(SyncPairingExchangeResponse(credential))
+                val v2Request = runCatching { SyncPairingExchangeV2JsonCodec.decodeRequest(body) }.getOrNull()
+                if (v2Request != null) {
+                    val identity = tlsIdentity()
+                    val hostDeviceId = localDeviceId()
+                    val hostSigningKey = localSigningPublicKeyBase64()
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: error("local signing public key is not configured")
+                    SyncPairingExchangeV2JsonCodec.encodeResponse(
+                        pairingManager.exchangeV2(
+                            request = v2Request,
+                            trustStore = trustStore() ?: error("org root is not open"),
+                            certificateSha256 = identity.certificateSha256,
+                            hostPeerId = hostDeviceId,
+                            hostDeviceId = hostDeviceId,
+                            hostDisplayName = localDisplayName(),
+                            hostSigningPublicKeyBase64 = hostSigningKey,
+                            transportCredentialStore = transportCredentialStore(),
+                        ),
+                    )
+                } else {
+                    val request = SyncPairingExchangeJsonCodec.decodeRequest(body)
+                    val credential = pairingManager.exchange(
+                        request,
+                        trustStore() ?: error("org root is not open"),
+                        tlsIdentity().certificateSha256,
+                        transportCredentialStore(),
+                    )
+                    SyncPairingExchangeJsonCodec.encodeResponse(SyncPairingExchangeResponse(credential))
+                }
             } }
             createContext("/v1/events/fetch") { exchange -> handleAuthorized(exchange) { body, peer ->
                 val request = ClockEventTransportJsonCodec.decodeFetchRequest(body)
@@ -64,13 +100,20 @@ open class DesktopLanSyncServer(
                 val scanned = runBlocking {
                     (eventStore() ?: error("org root is not open")).listSince(request.sinceCursor, request.batchLimit * 4)
                 }
-                val events = scanned.filter { it.event.deviceId == localDeviceId() }.take(request.batchLimit)
+                val matching = scanned.filter { it.event.deviceId == localDeviceId() }
+                val events = matching.take(request.batchLimit)
+                val nextCursor = when {
+                    events.isEmpty() -> scanned.lastOrNull()?.cursor
+                    matching.size > request.batchLimit -> events.last().cursor
+                    else -> scanned.lastOrNull()?.cursor
+                }
                 ClockEventTransportJsonCodec.encodeFetchResponse(
                     ClockEventFetchResponse(
                         sourcePeerId = localDeviceId(),
                         targetPeerId = request.sourcePeerId,
                         events = events,
-                        hasMore = scanned.size == request.batchLimit * 4 || events.size == request.batchLimit,
+                        nextCursor = nextCursor,
+                        hasMore = matching.size > request.batchLimit || scanned.size == request.batchLimit * 4,
                     ),
                 )
             } }
@@ -142,6 +185,27 @@ open class DesktopLanSyncServer(
         executor = null
     }
 
+    private fun handleSyncCoreIngress(exchange: HttpExchange) {
+        if (exchange.requestMethod != "POST") return exchange.respond(405, "method not allowed", "text/plain; charset=utf-8")
+        val receiver = syncCoreIngressReceiver ?: return exchange.respond(404, "not found", "text/plain; charset=utf-8")
+        val contentLength = exchange.requestHeaders.getFirst("Content-Length")?.toIntOrNull()
+        if (contentLength != null && contentLength > syncCoreIngressMaxBodyBytes) {
+            return exchange.respond(syncCoreIngressHttpMapper.payloadTooLarge())
+        }
+        val body = runCatching { exchange.readRequestBodyUtf8(syncCoreIngressMaxBodyBytes) }
+            .getOrElse { return exchange.respond(syncCoreIngressHttpMapper.invalidRequestBody()) }
+            ?: return exchange.respond(syncCoreIngressHttpMapper.payloadTooLarge())
+        val sourceKey = exchange.remoteAddress?.address?.hostAddress
+            ?: exchange.remoteAddress?.hostString
+            ?: "unknown"
+        val response = runCatching {
+            runBlocking { receiver.receive(body, sourceKey) }
+        }.fold(
+            onSuccess = syncCoreIngressHttpMapper::responseFor,
+            onFailure = { syncCoreIngressHttpMapper.serverUnavailable() },
+        )
+        exchange.respond(response)
+    }
     private fun handlePost(exchange: HttpExchange, handler: (String) -> String) {
         if (exchange.requestMethod != "POST") return exchange.respond(405, "method not allowed")
         runCatching { handler(exchange.requestBody.bufferedReader(Charsets.UTF_8).use { it.readText() }) }
@@ -158,10 +222,27 @@ open class DesktopLanSyncServer(
             .onSuccess { exchange.respond(200, it) }.onFailure { exchange.respond(400, it.message ?: "invalid sync request") }
     }
 
+    private fun HttpExchange.readRequestBodyUtf8(maxBytes: Int): String? {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8 * 1024)
+        var total = 0
+        while (true) {
+            val read = requestBody.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > maxBytes) return null
+            output.write(buffer, 0, read)
+        }
+        return output.toByteArray().decodeToString()
+    }
+
+    private fun HttpExchange.respond(response: DesktopSyncCoreHttpResponse) {
+        respond(response.status, response.body, headers = response.headers)
+    }
     private fun requireSource(peer: PeerTrustRecord, sourcePeerId: String) = require(sourcePeerId == peer.deviceId) { "source peer mismatch" }
     private fun requireTarget(targetPeerId: String?) = require(targetPeerId == localDeviceId()) { "target peer mismatch" }
     private fun secureEquals(left: String, right: String) = MessageDigest.isEqual(left.encodeToByteArray(), right.encodeToByteArray())
-    private fun HttpExchange.respond(status: Int, body: String, type: String = "application/json; charset=utf-8") {
-        val bytes = body.encodeToByteArray(); responseHeaders.set("Content-Type", type); sendResponseHeaders(status, bytes.size.toLong()); responseBody.use { it.write(bytes) }
+    private fun HttpExchange.respond(status: Int, body: String, type: String = "application/json; charset=utf-8", headers: Map<String, String> = emptyMap()) {
+        val bytes = body.encodeToByteArray(); responseHeaders.set("Content-Type", type); headers.forEach { (name, value) -> responseHeaders.set(name, value) }; sendResponseHeaders(status, bytes.size.toLong()); responseBody.use { it.write(bytes) }
     }
 }

@@ -27,6 +27,7 @@ internal data class IncomingCommandPayloadContext(
 internal class IncomingCommandValidationEngine(
     private val allowedSkewSeconds: Long,
     private val replayRegistry: ReplayRegistryPort,
+    private val legacyDebugIncomingCommandEnabled: Boolean = false,
     private val json: Json = Json { ignoreUnknownKeys = true },
 ) {
     suspend fun extractClockCommandPayload(
@@ -35,13 +36,18 @@ internal class IncomingCommandValidationEngine(
         incomingEnvelopeVerifier: IncomingEnvelopeVerifierPort,
     ): Result<VerifiedIncomingCommand> {
         val commandContext = when (uri) {
-            PATH_INCOMING_COMMAND -> IncomingCommandPayloadContext(
-                payloadJson = body,
-                verifiedPeerId = null,
-                signatureKeyId = null,
-                expectedSenderDeviceId = null,
-                verificationMethod = "legacy-debug+schema+sender+timestamp",
-            )
+            PATH_INCOMING_COMMAND -> {
+                if (!legacyDebugIncomingCommandEnabled) {
+                    return Result.failure(IllegalArgumentException("Unsupported endpoint: $uri"))
+                }
+                IncomingCommandPayloadContext(
+                    payloadJson = body,
+                    verifiedPeerId = null,
+                    signatureKeyId = null,
+                    expectedSenderDeviceId = null,
+                    verificationMethod = "legacy-debug+schema+sender+timestamp",
+                )
+            }
             PATH_MESSAGES -> incomingEnvelopeVerifier.verifyCommandEnvelope(body)
                 .getOrElse { return Result.failure(it) }
             else -> return Result.failure(IllegalArgumentException("Unsupported endpoint: $uri"))

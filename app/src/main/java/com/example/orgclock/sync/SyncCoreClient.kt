@@ -40,6 +40,7 @@ interface OrgSyncCoreClient {
     suspend fun reportResult(result: ClockResultPayload)
     suspend fun observeDeliveryState(): List<SyncDeliveryState>
     suspend fun metricsSnapshot(): SyncMetricsSnapshot
+    suspend fun revokePeer(peerId: String) {}
 }
 
 class NoOpOrgSyncCoreClient : OrgSyncCoreClient {

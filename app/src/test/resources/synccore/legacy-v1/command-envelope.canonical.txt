@@ -1,0 +1,7 @@
+1
+COMMAND
+envelope-fixture-001
+device-a
+1772368496000
+nonce-fixture-001
+{"schema":"clock.command.v1","command_id":"cmd-fixture-001","kind":"clock.start","target":{"file_name":"2026-03-01.org","heading_path":"Work/Project A"},"requested_at":"2026-03-01T12:34:56Z","from_device_id":"device-a","request_id":"request-fixture-001","peer_id":"peer-a","signature_key_id":"key-a"}

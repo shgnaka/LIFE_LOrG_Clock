@@ -9,16 +9,23 @@ val ciKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
 val ciKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
 val ciKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
 val ciKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
-val syncCoreEnabled = (
-    providers.gradleProperty("synccore.dir").orNull
-        ?: System.getenv("SYNC_CORE_DIR")
-    )
-    ?.trim()
-    ?.isNotEmpty() == true
 val syncIntegrationEnabled = providers.gradleProperty("synccore.integration.enabled")
     .orNull
     ?.toBooleanStrictOrNull()
     ?: false
+val androidTestOrchestratorEnabled = providers.gradleProperty("orgclock.androidTestOrchestrator")
+    .orNull
+    ?.toBooleanStrictOrNull()
+    ?: true
+val debugApplicationIdSuffix = providers.gradleProperty("orgclock.debugApplicationIdSuffix")
+    .orNull
+    ?.trim()
+    ?.takeIf { it.isNotBlank() }
+    ?.also { suffix ->
+        require(suffix.startsWith(".") && suffix.drop(1).matches(Regex("[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*"))) {
+            "orgclock.debugApplicationIdSuffix must be a valid package suffix, for example .synccoretest"
+        }
+    }
 
 android {
     namespace = "com.example.orgclock"
@@ -30,7 +37,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-        buildConfigField("boolean", "SYNC_CORE_INCLUDED", syncCoreEnabled.toString())
+        buildConfigField("boolean", "SYNC_CORE_INCLUDED", "true")
         buildConfigField("boolean", "SYNC_INTEGRATION_ENABLED", syncIntegrationEnabled.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -53,6 +60,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            debugApplicationIdSuffix?.let { applicationIdSuffix = it }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(
@@ -74,7 +84,9 @@ android {
         buildConfig = true
     }
     testOptions {
-        execution = "ANDROIDX_TEST_ORCHESTRATOR"
+        if (androidTestOrchestratorEnabled) {
+            execution = "ANDROIDX_TEST_ORCHESTRATOR"
+        }
     }
 }
 
@@ -82,6 +94,7 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2025.01.00")
 
     implementation(project(":shared"))
+    implementation(project(":sync-core"))
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
@@ -94,7 +107,9 @@ dependencies {
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
-    androidTestUtil("androidx.test:orchestrator:1.6.1")
+    if (androidTestOrchestratorEnabled) {
+        androidTestUtil("androidx.test:orchestrator:1.6.1")
+    }
 
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
@@ -110,11 +125,6 @@ dependencies {
     implementation("androidx.room:room-ktx:2.6.1")
     ksp("androidx.room:room-compiler:2.6.1")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
-    if (syncCoreEnabled) {
-        implementation("io.github.shgnaka.synccore:sync-core-api:0.1.0-SNAPSHOT")
-        implementation("io.github.shgnaka.synccore:sync-core-engine:0.1.0-SNAPSHOT")
-        implementation("io.github.shgnaka.synccore:sync-core-android:0.1.0-SNAPSHOT")
-    }
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlin:kotlin-test:2.0.21")
@@ -123,8 +133,4 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
-}
-
-if (syncCoreEnabled) {
-    android.sourceSets.getByName("main").java.srcDir("src/synccore/java")
 }

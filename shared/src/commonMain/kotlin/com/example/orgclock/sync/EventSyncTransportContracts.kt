@@ -34,17 +34,20 @@ data class ClockEventFetchResponse(
         require(events.zipWithNext().all { (left, right) -> left.cursor.value < right.cursor.value }) {
             "Fetch response events must be sorted by cursor."
         }
-        if (events.isEmpty()) {
-            require(nextCursor == null) { "nextCursor must be null when no events are included." }
-        } else {
-            require(nextCursor == events.last().cursor) { "nextCursor must point at the last event cursor." }
+        if (events.isNotEmpty()) {
+            require(nextCursor != null && nextCursor.value >= events.last().cursor.value) {
+                "nextCursor must include the last event cursor."
+            }
+        }
+        if (hasMore) {
+            require(nextCursor != null) { "nextCursor is required when hasMore is true." }
         }
     }
 
     val lastSeenCursor: ClockEventCursor?
         get() = events.lastOrNull()?.cursor
 
-    fun nextFetchCursor(): ClockEventCursor? = lastSeenCursor?.next()
+    fun nextFetchCursor(): ClockEventCursor? = nextCursor
 }
 
 data class ClockEventPushRequest(
@@ -93,5 +96,3 @@ data class ClockEventTransportAck(
         require(targetPeerId.isNotBlank()) { "Target peer ID cannot be blank." }
     }
 }
-
-fun ClockEventCursor.next(): ClockEventCursor = ClockEventCursor(value + 1)

@@ -1,6 +1,10 @@
 package com.example.orgclock.sync
 
 import kotlinx.datetime.Instant
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 const val CLOCK_COMMAND_SCHEMA_V1 = "clock.command.v1"
 const val CLOCK_RESULT_SCHEMA_V1 = "clock.result.v1"
@@ -60,4 +64,17 @@ data class ClockResultPayload(
     val errorMessage: String? = null,
     val appliedAt: Instant,
     val byDeviceId: String,
+)
+
+fun ClockResultPayload.toResultPayloadJson(json: Json = Json): String = json.encodeToString(
+    JsonObject.serializer(),
+    buildJsonObject {
+        put("schema", schema)
+        put("command_id", commandId)
+        put("status", status.wireValue)
+        errorCode?.let { put("error_code", it.name) }
+        errorMessage?.let { put("error_message", it) }
+        put("applied_at", appliedAt.toString())
+        put("by_device_id", byDeviceId)
+    },
 )

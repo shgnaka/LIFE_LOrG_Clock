@@ -63,6 +63,27 @@ class DesktopAppGraph(
             pairingManager = pairingManager,
             remoteEventApplier = applier,
             templateStore = { templateStore },
+            transportCredentialStore = { DesktopEncryptedSyncCoreTransportCredentialStore(root) },
+            localDisplayName = { syncIdentity.displayName() },
+            localSigningPublicKeyBase64 = { runCatching { syncIdentity.signingPublicKeyBase64(root) }.getOrNull() },
+        )
+    },
+    private val syncCoreRuntimeFactory: (
+        Path,
+        DesktopPeerTrustStore,
+        ClockRepository,
+        ClockService,
+        CoroutineScope?,
+    ) -> DesktopSyncCoreRuntime = { root, trustStore, repository, clockService, scope ->
+        DesktopSyncCoreRuntimeFactory.create(
+            rootPath = root,
+            peerTrustStore = trustStore,
+            repository = repository,
+            clockService = clockService,
+            clockEnvironment = clockEnvironment,
+            localDeviceId = { syncIdentity.deviceId(root) },
+            scope = scope,
+            syncIdentity = syncIdentity,
         )
     },
     private val watchRootChanges: Boolean = true,
@@ -80,6 +101,7 @@ class DesktopAppGraph(
     private var rootWatcher: DesktopRootWatcher? = null
     private var scope: CoroutineScope? = null
     private var lanSyncServer: DesktopLanSyncServer? = null
+    private var desktopSyncCoreRuntime: DesktopSyncCoreRuntime? = null
     private val externalChangeFlow = MutableStateFlow<ExternalChangeNotice?>(null)
     private val clockEventSyncSnapshotFlow = MutableStateFlow(ClockEventStoreSnapshot(null, null, 0))
     private val desktopEventSyncRuntimeInstance: DesktopEventSyncRuntime by lazy {
@@ -206,8 +228,28 @@ class DesktopAppGraph(
     fun currentRootReference(): RootReference? = currentRootPath?.let { RootReference(it.toString()) }
 
     fun currentSyncPairingCode(): String? = currentRootPath?.let { root ->
+        val endpoint = syncIdentity.pairingEndpoint() ?: return@let null
         val tls = syncIdentity.tlsIdentity(root)
-        syncIdentity.pairingCode(root, pairingManager.currentInvitation(tls.certificateSha256))
+        val peerId = syncIdentity.deviceId(root)
+        val displayName = syncIdentity.displayName()
+        val signingPublicKey = runCatching { syncIdentity.signingPublicKeyBase64(root) }.getOrNull()
+            ?: return@let syncIdentity.pairingCode(root, pairingManager.currentInvitation(tls.certificateSha256))
+        syncIdentity.pairingCode(
+            root,
+            pairingManager.currentInvitationV2(
+                certificateSha256 = tls.certificateSha256,
+                endpoint = endpoint,
+                hostPeerId = peerId,
+                hostDeviceId = peerId,
+                hostDisplayName = displayName,
+                hostSigningPublicKeyBase64 = signingPublicKey,
+                capabilities = if (desktopSyncCoreRuntime != null) {
+                    listOf("sync-core.envelope.v1", "clock.command.v1")
+                } else {
+                    emptyList()
+                },
+            ),
+        )
     }
 
     suspend fun syncTemplateNow(): Result<TemplateSyncOutcome> = runCatching {
@@ -228,6 +270,8 @@ class DesktopAppGraph(
     fun close() {
         lanSyncServer?.close()
         lanSyncServer = null
+        desktopSyncCoreRuntime?.close()
+        desktopSyncCoreRuntime = null
         rootWatcher?.stop()
         desktopEventSyncRuntimeInstance.stop()
     }
@@ -274,6 +318,8 @@ class DesktopAppGraph(
         )
         desktopEventSyncRuntimeInstance.cancelPendingSync()
         lanSyncServer?.close()
+        desktopSyncCoreRuntime?.close()
+        desktopSyncCoreRuntime = null
         rootWatcher?.stop()
         currentRootPath = normalized
         this.repository = repository
@@ -285,14 +331,30 @@ class DesktopAppGraph(
         this.clockService = clockService
         this.remoteClockEventApplier = remoteClockEventApplier
         this.openClockScanner = DesktopOpenClockScanner(repository)
-        lanSyncServer = if (watchRootChanges) {
+        var syncCoreRuntime = if (watchRootChanges) {
             runCatching {
-                lanSyncServerFactory(normalized, eventStore, trustStore, templateStore, remoteClockEventApplier)
+                syncCoreRuntimeFactory(normalized, trustStore, repository, clockService, scope)
                     .also { it.start() }
             }.getOrNull()
         } else {
             null
         }
+        val startedLanSyncServer = if (watchRootChanges) {
+            runCatching {
+                lanSyncServerFactory(normalized, eventStore, trustStore, templateStore, remoteClockEventApplier)
+                    .also { server ->
+                        server.setSyncCoreIngressReceiver(syncCoreRuntime)
+                        server.start()
+                    }
+            }.onFailure {
+                syncCoreRuntime?.close()
+                syncCoreRuntime = null
+            }.getOrNull()
+        } else {
+            null
+        }
+        lanSyncServer = startedLanSyncServer
+        desktopSyncCoreRuntime = if (startedLanSyncServer != null) syncCoreRuntime else null
         rootWatcher = scope?.takeIf { watchRootChanges }?.let { scope ->
             runCatching {
                 DesktopRootWatcher(

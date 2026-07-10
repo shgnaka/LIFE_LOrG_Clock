@@ -19,7 +19,7 @@ interface SyncRuntimePrefs {
     companion object {
         const val DEFAULT_INBOUND_CLOCK_SKEW_SECONDS = 300L
         const val DEFAULT_INBOUND_MAX_REQUESTS_PER_MINUTE = 120
-        const val DEFAULT_RESULT_SIGNING_KEY_ALIAS = "orgclock_result_signing_ed25519_v1"
+        const val DEFAULT_RESULT_SIGNING_KEY_ALIAS = "orgclock_result_signing_es256_v1"
     }
 }
 
