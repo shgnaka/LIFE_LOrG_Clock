@@ -32,25 +32,22 @@ class EventSyncTransportContractsTest {
         )
 
         assertEquals(ClockEventCursor(2), response.lastSeenCursor)
-        assertEquals(ClockEventCursor(3), response.nextFetchCursor())
+        assertEquals(ClockEventCursor(2), response.nextFetchCursor())
     }
 
     @Test
-    fun cursorNextAdvancesByOne() {
-        assertEquals(ClockEventCursor(11), ClockEventCursor(10).next())
-    }
-
-    @Test
-    fun emptyFetchResponseRequiresNullNextCursor() {
+    fun emptyFetchResponseCanAdvanceScanCursor() {
         val response = ClockEventFetchResponse(
             sourcePeerId = "peer-a",
             targetPeerId = "peer-b",
             events = emptyList(),
+            nextCursor = ClockEventCursor(8),
+            hasMore = true,
         )
 
         assertNull(response.lastSeenCursor)
-        assertNull(response.nextFetchCursor())
-        assertNull(response.nextCursor)
+        assertEquals(ClockEventCursor(8), response.nextFetchCursor())
+        assertEquals(ClockEventCursor(8), response.nextCursor)
     }
 
     @Test

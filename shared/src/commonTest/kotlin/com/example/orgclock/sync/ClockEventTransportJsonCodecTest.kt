@@ -30,6 +30,37 @@ class ClockEventTransportJsonCodecTest {
     }
 
     @Test
+    fun fetchResponsePreservesEmptyPageProgressCursor() {
+        val response = ClockEventFetchResponse(
+            sourcePeerId = "desktop",
+            targetPeerId = "phone",
+            events = emptyList(),
+            nextCursor = ClockEventCursor(12),
+            hasMore = true,
+        )
+
+        assertEquals(
+            response,
+            ClockEventTransportJsonCodec.decodeFetchResponse(
+                ClockEventTransportJsonCodec.encodeFetchResponse(response),
+            ),
+        )
+    }
+
+    @Test
+    fun legacyFetchResponseWithoutNextCursorFallsBackToLastEvent() {
+        val response = ClockEventFetchResponse(
+            sourcePeerId = "desktop",
+            targetPeerId = "phone",
+            events = listOf(stored),
+        )
+        val legacyJson = ClockEventTransportJsonCodec.encodeFetchResponse(response)
+            .replace("\"nextCursor\":4,", "")
+
+        assertEquals(response, ClockEventTransportJsonCodec.decodeFetchResponse(legacyJson))
+    }
+
+    @Test
     fun pushAndAckPayloadsRoundTrip() {
         val push = ClockEventPushRequest(sourcePeerId = "phone", targetPeerId = "desktop", events = listOf(stored))
         val response = ClockEventPushResponse("clock.event.transport.v1", "desktop", "phone", ClockEventCursor(4), listOf("d"), emptyList(), null)

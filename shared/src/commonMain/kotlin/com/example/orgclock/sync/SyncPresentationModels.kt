@@ -63,6 +63,7 @@ data class SyncMetricsSnapshot(
     val commandsAppliedTotal: Long = 0L,
     val retryAttemptsTotal: Long = 0L,
     val queueDepth: Long = 0L,
+    val persistenceErrorTotal: Long = 0L,
 )
 
 enum class SyncRuntimeMode {

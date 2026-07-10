@@ -41,7 +41,10 @@ class ClockEventProjector {
         val historyEntries = mutableListOf<ProjectedClockHistoryEntry>()
         val issues = mutableListOf<ClockProjectionIssue>()
 
-        for (storedEvent in events.sortedBy { it.cursor.value }) {
+        val deterministicOrder = compareBy<StoredClockEvent> { it.event.causalOrder.counter }
+            .thenBy { it.event.deviceId }
+            .thenBy { it.event.eventId }
+        for (storedEvent in events.sortedWith(deterministicOrder)) {
             val event = storedEvent.event
             val key = ClockProjectionKey(
                 logicalDay = event.logicalDay,

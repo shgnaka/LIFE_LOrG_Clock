@@ -7,11 +7,18 @@ enum class PeerTrustRole {
     Viewer,
 }
 
+const val DEFAULT_SYNC_SIGNING_ALG: String = "ES256"
+const val OPTIONAL_SYNC_SIGNING_ALG_ED25519: String = "Ed25519"
+
 data class PeerRegistrationRequest(
     val peerId: String,
     val deviceId: String,
     val displayName: String,
     val publicKeyBase64: String,
+    val signingPublicKeyBase64: String? = null,
+    val signingAlg: String = DEFAULT_SYNC_SIGNING_ALG,
+    val transportCredentialRef: String? = null,
+    val certificateSha256: String? = null,
     val role: PeerTrustRole = PeerTrustRole.Full,
     val endpoint: String? = null,
     val requestedAt: Instant,
@@ -21,6 +28,7 @@ data class PeerRegistrationRequest(
         require(deviceId.isNotBlank()) { "Device ID cannot be blank." }
         require(displayName.isNotBlank()) { "Display name cannot be blank." }
         require(publicKeyBase64.isNotBlank()) { "Public key cannot be blank." }
+        require(signingAlg.isNotBlank()) { "Signing algorithm cannot be blank." }
     }
 }
 
@@ -41,6 +49,10 @@ data class PeerTrustRecord(
     val deviceId: String,
     val displayName: String,
     val publicKeyBase64: String,
+    val signingPublicKeyBase64: String? = null,
+    val signingAlg: String = DEFAULT_SYNC_SIGNING_ALG,
+    val transportCredentialRef: String? = null,
+    val certificateSha256: String? = null,
     val role: PeerTrustRole = PeerTrustRole.Full,
     val endpoint: String? = null,
     val registeredAt: Instant,
@@ -53,6 +65,7 @@ data class PeerTrustRecord(
         require(deviceId.isNotBlank()) { "Device ID cannot be blank." }
         require(displayName.isNotBlank()) { "Display name cannot be blank." }
         require(publicKeyBase64.isNotBlank()) { "Public key cannot be blank." }
+        require(signingAlg.isNotBlank()) { "Signing algorithm cannot be blank." }
     }
 
     val isRevoked: Boolean
@@ -74,6 +87,10 @@ fun PeerRegistrationRequest.toPeerTrustRecord(): PeerTrustRecord {
         deviceId = deviceId,
         displayName = displayName,
         publicKeyBase64 = publicKeyBase64,
+        signingPublicKeyBase64 = signingPublicKeyBase64,
+        signingAlg = signingAlg,
+        transportCredentialRef = transportCredentialRef,
+        certificateSha256 = certificateSha256,
         role = role,
         endpoint = endpoint,
         registeredAt = requestedAt,
