@@ -37,20 +37,32 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}"
-          SEMVER='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
+          SEMVER='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
           [[ "$TAG" =~ $SEMVER ]] || {
-            echo "::error::Release tag must be SemVer (for example v1.2.3 or v1.2.3-rc.1)"
+            echo "::error::Release tag must be vMAJOR.MINOR.PATCH (for example v1.2.3)"
             exit 1
           }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-          [[ "$TAG" == *-* ]] && IS_PRERELEASE=true || IS_PRERELEASE=false
-          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Checkout release tag
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.release.outputs.tag }}
+
+      - name: Verify tag matches the product version
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED_VERSION=$(sed -n 's/^orgclock\.version=//p' gradle.properties)
+          test -n "$EXPECTED_VERSION" || {
+            echo "::error::orgclock.version is missing from gradle.properties"
+            exit 1
+          }
+          test "$EXPECTED_VERSION" = "${{ steps.release.outputs.version }}" || {
+            echo "::error::Tag version ${{ steps.release.outputs.version }} does not match gradle.properties ($EXPECTED_VERSION)"
+            exit 1
+          }
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -64,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x ./gradlew
-          ./gradlew --stacktrace packageDesktopCurrentOs -Pdesktop.version="${{ steps.release.outputs.version }}"
+          ./gradlew --stacktrace packageDesktopCurrentOs
 
       - name: Smoke test Windows installed runtime
         if: runner.os == 'Windows'
@@ -114,8 +126,6 @@ jobs:
           set -euo pipefail
           TAG="${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          [[ "$TAG" == *-* ]] && IS_PRERELEASE=true || IS_PRERELEASE=false
-          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
       - name: Download installers
         uses: actions/download-artifact@v4
@@ -129,6 +139,6 @@ jobs:
         with:
           tag_name: ${{ steps.release.outputs.tag }}
           generate_release_notes: true
-          prerelease: ${{ steps.release.outputs.is_prerelease }}
+          prerelease: false
           files: release-assets/*
           fail_on_unmatched_files: true

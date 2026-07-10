@@ -5,13 +5,14 @@ releases.
 
 ## Product version
 
-The canonical release version is the Git tag:
+The canonical product version is `orgclock.version` in `gradle.properties`.
+Release tags add the `v` prefix:
 
 ```text
 vMAJOR.MINOR.PATCH
 ```
 
-For example, tag `v1.4.2` represents product version `1.4.2`. Android, iOS, and
+For example, property value `1.4.2` is released as tag `v1.4.2`. Android, iOS, and
 desktop builds released from the same commit use the same product version.
 
 - `MAJOR`: incompatible changes to user data, sync/network compatibility, or
@@ -34,47 +35,25 @@ Versions below `1.0.0` indicate that compatibility is not yet guaranteed.
 The first release that promises stable user-data and sync compatibility is
 `1.0.0`.
 
-## Pre-releases
+## Release versions
 
-Unstable release candidates use SemVer pre-release identifiers:
-
-```text
-v1.3.0-alpha.1
-v1.3.0-beta.1
-v1.3.0-rc.1
-```
-
-Increment the numeric suffix for each candidate. A stable release removes the
-suffix. Build metadata such as `+sha.abc1234` may identify local or CI builds,
-but it does not change release precedence and should not be used for public
-release tags.
-
-Pushing a pre-release tag runs the `Release Desktop Installers` workflow. The
-workflow builds the Windows and Linux installers and publishes the associated
-GitHub Release with its **Pre-release** flag enabled.
-
-For example, create and push the first `1.0.0` release candidate with:
-
-```bash
-git tag -a v1.0.0-rc.1 -m "Org Clock v1.0.0-rc.1"
-git push origin v1.0.0-rc.1
-```
-
-Do not move or reuse a published pre-release tag. Fix the problem and increment
-the suffix, for example from `rc.1` to `rc.2`.
+New releases use only stable `MAJOR.MINOR.PATCH` versions. Pre-release suffixes
+such as `-alpha`, `-beta`, and `-rc` are not used or accepted by the release
+workflow. Existing `v1.0.0-rc.1` through `v1.0.0-rc.5` tags remain immutable
+historical records; the first release under this policy is `v1.0.0`.
 
 ## Platform build numbers
 
 Store-facing build numbers are not part of SemVer:
 
 - Android `versionName` is the product version; `versionCode` is a
-  monotonically increasing integer.
+  monotonically increasing integer stored as `orgclock.versionCode` in
+  `gradle.properties`. Increment it for every Android release build, including
+  pre-releases and rebuilds.
 - iOS `CFBundleShortVersionString` is the product version;
   `CFBundleVersion` is a monotonically increasing integer.
-- Desktop package versions are derived from the Git tag without the leading
-  `v`. Windows MSI metadata uses the numeric `MAJOR.MINOR.PATCH` portion because
-  MSI does not accept SemVer pre-release identifiers; the Git tag, GitHub
-  Release, and installer filename retain the complete pre-release version.
+- Desktop package versions use `orgclock.version`, including Windows MSI
+  metadata.
 
 Rebuilding an existing product version for a store may increment only the
 platform build number. It must not replace or move an existing Git tag or
@@ -94,10 +73,33 @@ versions.
 
 ## Release procedure
 
-1. Select the next version from changes since the latest release.
-2. Update platform product versions and monotonically increasing build numbers.
-3. Verify release builds and migration/sync compatibility.
-4. Create an annotated `vMAJOR.MINOR.PATCH` tag, or a permitted pre-release tag.
-5. Push the tag. The desktop release workflow publishes generated release notes,
-   installers, and checksums; pre-release tags are marked as GitHub
-   Pre-releases.
+1. Confirm each included PR's `major`, `minor`, `patch`, or `none` classification.
+2. Select the next version from changes recorded under `CHANGELOG.md`'s
+   `Unreleased` section.
+3. Update `orgclock.version` and increment `orgclock.versionCode` in
+   `gradle.properties`.
+4. Rename the changelog's `Unreleased` entries to `VERSION - YYYY-MM-DD` and add
+   a new empty `Unreleased` section.
+5. Verify release builds and migration/sync compatibility using the checklist below.
+6. Commit the release as `chore(release): VERSION`.
+7. Create an annotated `vMAJOR.MINOR.PATCH` tag.
+8. Push the tag. The desktop release workflow verifies that the tag matches
+   `orgclock.version`, then publishes generated release notes, installers, and
+   checksums as a stable GitHub Release.
+
+## Compatibility checklist
+
+Before selecting the increment, check whether the release remains compatible
+with every supported released version across:
+
+- Android/Desktop sync protocol and old-peer communication
+- pairing invitations, envelopes, signatures, and other wire formats
+- Room/SQLite schemas, automatic migrations, and rollback or backup behavior
+- org-file parsing and writing
+- credentials, identities, trust state, and settings persisted on disk
+- CLI and documented user-visible behavior
+
+If old data can be migrated automatically and supported old peers still
+interoperate, the change can normally be `MINOR` or `PATCH`. Requiring users to
+migrate manually, invalidating stored identity/credentials, or intentionally
+dropping old-peer interoperability is a `MAJOR` change after 1.0.0.
