@@ -9,12 +9,14 @@
   },
   "targets": [
     "app/src/main/java/com/example/orgclock/sync",
-    "app/src/synccore/java/com/example/orgclock/sync"
+    "desktopApp/src/main/kotlin/com/example/orgclock/desktop",
+    "sync-core/src/commonMain/kotlin/io/github/shgnaka/orgclock/synccore",
+    "shared/src/commonMain/kotlin/com/example/orgclock/sync"
   ],
   "gate_commands": [
-    "./gradlew --stacktrace testDebugUnitTest",
-    "./gradlew --stacktrace lintDebug",
-    "./gradlew --stacktrace :app:testDebugUnitTest --tests com.example.orgclock.sync.*"
+    "./gradlew --stacktrace :sync-core:allTests verifySyncCoreArchitecture verifySyncCoreTestTraceability --no-daemon --max-workers=1",
+    "./gradlew --stacktrace :app:testDebugUnitTest --tests com.example.orgclock.sync.InRepositoryOrgSyncCoreClientTest --tests com.example.orgclock.sync.AndroidSyncCoreIngressServerTest --tests com.example.orgclock.sync.AndroidSyncCoreTransportTest --tests com.example.orgclock.sync.AndroidSyncCoreIdentityAdapterTest --no-daemon --max-workers=1",
+    "./gradlew --stacktrace :desktopApp:test --tests com.example.orgclock.desktop.DesktopSyncCoreTransportTest --tests com.example.orgclock.desktop.DesktopSyncCoreRuntimeTest --no-daemon --max-workers=1"
   ],
   "stop_rule": "high_or_critical_zero_and_gates_green"
 }
