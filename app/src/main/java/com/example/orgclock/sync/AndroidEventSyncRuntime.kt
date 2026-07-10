@@ -100,14 +100,16 @@ class AndroidEventSyncRuntime(
                 }
                 val synced = fetchRemoteEvents(localPeerId, peer, transport)
                 if (synced) {
-                    clockEventStore.readSnapshot().lastCursor?.let { cursor ->
-                        clockEventStore.updateSyncCheckpoint(cursor)
+                    if (peer.role == PeerTrustRole.Full) {
+                        pushLocalEvents(localPeerId, peer, transport)
                     }
                     quarantineStore.clear(peer.peerId)
                 }
                 publishSnapshot(null)
                 syncedPeerCount++
             }
+            updateGlobalOutgoingCheckpoint(trustedPeers)
+            publishSnapshot(null)
             _state.update {
                 it.copy(
                     running = true,
@@ -127,31 +129,25 @@ class AndroidEventSyncRuntime(
         peer: PeerTrustRecord,
         transport: ClockEventSyncTransport,
     ) {
-        val checkpoint = peerSyncCheckpointStore.get(peer.peerId)
-        val scanned = clockEventStore.listSince(checkpoint?.lastSentCursor, DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT)
-        if (scanned.isEmpty()) return
-        val pending = scanned.filter { it.event.deviceId == localPeerId }
-        if (pending.isEmpty()) {
-            peerSyncCheckpointStore.markSent(peer.peerId, scanned.last().cursor, Clock.System.now().toEpochMilliseconds())
-            return
+        var scanCursor = peerSyncCheckpointStore.get(peer.peerId)?.lastSentCursor
+        while (true) {
+            val scanned = clockEventStore.listSince(scanCursor, DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT)
+            if (scanned.isEmpty()) return
+            val pending = scanned.filter { it.event.deviceId == localPeerId }
+            if (pending.isNotEmpty()) {
+                val response = transport.push(
+                    ClockEventPushRequest(
+                        sourcePeerId = localPeerId,
+                        targetPeerId = peer.peerId,
+                        events = pending,
+                    ),
+                )
+                validatePushAccepted(peer, pending, response)
+            }
+            scanCursor = scanned.last().cursor
+            peerSyncCheckpointStore.markSent(peer.peerId, scanCursor, Clock.System.now().toEpochMilliseconds())
+            if (scanned.size < DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT) return
         }
-        val response = transport.push(
-            ClockEventPushRequest(
-                sourcePeerId = localPeerId,
-                targetPeerId = peer.peerId,
-                events = pending,
-            ),
-        )
-        response.rejectReason?.takeIf { it.isNotBlank() }?.let { reason ->
-            recordQuarantine(
-                peer = peer,
-                direction = ClockEventSyncDirection.Outgoing,
-                kind = ClockEventSyncRejectKind.TransportRejected,
-                reason = reason,
-            )
-            throw IllegalStateException("push rejected for ${peer.peerId}: $reason")
-        }
-        peerSyncCheckpointStore.markSent(peer.peerId, scanned.last().cursor, Clock.System.now().toEpochMilliseconds())
     }
 
     private suspend fun fetchRemoteEvents(
@@ -159,15 +155,27 @@ class AndroidEventSyncRuntime(
         peer: PeerTrustRecord,
         transport: ClockEventSyncTransport,
     ): Boolean {
-        val checkpoint = peerSyncCheckpointStore.get(peer.peerId)
-        val response = transport.fetch(
-            ClockEventFetchRequest(
-                sourcePeerId = localPeerId,
-                targetPeerId = peer.peerId,
-                sinceCursor = checkpoint?.lastSeenCursor,
-                batchLimit = DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT,
-            ),
-        )
+        var fetchCursor = peerSyncCheckpointStore.get(peer.peerId)?.lastSeenCursor
+        while (true) {
+            val response = transport.fetch(
+                ClockEventFetchRequest(
+                    sourcePeerId = localPeerId,
+                    targetPeerId = peer.peerId,
+                    sinceCursor = fetchCursor,
+                    batchLimit = DEFAULT_CLOCK_EVENT_TRANSPORT_BATCH_LIMIT,
+                ),
+            )
+            val responseNextCursor = response.nextCursor
+            if (response.hasMore && (responseNextCursor == null || responseNextCursor.value <= (fetchCursor?.value ?: 0L))) {
+                recordQuarantine(
+                    peer = peer,
+                    direction = ClockEventSyncDirection.Incoming,
+                    kind = ClockEventSyncRejectKind.BatchOrderInvalid,
+                    reason = "remote fetch cursor did not advance",
+                )
+                publishSnapshot("remote fetch cursor did not advance")
+                return false
+            }
         if (!response.events.zipWithNext().all { (left, right) -> left.cursor.value < right.cursor.value }) {
             recordQuarantine(
                 peer = peer,
@@ -200,9 +208,8 @@ class AndroidEventSyncRuntime(
                 is AppendClockEventResult.Duplicate -> null
             }
         }
-        val seenCursor = response.lastSeenCursor ?: response.nextCursor?.let { ClockEventCursor(it.value - 1) }
+        val seenCursor = responseNextCursor
         if (seenCursor != null) {
-            peerSyncCheckpointStore.markSeen(peer.peerId, seenCursor, Clock.System.now().toEpochMilliseconds())
             when (val ackResult = transport.acknowledge(
                 ClockEventTransportAck(
                     sourcePeerId = localPeerId,
@@ -224,9 +231,39 @@ class AndroidEventSyncRuntime(
                     throw IllegalStateException("ack rejected for ${peer.peerId}: ${ackResult.reason}")
                 }
             }
+            peerSyncCheckpointStore.markSeen(peer.peerId, seenCursor, Clock.System.now().toEpochMilliseconds())
+            fetchCursor = seenCursor
         }
         publishSnapshot(null)
-        return true
+            if (!response.hasMore) return true
+        }
+    }
+
+    private fun validatePushAccepted(
+        peer: PeerTrustRecord,
+        pending: List<StoredClockEvent>,
+        response: ClockEventPushResponse,
+    ) {
+        val reason = when {
+            !response.rejectReason.isNullOrBlank() -> response.rejectReason
+            response.rejectedEventIds.isNotEmpty() -> "remote rejected events: ${response.rejectedEventIds.joinToString()}"
+            response.acceptedCursor != pending.last().cursor -> "remote accepted cursor mismatch"
+            else -> null
+        } ?: return
+        recordQuarantine(
+            peer = peer,
+            direction = ClockEventSyncDirection.Outgoing,
+            kind = ClockEventSyncRejectKind.TransportRejected,
+            reason = reason,
+        )
+        throw IllegalStateException("push rejected for ${peer.peerId}: $reason")
+    }
+
+    private suspend fun updateGlobalOutgoingCheckpoint(peers: List<PeerTrustRecord>) {
+        val fullPeers = peers.filter { it.role == PeerTrustRole.Full }
+        if (fullPeers.isEmpty()) return
+        val cursors = fullPeers.map { peerSyncCheckpointStore.get(it.peerId)?.lastSentCursor ?: return }
+        clockEventStore.updateSyncCheckpoint(cursors.minBy { it.value })
     }
 
     private fun validateIncomingEvent(

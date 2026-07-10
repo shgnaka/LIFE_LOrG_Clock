@@ -21,7 +21,6 @@ class OrgClockApplication : Application() {
                     .detectDiskReads()
                     .detectDiskWrites()
                     .penaltyLog()
-                    .penaltyDeath()
                     .build(),
             )
         }

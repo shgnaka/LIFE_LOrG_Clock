@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "messageType": "COMMAND",
+  "messageId": "envelope-fixture-001",
+  "senderDeviceId": "device-a",
+  "sentAtEpochMs": 1772368496000,
+  "nonce": "nonce-fixture-001",
+  "payloadJson": "{\"schema\":\"clock.command.v1\",\"command_id\":\"cmd-fixture-001\",\"kind\":\"clock.start\",\"target\":{\"file_name\":\"2026-03-01.org\",\"heading_path\":\"Work/Project A\"},\"requested_at\":\"2026-03-01T12:34:56Z\",\"from_device_id\":\"device-a\",\"request_id\":\"request-fixture-001\",\"peer_id\":\"peer-a\",\"signature_key_id\":\"key-a\"}",
+  "signatureBase64": "Zml4dHVyZS1zaWduYXR1cmU="
+}

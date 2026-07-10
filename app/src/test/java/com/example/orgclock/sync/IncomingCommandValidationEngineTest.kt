@@ -24,13 +24,29 @@ class IncomingCommandValidationEngineTest {
     }
 
     @Test
-    fun incomingCommandPath_skipsReplayRegistry() = runBlocking {
+    fun incomingCommandPathIsRejectedByDefault() = runBlocking {
         val replay = object : ReplayRegistryPort {
             override suspend fun register(senderDeviceId: String, commandId: String): Boolean = false
         }
         val engine = IncomingCommandValidationEngine(
             allowedSkewSeconds = 300,
             replayRegistry = replay,
+        )
+
+        val result = engine.extractClockCommandPayload("/v1/incoming-command", payload(commandId = "cmd-1"), fixedVerifier())
+
+        assertFalse(result.isSuccess)
+    }
+
+    @Test
+    fun incomingCommandPathRequiresExplicitDebugOptInToSkipReplayRegistry() = runBlocking {
+        val replay = object : ReplayRegistryPort {
+            override suspend fun register(senderDeviceId: String, commandId: String): Boolean = false
+        }
+        val engine = IncomingCommandValidationEngine(
+            allowedSkewSeconds = 300,
+            replayRegistry = replay,
+            legacyDebugIncomingCommandEnabled = true,
         )
 
         val first = engine.extractClockCommandPayload("/v1/incoming-command", payload(commandId = "cmd-1"), fixedVerifier())

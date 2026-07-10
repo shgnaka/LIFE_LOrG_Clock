@@ -38,19 +38,21 @@ open class MainActivity : ComponentActivity() {
             }
         }
 
-        val debugPayload = intent.getStringExtra(EXTRA_SYNC_COMMAND_PAYLOAD)
-        if (!debugPayload.isNullOrBlank()) {
-            lifecycleScope.launch {
-                val result = appGraph.syncIntegrationService()
-                    .executeManualCommand(debugPayload)
-                if (result.errorCode == null) {
-                    Log.i(TAG, "Debug sync command succeeded: status=${result.status}")
-                } else {
-                    Log.w(
-                        TAG,
-                        "Debug sync command failed: status=${result.status} error=${result.errorCode}. " +
-                            "Open Sync Debug panel in app for retry details.",
-                    )
+        if (BuildConfig.DEBUG) {
+            val debugPayload = intent.getStringExtra(EXTRA_SYNC_COMMAND_PAYLOAD)
+            if (!debugPayload.isNullOrBlank()) {
+                lifecycleScope.launch {
+                    val result = appGraph.syncIntegrationService()
+                        .executeManualCommand(debugPayload)
+                    if (result.errorCode == null) {
+                        Log.i(TAG, "Debug sync command succeeded: status=${result.status}")
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Debug sync command failed: status=${result.status} error=${result.errorCode}. " +
+                                "Open Sync Debug panel in app for retry details.",
+                        )
+                    }
                 }
             }
         }

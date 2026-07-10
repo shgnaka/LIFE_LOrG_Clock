@@ -77,6 +77,10 @@ class SharedPreferencesPeerTrustStore(
             .putString(recordPeerDisplayNameKey(normalized), record.displayName)
             .putString(recordPeerDeviceIdKey(normalized), record.deviceId)
             .putString(recordPeerPublicKeyKey(normalized), record.publicKeyBase64)
+            .putString(recordPeerSigningPublicKeyKey(normalized), record.signingPublicKeyBase64)
+            .putString(recordPeerSigningAlgKey(normalized), record.signingAlg)
+            .putString(recordPeerTransportCredentialRefKey(normalized), record.transportCredentialRef)
+            .putString(recordPeerCertificateSha256Key(normalized), record.certificateSha256)
             .putString(recordPeerRoleKey(normalized), record.role.name)
             .putString(recordPeerEndpointKey(normalized), record.endpoint)
             .putLong(recordPeerRegisteredAtKey(normalized), record.registeredAt.toEpochMilliseconds())
@@ -141,6 +145,12 @@ class SharedPreferencesPeerTrustStore(
         val deviceId = prefs.getString(recordPeerDeviceIdKey(peerId), null)?.takeIf { it.isNotBlank() }
             ?: peerId
         val publicKey = prefs.getString(recordPeerPublicKeyKey(peerId), null)?.takeIf { it.isNotBlank() }
+        val signingPublicKey = prefs.getString(recordPeerSigningPublicKeyKey(peerId), null)?.takeIf { it.isNotBlank() }
+        val signingAlg = prefs.getString(recordPeerSigningAlgKey(peerId), DEFAULT_SYNC_SIGNING_ALG)
+            ?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_SYNC_SIGNING_ALG
+        val transportCredentialRef = prefs.getString(recordPeerTransportCredentialRefKey(peerId), null)?.takeIf { it.isNotBlank() }
+        val certificateSha256 = prefs.getString(recordPeerCertificateSha256Key(peerId), null)?.takeIf { it.isNotBlank() }
         val registeredAt = prefs.getLong(recordPeerRegisteredAtKey(peerId), MISSING_EPOCH_MILLIS)
         if (publicKey.isNullOrBlank() || registeredAt == MISSING_EPOCH_MILLIS) {
             return null
@@ -160,6 +170,10 @@ class SharedPreferencesPeerTrustStore(
             deviceId = deviceId,
             displayName = displayName,
             publicKeyBase64 = publicKey,
+            signingPublicKeyBase64 = signingPublicKey,
+            signingAlg = signingAlg,
+            transportCredentialRef = transportCredentialRef,
+            certificateSha256 = certificateSha256,
             role = role,
             endpoint = endpoint,
             registeredAt = Instant.fromEpochMilliseconds(registeredAt),
@@ -171,6 +185,10 @@ class SharedPreferencesPeerTrustStore(
     private fun recordPeerDisplayNameKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_display_name"
     private fun recordPeerDeviceIdKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_device_id"
     private fun recordPeerPublicKeyKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_public_key"
+    private fun recordPeerSigningPublicKeyKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_signing_public_key"
+    private fun recordPeerSigningAlgKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_signing_alg"
+    private fun recordPeerTransportCredentialRefKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_transport_credential_ref"
+    private fun recordPeerCertificateSha256Key(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_certificate_sha256"
     private fun recordPeerRoleKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_role"
     private fun recordPeerEndpointKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_endpoint"
     private fun recordPeerRegisteredAtKey(peerId: String): String = "$KEY_TRUST_RECORD_PREFIX${sanitize(peerId)}_registered_at"
