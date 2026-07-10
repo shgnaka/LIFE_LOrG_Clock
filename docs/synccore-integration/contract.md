@@ -3,6 +3,11 @@
 ## Status
 - Contract status: Active and used by runtime baseline
 - Runtime implementation status in this repo: Implemented behind feature-flag/runtime mode control
+- Current sync-core provider: in-repository `:sync-core` module and host adapters
+- Completion target: acceptance gates defined by
+  `docs/synccore-integration/in-repository-requirements.md`
+- Implementation preparation:
+  `docs/synccore-integration/in-repository-readiness.md`
 
 ## Versioning
 - Contract namespace: `clock.command.v1`
@@ -21,11 +26,12 @@
 
 ## Required Interfaces (Conceptual)
 
-### SyncCoreClient (external dependency)
-- `submitCommand(...)`
+### OrgSyncCoreClient (app boundary; backed by in-repository sync-core)
+- `submitOutgoing(...)`
 - `observeIncomingCommands()`
 - `reportResult(...)`
 - `observeDeliveryState()`
+- `metricsSnapshot()`
 
 ### ClockCommandExecutor (org-clock internal adapter)
 - Parse and validate command payload
@@ -125,7 +131,12 @@ org-clock still validates payload shape and command semantics.
 - If `kind` adds new command types, old clients must return `rejected` for unknown kinds.
 
 ## Open Decisions Deferred to sync-core
-- Delivery guarantees (at least once vs effectively once contract wording)
-- Max message size
-- Retry schedule exposure in client API
-- Peer presence event model
+
+The first three items below are resolved for the in-repository implementation in
+`in-repository-requirements.md`:
+
+- Delivery guarantee: at-least-once transport with durable deduplication
+- Max encoded HTTP body: 128 KiB; decoded payload: 96 KiB
+- Retry policy: bounded exponential backoff with typed delivery state
+
+Peer presence event model remains deferred and is not required for v1 migration.

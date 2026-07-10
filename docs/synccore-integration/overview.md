@@ -3,7 +3,18 @@
 ## Purpose
 This document defines the active integration architecture between `org-clock` and `sync-core`.
 
-As of branch `feat/synccore-integration-m1` (commit `1541eff`), runtime integration is already present behind feature-flag and runtime controls. The current objective is M2 hardening: test completeness, behavior guarantees, and rollout safety.
+Runtime integration is present behind feature-flag and runtime controls. The
+in-repository implementation has completed the command-sync Gate 5 acceptance
+baseline; sync runtime rollout remains opt-in.
+
+The current provider is the in-repository `:sync-core` module plus Android and
+Desktop host adapters. Ownership, delivery semantics, limits, retention policy,
+and acceptance tests are defined in
+`docs/synccore-integration/in-repository-requirements.md`. That document is
+authoritative for completion gates; this overview describes the app flow.
+
+Implementation status and the complete artifact index are recorded
+in `docs/synccore-integration/in-repository-readiness.md`.
 
 ## Scope (Current State)
 - In scope:
@@ -13,9 +24,8 @@ As of branch `feat/synccore-integration-m1` (commit `1541eff`), runtime integrat
   - Runtime controls (`off/standard/active`) and debug snapshot
   - Delivery state and metric observation through `OrgSyncCoreClient`
 - Out of scope:
-  - Production-grade transport implementation in this repository
   - Peer discovery UX and pairing UX
-  - Default-on rollout without acceptance completion
+  - Default-on rollout
 
 ## Fixed Constraints
 - LAN-only communication for v1
@@ -34,7 +44,7 @@ As of branch `feat/synccore-integration-m1` (commit `1541eff`), runtime integrat
   - `app/src/main/java/com/example/orgclock/sync/SyncIntegrationService.kt`
 - Client boundary:
   - `app/src/main/java/com/example/orgclock/sync/SyncCoreClient.kt`
-  - `app/src/synccore/java/com/example/orgclock/sync/SynccoreEngineClientFactory.kt`
+  - `app/src/main/java/com/example/orgclock/sync/InRepositorySyncCoreClientFactory.kt`
 - Domain and repository:
   - `shared/src/commonMain/kotlin/com/example/orgclock/domain/ClockService.kt`
   - `shared/src/commonMain/kotlin/com/example/orgclock/data/RepositoryContracts.kt`

@@ -62,8 +62,9 @@ Response:
 - `nextCursor`
 - `hasMore`
 
-`nextCursor` は response に含まれた最後の event cursor を指す。
-response が空なら `nextCursor` は null。
+`nextCursor` は source store の走査済み位置を指す。
+通常は response に含まれた最後の event cursor だが、peer 向けfilterで
+eventが空になった場合も走査位置を返してよい。
 
 ## 5. Push Contract
 
@@ -107,8 +108,10 @@ Semantics:
 ## 7. Cursor Rules
 
 - cursor は単調増加
+- cursor は source peer のstore走査位置であり、他peerで再採番されたcursorとは別物
 - cursor は fetch / push の batch boundary と ack の progress indicator を兼ねる
 - `sinceCursor` は exclusive
+- 次回の`sinceCursor`には直前の`nextCursor`をそのまま使い、加算しない
 - receiver は duplicate event を既に見た cursor 以前として扱ってよい
 - `lastSeenCursor` は受信済み batch の最後の cursor
 - `seenCursor` は ack で示す inclusive progress

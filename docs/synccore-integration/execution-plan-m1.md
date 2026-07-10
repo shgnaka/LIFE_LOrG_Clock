@@ -13,7 +13,7 @@ Already implemented in this branch:
 - Sync command executor (`ClockCommandExecutor`)
 - Manual execution path and polling path (`SyncIntegrationService`)
 - Runtime mode controls (`Off/Standard/Active`)
-- Optional sync-core engine binding via `app/src/synccore`
+- In-repository sync-core binding via `InRepositorySyncCoreClientFactory`
 
 ## PR Sequence
 

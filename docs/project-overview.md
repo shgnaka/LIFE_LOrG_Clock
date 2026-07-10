@@ -39,8 +39,21 @@ Android 端末と Desktop OS 上で org ファイルの見出しに対して clo
   `docs/synccore-integration/contract.md`  
   `docs/synccore-integration/execution-plan-m1.md`  
   `docs/synccore-integration/test-acceptance.md`
+- sync-core 内製化の要件・テスト計画
+  `docs/synccore-integration/in-repository-requirements.md`
+  `docs/synccore-integration/in-repository-test-spec.md`
+  `docs/synccore-integration/in-repository-api-contract.md`
+  `docs/synccore-integration/in-repository-storage-migration.md`
+  `docs/synccore-integration/in-repository-threat-model.md`
+  `docs/synccore-integration/in-repository-identity-migration.md`
+  `docs/synccore-integration/in-repository-implementation-plan.md`
+  `docs/synccore-integration/in-repository-readiness.md`
 - 長期同期アーキテクチャ草案  
   `docs/sync-architecture-next.md`
+- 複数端末同期の文書・実装ギャップ分析
+  `docs/sync-multi-device-gap-analysis.md`
+- 複数端末同期の初期決定事項
+  `docs/sync-multi-device-decisions.md`
 - clock event schema 草案  
   `docs/sync-event-schema-v1-draft.md`
 - local event store backend 決定メモ  
@@ -141,26 +154,25 @@ Desktop ではまず「起動できること」「将来の共有 UI / domain �
 ./gradlew :desktopApp:run
 ```
 
-## Local sync-core Integration (Composite Build)
+## In-repository sync-core Integration
 
-`lanonly-p2p-cmdsync-core` をローカルソースのまま依存解決するには、`SYNC_CORE_DIR`（または `-Psynccore.dir`）を指定してビルドします。
+Command sync now uses the in-repository `:sync-core` module. Android and Desktop
+adapters live in this repository and no external checkout, Maven snapshot, or
+composite build is required for normal development.
+
+Useful local checks:
 
 ```bash
-export SYNC_CORE_DIR=/absolute/path/to/lanonly-p2p-cmdsync-core
-./gradlew :app:dependencies --configuration debugRuntimeClasspath
-./gradlew :app:assembleDebug
+./gradlew :sync-core:jvmTest :sync-core:testDebugUnitTest
+./gradlew :app:testDebugUnitTest
+./gradlew :desktopApp:test
 ```
-
-別リポジトリ側で `:sync-core-engine` モジュールを定義し、`io.github.shgnaka.synccore:sync-core-engine` 座標と対応づけてください。
 
 `sync` 実行パス自体はデフォルト無効です。手動検証時のみ `-Psynccore.integration.enabled=true` を付けてビルドしてください。
 
 ```bash
 ./gradlew :app:assembleDebug -Psynccore.integration.enabled=true
 ```
-
-`sync-core` 実Adapter（Engine API）は `SYNC_CORE_DIR` が有効なときだけ有効化されます。
-有効時は `settings.gradle.kts` の composite build で `sync-core-api` / `sync-core-engine` / `sync-core-android` を参照します。
 
 デバッグ用の単発コマンド実行（manual slice）は `sync_command_payload` extra 付きで Activity を起動すると実行できます。
 
@@ -272,7 +284,7 @@ module 要件 (`security-loop/modules/<module>/manifest.json`):
   "defender": { "entry": "defenders/static_v1.sh" },
   "targets": [
     "app/src/main/java/com/example/orgclock/sync",
-    "app/src/synccore/java/com/example/orgclock/sync"
+    "sync-core/src/commonMain/kotlin/io/github/shgnaka/orgclock/synccore"
   ],
   "gate_commands": [
     "./gradlew --stacktrace testDebugUnitTest",

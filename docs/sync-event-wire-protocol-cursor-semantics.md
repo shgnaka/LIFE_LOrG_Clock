@@ -17,7 +17,7 @@
 - `source peer`: event を送る側
 - `target peer`: event を受ける側
 - `sinceCursor`: fetch の開始点。**exclusive**
-- `nextCursor`: response の最後の event cursor。次の fetch では `sinceCursor` として使う
+- `nextCursor`: source store の走査済み位置。次の fetch ではそのまま `sinceCursor` として使う
 - `seenCursor`: ack で「ここまで見た」を示す。**inclusive**
 - `acceptedCursor`: push で target が受理済みとして返す最後の cursor
 
@@ -38,7 +38,8 @@
 - `sinceCursor = null` の場合は最初から取得する
 - `batchLimit` は 1 以上
 - 返却順は cursor の昇順
-- cursor はギャップなく単調増加であることを前提にする
+- cursor はsource store内で単調増加する
+- peer向けfilterにより、response eventのcursorにはギャップがあってよい
 
 ### Response
 
@@ -48,8 +49,8 @@
 
 ### Response Rules
 
-- `events` が空なら `nextCursor` は `null`
-- `events` が 1 件以上なら `nextCursor` は最後の event の cursor
+- `events` が空でも、filter対象外rowを走査した場合は`nextCursor`を返してよい
+- `events` が 1 件以上なら `nextCursor` は最後のevent cursor以上である
 - `hasMore = true` の場合、次回 fetch は `nextCursor` を `sinceCursor` として使う
 - `hasMore = false` の場合でも、受信側は `lastSeenCursor` を progress として保存してよい
 
@@ -57,11 +58,13 @@
 
 `sinceCursor = 10` なら、返却対象は `cursor > 10` の event だけ。
 
-もし `11, 12, 13` が返ったら:
+もし `11, 12, 13` が返り`nextCursor = 13`なら:
 
 - `lastSeenCursor = 13`
 - `nextCursor = 13`
 - 次回の `sinceCursor` は `13`
+
+`nextCursor`へ1を加えてはならない。`sinceCursor`自体がexclusiveだからである。
 
 ## 4. Push Semantics
 
@@ -107,7 +110,7 @@ runtime は `fetch` の結果を取り込んだあと、最後に見えた curso
 1. `fetch(sinceCursor = lastSeenCursor)`
 2. 受信 batch を cursor 昇順で検証
 3. local store に append
-4. `seenCursor = response.lastSeenCursor`
+4. `seenCursor = response.nextCursor`
 5. ack を送信
 6. `lastSeenCursor` を checkpoint に保存
 
@@ -135,4 +138,3 @@ push 側は次の流れ:
 - fetch は `sinceCursor` を exclusive に扱う
 - ack は `seenCursor` で progress を閉じる
 - duplicate は event_id で no-op に寄せる
-
