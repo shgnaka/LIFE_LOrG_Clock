@@ -1,17 +1,21 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
-val desktopPackageVersion = providers.gradleProperty("desktop.version")
-    .orElse(providers.environmentVariable("ORG_CLOCK_DESKTOP_VERSION"))
-    .getOrElse("1.0.0")
-    .removePrefix("v")
-
-// MSI only accepts a numeric MAJOR.MINOR.BUILD version.
-val desktopMsiPackageVersion = desktopPackageVersion.substringBefore("-")
 val desktopSmokePackage = providers.gradleProperty("desktop.smoke")
     .map(String::toBoolean)
     .getOrElse(false)
+val productVersion = providers.gradleProperty("orgclock.version").get()
+val desktopPackageVersion = if (desktopSmokePackage) {
+    providers.gradleProperty("desktop.version").getOrElse(productVersion)
+} else {
+    productVersion
+}.also { version ->
+    require(version.matches(Regex("(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)"))) {
+        "Desktop package version must be MAJOR.MINOR.PATCH without the v prefix: $version"
+    }
+}
 
+val desktopMsiPackageVersion = desktopPackageVersion
 val desktopTargetFormats = when {
     org.gradle.internal.os.OperatingSystem.current().isMacOsX -> arrayOf(TargetFormat.Dmg)
     org.gradle.internal.os.OperatingSystem.current().isWindows -> arrayOf(TargetFormat.Msi)

@@ -17,6 +17,14 @@ val androidTestOrchestratorEnabled = providers.gradleProperty("orgclock.androidT
     .orNull
     ?.toBooleanStrictOrNull()
     ?: true
+val productVersion = providers.gradleProperty("orgclock.version").get().also { version ->
+    require(version.matches(Regex("(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)"))) {
+        "orgclock.version must be MAJOR.MINOR.PATCH without the v prefix: $version"
+    }
+}
+val androidVersionCode = providers.gradleProperty("orgclock.versionCode").get().toInt().also { code ->
+    require(code > 0) { "orgclock.versionCode must be a positive integer" }
+}
 val debugApplicationIdSuffix = providers.gradleProperty("orgclock.debugApplicationIdSuffix")
     .orNull
     ?.trim()
@@ -35,8 +43,8 @@ android {
         applicationId = "com.example.orgclock"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = androidVersionCode
+        versionName = productVersion
         buildConfigField("boolean", "SYNC_CORE_INCLUDED", "true")
         buildConfigField("boolean", "SYNC_INTEGRATION_ENABLED", syncIntegrationEnabled.toString())
 
